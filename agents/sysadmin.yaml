@@ -1,0 +1,4 @@
+name: "sysadmin"
+model_name: "hf.co/deepreinforce-ai/Ornith-1.0-35B-GGUF:Q6_K"
+system_prompt_path: "agents/prompts/sysadmin.txt"
+agent_tools: ["execute_bash", "read_file"]

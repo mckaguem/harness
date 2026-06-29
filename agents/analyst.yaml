@@ -1,0 +1,4 @@
+name: "analyst"
+model_name: "hf.co/deepreinforce-ai/Ornith-1.0-35B-GGUF:Q6_K"
+system_prompt_path: "agents/prompts/analyst.txt"
+agent_tools: ["read_file", "grep"]
