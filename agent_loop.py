@@ -2,7 +2,7 @@
 
 import json
 from terminal_io import (
-    print_system, prompt_user, display_user_prompt,
+    print_system, prompt_user,
     display_tool_call, display_tool_result,
     display_agent_response, display_tool_success, display_error,
 )
@@ -60,7 +60,6 @@ def run_loop(ollama_client, model_name: str, system_prompt: str,
                 continue
 
         messages.append({"role": "user", "content": user_input})
-        display_user_prompt(user_input)
 
         while True:
             response = ollama_client.chat(

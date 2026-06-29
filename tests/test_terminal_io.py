@@ -6,9 +6,11 @@ from unittest.mock import patch
 import pytest
 
 from terminal_io import (
-    BOLD, DIM, GREEN, RED, RESET, BLUE, c, _format_speed, _get_context_length,
+    BOLD, DIM, GREEN, RED, RESET, BLUE, c, _format_speed,
     _safe_len, print_box,
 )
+
+from harness import _get_context_length
 
 
 # ── ANSI helpers ────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 """ANSI colour helpers, box-drawing utilities, speed formatting, and display helpers."""
 
+
 import os
 import readline  # importing this enables arrow-key editing / history for input()
 import re
@@ -116,75 +117,35 @@ def print_box(title: str, content: str, colour: str | None = None, width: int = 
 # ── Speed formatting ──────────────────────────────────────────────────
 
 def _format_speed(response: dict, context_length: int = 0) -> str:
-    """Extract and format tokens/sec from an Ollama chat response."""
+    """Extract and format tokens/sec and context usage from an Ollama chat response.
+
+    Produces two stats joined by `` | ``::
+
+        ⏱ 138 tok (5405.3 tok/s) | 6806 in (27.2% ctx)
+    """
     parts = []
 
     eval_count = response.get('eval_count', 0) or 0
     eval_duration_ns = response.get('eval_duration', 0) or 0
 
     if eval_count > 0:
-        tps_line = f"{eval_count} tok"
-        if context_length > 0 and eval_duration_ns > 0:
+        if eval_duration_ns > 0:
             tps = eval_count / (eval_duration_ns / 1_000_000_000)
-            tps_line += f" ({tps:.1f} tok/s)"
-        parts.append(tps_line)
+            parts.append(f"{eval_count} tok ({tps:.1f} tok/s)")
+        else:
+            parts.append(f"{eval_count} tok")
 
     prompt_eval_count = response.get('prompt_eval_count', 0) or 0
-    prompt_eval_duration_ns = response.get('prompt_eval_duration', 0) or 0
-
     if prompt_eval_count > 0:
         ctx_pct_str = ""
         if context_length > 0 and prompt_eval_count > 0:
             pct = (prompt_eval_count / context_length) * 100
             ctx_pct_str = f" ({pct:.1f}% ctx)"
-
-        tps_line = f"{prompt_eval_count} in"
-        if context_length > 0 and prompt_eval_duration_ns > 0:
-            parts.append(f"{tps:.1f} in tok/s{ctx_pct_str}")
-        else:
-            parts.append(tps_line + ctx_pct_str)
+        parts.append(f"{prompt_eval_count} in{ctx_pct_str}")
 
     if parts:
         return c(f"⏱ {' | '.join(parts)}", DIM)
     return ""
-
-
-def _get_context_length(client, model_name: str) -> int:
-    """Fetch the model's context length from Ollama's show endpoint.
-
-    Ollama stores this as a dotted key in *model_info*, e.g.
-    ``"tokenizer.ggml.context-length"``.  We walk every entry (including
-    nested dicts) to find it regardless of depth or exact prefix.
-    """
-    try:
-        info = client.show(model_name)
-        mi = info.get('model_info', {}) or {}
-
-        if 'context_length' in mi:
-            return int(mi['context_length'])
-
-        def _search(obj):
-            """Recursively search *obj* for a context-length value."""
-            if isinstance(obj, dict):
-                for k, v in obj.items():
-                    if 'context' in str(k).lower() and 'length' in str(k).lower():
-                        try:
-                            return int(v)
-                        except (ValueError, TypeError):
-                            continue
-                    result = _search(v)
-                    if result > 0:
-                        return result
-            elif isinstance(obj, list):
-                for item in obj:
-                    result = _search(item)
-                    if result > 0:
-                        return result
-            return 0
-
-        return _search(mi) or 0
-    except Exception:
-        return 0
 
 
 # ── Display helpers (high-level, role-specific) ───────────────────────
@@ -197,7 +158,9 @@ def print_system(title: str, message: str) -> None:
     print_box(title, message, style="system")
 
 
-_PROMPT_MAIN   = c("\nYou> ", CYAN, bold=True)
+# readline needs ANSI codes wrapped in \001...\002 (invisible markers)
+# so it can track cursor position correctly for multi-line input.
+_PROMPT_MAIN   = c("\nYou> ", CYAN, bold=True).replace(RESET, "\001" + RESET + "\002")
 _PROMPT_CONT   = "  ... "
 
 
