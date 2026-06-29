@@ -4,8 +4,8 @@ import json
 from model_utils import tokenize_prompt
 from terminal_io import (
     print_system, prompt_user,
-    display_tool_call, display_tool_result,
-    display_agent_response, display_tool_success, display_error,
+    display_tool_call, display_tool_result, display_tool_success, display_error,
+    display_agent_response,
 )
 from tools import execute_bash, write_file as _write_file, read_file as _read_file, edit_file, grep
 
@@ -66,11 +66,19 @@ def run_loop(ollama_client, model_name: str, system_prompt: str,
             response = ollama_client.chat(
                 model=model_name,
                 messages=messages,
-                tools=agent_tools
+                tools=agent_tools,
+                options={
+                    'num_ctx': context_length
+                }
             )
 
             message = response['message']
             messages.append(message)
+            
+            print("Message length:", len(str(messages)), "Context length:", context_length)
+            with open("session.txt", 'w') as thefile:
+                thefile.write(str(messages))
+            
 
             if not message.get('tool_calls'):
                 content = message.get('content', '')
@@ -88,6 +96,7 @@ def run_loop(ollama_client, model_name: str, system_prompt: str,
                 except Exception:
                     args_str = str(args)
 
+                # Step 1: Print the tool call box BEFORE execution.
                 display_tool_call(func_name, args_str)
 
                 if func_name == 'execute_bash':
@@ -115,10 +124,10 @@ def run_loop(ollama_client, model_name: str, system_prompt: str,
                     display_error(f"Unknown function {func_name}")
                     result = f"Error: Unknown function '{func_name}'."
 
-                # Truncation happens inside the helper; full result still goes to agent.
+                # Step 2: Print the tool result box AFTER execution returns.
+                display_tool_result(func_name, result)
                 messages.append({
                     "role": "tool",
                     "content": result,
                     "name": func_name
                 })
-                display_tool_result(func_name, result)

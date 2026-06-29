@@ -54,7 +54,8 @@ def main():
         ollama_host = ollama_host[: -len("/v1")]
 
     ollama_client = ollama.Client(host=ollama_host)
-    context_length = get_context_length(ollama_client, MODEL_NAME)
+    #context_length = get_context_length(ollama_client, MODEL_NAME)
+    context_length = 2**17
 
     system_prompt = build_system_prompt()
 

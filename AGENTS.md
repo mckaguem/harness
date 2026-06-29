@@ -3,18 +3,6 @@
 ## What this is
 A terminal-based chat harness that connects to a local LLM (via **Ollama**) and gives it three tools: `execute_bash`, `write_file`, and `read_file`. It's the runtime you're running inside.
 
-## File layout
-
-| File | Role |
-|---|---|
-| `harness.py` | Entry point — configures Ollama, builds the system prompt, starts the loop. **Edit here for connection/model settings.** |
-| `agent_loop.py` | Conversation loop — dispatches tool calls and collects responses. |
-| `terminal_io.py` | UI layer — ANSI colours, box printing, user prompt with readline (arrow keys, history). |
-| `tools.py` | Tool implementations (`execute_bash`, `write_file`, `read_file`) + schema definitions (`AGENT_TOOLS`). |
-| `system_prompt.txt` | Base system prompt text. The harness appends the cwd listing (and any `AGENTS.md` content) on top of this. |
-| `tests/test_terminal_io.py` | Tests for the display/UI layer. |
-| `tests/test_tools.py` | Tests for tool implementations. |
-
 ## Running it
 ```bash
 python harness.py            # uses OLLAMA_HOST env var, or http://localhost:11435

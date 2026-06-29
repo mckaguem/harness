@@ -35,6 +35,7 @@ from .display import (
     display_user_prompt,
     display_tool_call,
     display_tool_result,
+    display_tool_call_with_result,
     display_tool_success,
     display_error,
 )
@@ -61,6 +62,7 @@ __all__ = [
     "display_user_prompt",
     "display_tool_call",
     "display_tool_result",
+    "display_tool_call_with_result",
     "display_tool_success",
     "display_error",
     # Truncation
