@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from tools import grep
+from tools.grep import grep
 
 
 class TestGrepSafety:

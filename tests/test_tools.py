@@ -8,12 +8,16 @@ import pytest
 
 from tools import (
     AGENT_TOOLS,
-    edit_file,
-    execute_bash,
-    is_safe_path,
-    read_file,
-    write_file,
 )
+from tools.execute_bash import execute_bash as _execute_bash_impl
+from tools.write_file import write_file as _write_file_impl
+from tools.read_file import read_file as _read_file_impl
+from tools.utils import is_safe_path
+
+# Re-export for backward compat with tests that call these directly.
+execute_bash = _execute_bash_impl
+write_file = _write_file_impl
+read_file = _read_file_impl
 
 
 # ── Constants ───────────────────────────────────────────────────────────
@@ -107,7 +111,7 @@ class TestExecuteBash:
         result = execute_bash("echo hello")
         assert "hello" in result
 
-    @patch("tools.subprocess.run")
+    @patch("subprocess.run")
     def test_timeout_returns_error_message(self, mock_run):
         import subprocess as sp
         from terminal_io import RED
@@ -115,7 +119,7 @@ class TestExecuteBash:
         result = execute_bash("sleep 99")
         assert "timed out" in result.lower()
 
-    @patch("tools.subprocess.run")
+    @patch("subprocess.run")
     def test_stderr_appended(self, mock_run):
         import subprocess as sp
         mock_result = sp.CompletedProcess(
@@ -127,7 +131,7 @@ class TestExecuteBash:
         assert "STDERR:" in result
         assert "err" in result
 
-    @patch("tools.subprocess.run")
+    @patch("subprocess.run")
     def test_success_with_no_output(self, mock_run):
         import subprocess as sp
         mock_result = sp.CompletedProcess(
@@ -137,7 +141,7 @@ class TestExecuteBash:
         result = execute_bash("true")
         assert "no output" in result.lower()
 
-    @patch("tools.subprocess.run")
+    @patch("subprocess.run")
     def test_generic_exception_captured(self, mock_run):
         mock_run.side_effect = OSError("permission denied")
         result = execute_bash("bad_cmd")

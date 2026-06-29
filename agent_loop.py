@@ -7,7 +7,7 @@ from terminal_io import (
     display_tool_call, display_tool_result, display_tool_success, display_error,
     display_agent_response,
 )
-from tools import execute_bash, write_file as _write_file, read_file as _read_file, edit_file, grep
+from tools import dispatch
 
 
 def cmd_exit(rest: str) -> bool | None:
@@ -99,28 +99,9 @@ def run_loop(ollama_client, model_name: str, system_prompt: str,
                 # Step 1: Print the tool call box BEFORE execution.
                 display_tool_call(func_name, args_str)
 
-                if func_name == 'execute_bash':
-                    result = execute_bash(args.get('command', ''))
-                elif func_name == 'write_file':
-                    result = _write_file(args.get('filename', ''), args.get('content', ''))
-                    display_tool_success(func_name, result)
-                elif func_name == 'read_file':
-                    result = _read_file(args.get('filename', ''))
-                elif func_name == 'edit_file':
-                    result = edit_file(
-                        args.get('filename', ''),
-                        args.get('edits', [])
-                    )
-                    display_tool_success(func_name, result)
-                elif func_name == 'grep':
-                    result = grep(
-                        pattern=args.get('pattern', ''),
-                        path=args.get('path', ''),
-                        use_regex=args.get('use_regex', False),
-                        file_filter=args.get('file_filter'),
-                        max_matches=args.get('max_matches', 50)
-                    )
-                else:
+                try:
+                    result = dispatch(func_name, args)
+                except KeyError:
                     display_error(f"Unknown function {func_name}")
                     result = f"Error: Unknown function '{func_name}'."
 

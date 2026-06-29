@@ -6,7 +6,7 @@ from unittest.mock import patch, mock_open
 
 import pytest
 
-from tools import edit_file
+from tools.edit_file import edit_file
 
 
 class TestEditFileSafety:
