@@ -210,3 +210,141 @@ class Test_get_context_length:
         # Same fallback on complete failure.
         result = get_context_length(BadClient(), "x")
         assert result == 8192
+
+
+# ── Markdown rendering ────────────────────────────────────────────────
+
+from terminal_io import _md_inline, _render_table, _render_code_block
+
+
+class TestMdInline:
+    """Tests for `_md_inline()` — inline markdown transforms."""
+
+    def test_bold(self):
+        result = _md_inline("**bold text**")
+        assert BOLD in result
+        assert "bold text" in result
+        assert RESET in result
+
+    def test_italic(self):
+        result = _md_inline("*italic text*")
+        assert DIM in result
+        assert "italic text" in result
+        assert RESET in result
+
+    def test_bold_and_italic(self):
+        result = _md_inline("***bold and italic***")
+        assert BOLD in result
+        assert DIM in result
+        assert "bold and italic" in result
+
+    def test_inline_code(self):
+        result = _md_inline("use `print()` here")
+        assert BLUE in result
+        assert BOLD in result
+        assert "print()" in result
+        assert RESET in result
+
+    def test_mixed_content(self):
+        text = "This is **bold** and *italic* with `code`"
+        result = _md_inline(text)
+        assert BOLD in result
+        assert DIM in result
+        assert BLUE in result
+        assert "bold" in result
+        assert "italic" in result
+        assert "code" in result
+
+    def test_empty_string(self):
+        assert _md_inline("") == ""
+
+    def test_no_markdown_passthrough(self):
+        text = "plain text without formatting"
+        result = _md_inline(text)
+        assert result == text
+
+
+class TestRenderTable:
+    """Tests for `_render_table()` — markdown table rendering."""
+
+    def test_basic_table_alignment(self):
+        lines = [
+            "| Feature          | Status    | Notes              |",
+            "|--------------------|------------|---------------------|",
+            "  | Bash execution   | ✅ Working | 30s timeout         |  ",
+            "  | File read/write  | ✅ Working | Path safety guard   |  ",
+        ]
+        result = _render_table(lines, 80)
+        # Should have aligned columns with separator.
+        assert "Feature" in result
+        assert "Status" in result
+        assert "Notes" in result
+        assert "|---" in result or "|-" in result  # separator line
+        assert "Bash execution" in result
+        assert "File read/write" in result
+
+    def test_malformed_separator_ignored(self):
+        lines = [
+            "| Feature          | Status    | Notes              |",
+            "|--|------------------|-----------|--------------------------------|--|",  # malformed - 5 cols!
+            "  | Bash execution   | ✅ Working | 30s timeout enforced           |  ",
+        ]
+        result = _render_table(lines, 80)
+        # Should still render correctly despite malformed separator.
+        assert "Feature" in result
+        assert "Bash execution" in result
+        # Should not have garbled output with extra columns.
+        assert result.count('|') > 3  # has multiple pipes for alignment
+
+    def test_empty_table(self):
+        lines = []
+        result = _render_table(lines, 80)
+        assert result == ""
+
+    def test_header_only(self):
+        lines = [
+            "| Col1 | Col2 |",
+            "|------|------|",
+        ]
+        result = _render_table(lines, 80)
+        # Should render header with separator but no data rows.
+        assert "Col1" in result
+        assert "Col2" in result
+        assert "|-" in result or "|---" in result
+
+    def test_column_width_calculation(self):
+        lines = [
+            "| Short | Longer Header Name |",
+            "|-------|---------------------|",
+            "  | A     | B                   |  ",
+        ]
+        result = _render_table(lines, 80)
+        # Column widths should accommodate longest content.
+        assert "Short" in result
+        assert "Longer Header Name" in result
+        assert "A" in result
+        assert "B" in result
+
+
+class TestRenderCodeBlock:
+    """Tests for `_render_code_block()` — fenced code block rendering."""
+
+    def test_basic_code_block(self):
+        block = "print('hello')\ndef foo():\n    pass"
+        result = _render_code_block(block, "python", 80)
+        assert "+-" in result      # border top/bottom
+        assert "-+" in result
+        assert "|" in result       # side borders
+        assert "print('hello')" in result
+        assert "foo" in result
+
+    def test_code_block_with_language(self):
+        block = "console.log('hi')"
+        result = _render_code_block(block, "javascript", 80)
+        assert "javascript" in result or "text" in result.lower()
+
+    def test_empty_block(self):
+        result = _render_code_block("", "python", 80)
+        # Should still return something (at least borders).
+        assert isinstance(result, str)
+        assert len(result) > 0

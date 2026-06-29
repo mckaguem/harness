@@ -202,6 +202,176 @@ def print_box(title: str, content: str, colour: str | None = None, width: int = 
     print("\n" + "\n".join(parts) + RESET + "\n")
 
 
+# ── Markdown renderer (agent responses) ────────────────────────────────
+
+# ANSI helpers for inline markdown.
+def _md_italics(m):
+    return f"{DIM}{m.group(1)}{RESET}"
+
+def _md_bold(m):
+    return f"{BOLD}{m.group(1)}{RESET}"
+
+def _md_bold_italics(m):
+    return f"{BOLD}{DIM}{m.group(1)}{RESET}"
+
+def _md_code_inline(m):
+    inner = m.group(1) or ''
+    return f"{BOLD}{BLUE}{inner}{RESET}"
+
+# Ordered longest-first so ``***bold-italics***`` beats ``**bold**``.
+_MD_INLINES: list[tuple[str, re.Pattern]] = [
+    ('code',     re.compile(r'(?<!\\)`([^`]+?)`')),  # `code`
+    ('b-i',      re.compile(r'\*{3}(.+?)\*{3}', re.DOTALL)),
+    ('bold',     re.compile(r'\*{2}(.+?)\*{2}', re.DOTALL)),
+    ('italic',   re.compile(r'(?<!\*)\*(?![*])(.+?)(?<!\*)\*(?!\*)')),  # single *
+]
+
+
+def _md_inline(text: str) -> str:
+    """Apply inline markdown transforms to *text*."""
+    out = text.strip()
+    if not out:
+        return ''
+    for name, pat in _MD_INLINES:
+        if name == 'code':
+            out = pat.sub(_md_code_inline, out)
+        elif name == 'b-i':
+            out = pat.sub(_md_bold_italics, out)
+        elif name == 'bold':
+            out = pat.sub(_md_bold, out)
+        else:
+            out = pat.sub(_md_italics, out)
+    return out
+
+
+def _render_table(lines: list[str], width: int) -> str:
+    """Render a markdown table into aligned ANSI columns with box-drawing characters."""
+    # First pass: collect all rows and identify separator candidates.
+    all_rows = []
+    for ln in lines:
+        stripped = ln.strip()
+        if not stripped or not stripped.startswith('|'):
+            continue
+        inner = stripped.strip('|').strip()
+        cols = [c.strip() for c in inner.split('|')]
+        all_rows.append(cols)
+    
+    if not all_rows:
+        return ''
+    
+    # Identify separator rows: cells contain only -, :, and spaces.
+    separator_indices = set()
+    for idx, row in enumerate(all_rows):
+        test_str = ''.join(row).replace('-', '').replace(':', '').replace('|', '').replace(' ', '')
+        if not test_str:
+            separator_indices.add(idx)
+    
+    # Get data rows (non-separator) and determine expected column count.
+    data_rows = [row for idx, row in enumerate(all_rows) if idx not in separator_indices]
+    if not data_rows:
+        return ''
+    
+    # Use the most common column count among data rows as expected.
+    from collections import Counter
+    col_counts = Counter(len(r) for r in data_rows)
+    expected_cols = col_counts.most_common(1)[0][0] if col_counts else 0
+    
+    num_cols = max(expected_cols, len(data_rows[0]))
+    widths = [0] * num_cols
+    
+    # Calculate column widths from all content (header + data).
+    for row in data_rows:
+        for i, cell in enumerate(row):
+            if i < len(widths):
+                widths[i] = max(widths[i], len(cell))
+    
+    # Box-drawing characters
+    HORIZONTAL = '─'
+    VERTICAL = '│'
+    TOP_LEFT = '┌'
+    TOP_RIGHT = '┐'
+    BOTTOM_LEFT = '└'
+    BOTTOM_RIGHT = '┘'
+    CROSS = '┼'
+    T_DOWN = '┬'
+    T_UP = '┴'
+    
+    # Build the table with proper borders
+    result: list[str] = []
+    
+    # Top border
+    top_border_parts = [TOP_LEFT]
+    for w in widths:
+        top_border_parts.append(HORIZONTAL * (w + 2))
+        top_border_parts.append(T_DOWN)
+    top_border_parts[-1] = TOP_RIGHT
+    result.append(''.join(top_border_parts))
+    
+    # Header row
+    header_row = data_rows[0]
+    cells = []
+    for i in range(num_cols):
+        cell = header_row[i] if i < len(header_row) else ''
+        padded_cell = cell.ljust(widths[i])
+        cells.append(padded_cell)
+    # Join cells with VERTICAL separators, wrap with outer bars
+    inner = f'{VERTICAL}'.join(f' {cell} ' for cell in cells)
+    result.append(f"{VERTICAL}{inner}{VERTICAL}")
+    
+    # Separator after header
+    sep_parts = [CROSS]
+    for w in widths:
+        sep_parts.append(HORIZONTAL * (w + 2))
+        sep_parts.append(CROSS)
+    sep_parts[-1] = CROSS
+    result.append(''.join(sep_parts))
+    
+    # Data rows
+    for row in data_rows[1:]:
+        cells = []
+        for i in range(num_cols):
+            cell = row[i] if i < len(row) else ''
+            padded_cell = cell.ljust(widths[i])
+            cells.append(padded_cell)
+        # Join cells with VERTICAL separators, wrap with outer bars
+        inner = f'{VERTICAL}'.join(f' {cell} ' for cell in cells)
+        result.append(f"{VERTICAL}{inner}{VERTICAL}")
+    
+    # Bottom border
+    bottom_border_parts = [BOTTOM_LEFT]
+    for w in widths:
+        bottom_border_parts.append(HORIZONTAL * (w + 2))
+        bottom_border_parts.append(T_UP)
+    bottom_border_parts[-1] = BOTTOM_RIGHT
+    result.append(''.join(bottom_border_parts))
+    
+    return '\n'.join(result)
+
+
+def _render_code_block(block: str, lang: str, width: int) -> str:
+    """Format a single `````...`````` block as a monospaced box."""
+    lines = block.split('\n')
+    if not lines:
+        return ''
+    longest_plain = max(len(re.sub(r'\033\[[^m]*m', '', l)) for l in lines)
+    # pad to 48 so the box looks consistent regardless of content width
+    inner_width = min(max(longest_plain, 48), width - 2)
+    border_top = '+-' + '-' * (inner_width) + '-+'
+    border_bot = '+' + '-' * (inner_width) + '-+'
+    title = f' {BOLD}{lang or "text"} ' if lang else None
+    parts = [border_top]
+    for line in lines:
+        padded_line = line.ljust(inner_width)[:inner_width]
+        parts.append(f'|{padded_line}|')
+    parts.append(border_bot)
+    
+    # Prepend language label to output if present
+    result = '\n'.join(parts)
+    if title:
+        return f"\n{title}\n{result}"
+    return result
+
+
 # ── Speed formatting & tokenization ───────────────────────────────────
 
 
@@ -350,8 +520,89 @@ def display_tool_result(func_name: str, result: str) -> None:
 
 def display_agent_response(content: str, response: dict, context_length: int,
                            prompt_token_count: int | None = None) -> None:
-    """Print the agent's text response along with token-speed stats."""
-    print_box("🤖 Agent Response", content, style="agent")
+    """Print the agent's text response along with token-speed stats.
+
+    *content* is interpreted as markdown and rendered into styled ANSI before
+    being displayed inside a box.  Fenced code blocks and tables get their own
+    boxes; prose paragraphs, headings, and lists are wrapped together in one.
+    """
+    width = os.get_terminal_size().columns
+    sections: list[str] = []
+    current_block: list[str] = []
+    i = 0
+    lines_in = content.split('\n')
+
+    # Phase-1 pass: split the raw markdown into prose, code blocks and tables.
+    while i < len(lines_in):
+        line = lines_in[i]
+        stripped = line.strip()
+
+        # Fenced code block — grab until closing `````.
+        if stripped.startswith('```'):
+            lang_match = re.search(r'```(\w*)', stripped)
+            lang = lang_match.group(1) if lang_match else ''
+            code_lines: list[str] = []
+            i += 1
+            while i < len(lines_in) and not lines_in[i].strip().startswith('```'):
+                code_lines.append(lines_in[i])
+                i += 1
+            i += 1  # skip closing fence
+            sections.append(_render_code_block('\n'.join(code_lines), lang, width))
+            continue
+
+        # Table — if the next few lines look like a table.
+        if stripped.startswith('|') and i + 2 < len(lines_in):
+            tbl = []
+            while i < len(lines_in) and lines_in[i].strip().startswith('|'):
+                tbl.append(lines_in[i])
+                i += 1
+            rendered = _render_table(tbl, width)
+            if rendered:
+                sections.append(rendered)
+            continue
+
+        # Headings — render as bold prefix.
+        heading_match = re.match(r'^(#{1,6})\s+(.+)$', stripped)
+        if heading_match and not current_block:
+            level = len(heading_match.group(1))
+            text = _md_inline(heading_match.group(2)).strip()
+            sections.append(f"{BOLD}{text}{' ' * (width - 4 - len(text) - max(level-1,0)*8)}")
+            i += 1
+            continue
+
+        # Empty line — flush current block and start a new one.
+        if not stripped:
+            if current_block:
+                sections.append('\n'.join(current_block))
+                current_block = []
+            i += 1
+            continue
+
+        # Prose/paragraph — accumulate lines until blank or structural marker.
+        rendered_line = _md_inline(line)
+        current_block.append(rendered_line)
+        i += 1
+
+    if current_block:
+        sections.append('\n'.join(current_block))
+
+    # Phase-2 pass: join prose blocks (with a blank line between them), but
+    # always emit code blocks / tables as their own separated boxes.
+    prose_parts: list[str] = []
+    for sec in sections:
+        sec_stripped = sec.strip()
+        if not sec_stripped:
+            continue
+        # A section is "prose" when it contains NO box-border chars and no
+        # leading/trailing box lines.
+        if re.search(r'^\+[-]{3,}\+$', sec_stripped, re.MULTILINE) or \
+           sec_stripped.startswith('+'):  # fenced code blocks start with +
+            prose_parts.append(sec)
+        else:
+            prose_parts.append(sec.strip())
+
+    full_text = '\n\n'.join(p for p in prose_parts if p)
+    print_box("🤖 Agent Response", full_text, style="agent")
     speed_info = _format_speed(response, context_length, prompt_token_count)
     if speed_info:
         print(speed_info)
