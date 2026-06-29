@@ -208,6 +208,11 @@ class Agent:
                     description = f"Unknown function '{func_name}'."
                     yield (ERROR, description)
                     result = description
+                except Exception as exc:
+                    # Handle unexpected errors (e.g., wrong args to tool)
+                    description = f"Error calling {func_name}: {exc}"
+                    yield (ERROR, description)
+                    result = description
                 
                 self.messages.append({
                     "role": "tool",
