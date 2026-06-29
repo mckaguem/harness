@@ -1,7 +1,11 @@
 """Main conversation loop — drives chat with Ollama and dispatches tool calls."""
 
 import json
-from terminal_io import print_box, c, CYAN, GREEN, BLUE, YELLOW, RED, MAGENTA, _format_speed
+from terminal_io import (
+    print_system, prompt_user, display_user_prompt,
+    display_tool_call, display_tool_result,
+    display_agent_response, display_tool_success, display_error,
+)
 from tools import execute_bash, write_file as _write_file, read_file as _read_file
 
 
@@ -18,22 +22,17 @@ def run_loop(ollama_client, model_name: str, system_prompt: str,
     """
     messages = [{"role": "system", "content": system_prompt}]
 
-    print_box(
-        f"🚀 Agent Ready — {model_name}",
-        "Type a message to begin. Type 'exit' or 'quit' to stop.",
-        MAGENTA, width=0
-    )
+    print_system(f"🚀 Agent Ready — {model_name}",
+                 "Type a message to begin. Type 'exit' or 'quit' to stop.")
 
     while True:
-        user_input = input(c("\nYou> ", CYAN, bold=True))
+        user_input = prompt_user()
         if user_input.strip().lower() in ['exit', 'quit']:
-            print_box("Goodbye!", "See you next time.", MAGENTA, width=0)
+            print_system("Goodbye!", "See you next time.")
             break
 
         messages.append({"role": "user", "content": user_input})
-
-        # Show the prompt inside a fancy box.
-        print_box(f"📝 Your Prompt ({len(user_input)} chars)", user_input, CYAN, width=0)
+        display_user_prompt(user_input)
 
         while True:
             response = ollama_client.chat(
@@ -47,10 +46,7 @@ def run_loop(ollama_client, model_name: str, system_prompt: str,
 
             if not message.get('tool_calls'):
                 content = message.get('content', '')
-                print_box("🤖 Agent Response", content, GREEN, width=0)
-                speed_info = _format_speed(response, context_length)
-                if speed_info:
-                    print(speed_info)
+                display_agent_response(content, response, context_length)
                 break
 
             for tool_call in message['tool_calls']:
@@ -63,23 +59,23 @@ def run_loop(ollama_client, model_name: str, system_prompt: str,
                 except Exception:
                     args_str = str(args)
 
-                print_box(f"🔧 {func_name}", args_str, BLUE, width=0, style="rounded")
+                display_tool_call(func_name, args_str)
 
                 if func_name == 'execute_bash':
                     result = execute_bash(args.get('command', ''))
                 elif func_name == 'write_file':
                     result = _write_file(args.get('filename', ''), args.get('content', ''))
-                    print(f"   → {result}")
+                    display_tool_success(func_name, result)
                 elif func_name == 'read_file':
                     result = _read_file(args.get('filename', ''))
                 else:
-                    result = c(f"Error: Unknown function {func_name}", RED)
+                    display_error(f"Unknown function {func_name}")
+                    continue
 
-                # Show the tool result in its own box.
-                print_box(f"✅ {func_name} Result", str(result), YELLOW, width=0, style="rounded")
-
+                # Truncation happens inside the helper; full result still goes to agent.
                 messages.append({
                     "role": "tool",
                     "content": result,
                     "name": func_name
                 })
+                display_tool_result(func_name, result)

@@ -1,4 +1,4 @@
-"""ANSI colour helpers, box-drawing utilities, and speed formatting."""
+"""ANSI colour helpers, box-drawing utilities, speed formatting, and display helpers."""
 
 import os
 import re
@@ -27,25 +27,56 @@ def c(text: str, colour: str, bold: bool = False) -> str:
     return f"{prefix}{colour}{text}{RESET}"
 
 
-# ── Box-drawing helpers ────────────────────────────────────────────────
+# ── Box styles ─────────────────────────────────────────────────────────
+
+STYLES = {
+    "system":      {"colour": MAGENTA,  "border": "-"},
+    "user":        {"colour": CYAN,     "border": "-"},
+    "agent":       {"colour": GREEN,    "border": "-"},
+    "tool_call":   {"colour": BLUE,     "border": "+-+"},
+    "tool_result": {"colour": YELLOW,   "border": "+-+"},
+}
+
 
 def _safe_len(s: str) -> int:
     """Length of *s* with ANSI escape sequences ignored."""
     return len(re.sub(r'\033\[[^m]*m', '', s))
 
 
-def print_box(title: str, content: str, colour: str, width: int = 64,
-              style: str = "rounded") -> None:
+def print_box(title: str, content: str, colour: str | None = None, width: int = 0,
+              style: str | None = None) -> None:
     """Print *content* inside a coloured box with an optional title bar.
 
-    Uses Unicode box-drawing characters for a clean look (top and bottom borders only).
-    The box auto-sizes to the terminal width when *width* is set to 0.
+    Uses Unicode-friendly line-drawing characters for the top/bottom borders:
+    ``-`` for solid lines (system/user/agent) and ``+-`` corners for tool boxes.
+
+    The style can be provided via :data:`STYLES` by name::
+
+        print_box("🤖 Response", text, style="agent")       # GREEN + rounded
+        print_box("📝 Prompt",   text,   style="user")      # CYAN  + rounded
+        print_box("🔧 bash",     cmd,    style="tool_call") # BLUE  + corners
+
+    Explicit *colour* overrides the one resolved from the style dict; if no style
+    is given, ``rounded`` borders are used as default.
     """
+    # Resolve colour and border from style name (or keep explicit values)
+    if style and style in STYLES:
+        resolved = STYLES[style]
+        colour = colour if colour is not None else resolved["colour"]
+        border_char = resolved["border"]
+    else:
+        border_char = "+-+"  # default corners
+
     if width == 0:
         width = os.get_terminal_size().columns
 
-    border_top    = "-" * width if style == "rounded" else "+" + "-" * (width - 2) + "+"
-    border_bot    = "-" * width if style == "rounded" else "+" + "-" * (width - 2) + "+"
+    if border_char.startswith("+"):
+        border_top = "+" + "-" * (width - 2) + "+"
+        border_bot = "+" + "-" * (width - 2) + "+"
+    else:
+        # solid line — "rounded" look
+        border_top = "-" * width
+        border_bot = "-" * width
 
     def _wrap(text: str, max_len: int):
         """Split text respecting terminal colour codes."""
@@ -66,7 +97,7 @@ def print_box(title: str, content: str, colour: str, width: int = 64,
 
     title_plain = re.sub(r'\033\[[^m]*m', '', title)
     if len(title_plain) + 4 <= width - 2:
-        title_line = f" {c(title, colour, bold=True)}{' ' * (width - len(title_plain) - 1)} "
+        title_line = f" {c(title, colour or GREEN, bold=True)}{' ' * (width - len(title_plain) - 1)} "
     else:
         title_line = f" {title} "
 
@@ -108,7 +139,6 @@ def _format_speed(response: dict, context_length: int = 0) -> str:
 
         tps_line = f"{prompt_eval_count} in"
         if context_length > 0 and prompt_eval_duration_ns > 0:
-            tps = prompt_eval_count / (prompt_eval_duration_ns / 1_000_000_000)
             parts.append(f"{tps:.1f} in tok/s{ctx_pct_str}")
         else:
             parts.append(tps_line + ctx_pct_str)
@@ -154,3 +184,62 @@ def _get_context_length(client, model_name: str) -> int:
         return _search(mi) or 0
     except Exception:
         return 0
+
+
+# ── Display helpers (high-level, role-specific) ───────────────────────
+
+MAX_DISPLAY_LINES = 5
+
+
+def print_system(title: str, message: str) -> None:
+    """Print a system-level notification box."""
+    print_box(title, message, style="system")
+
+
+def prompt_user() -> str:
+    """Display the user prompt line and read input. Returns the raw string."""
+    return input(c("\nYou> ", CYAN, bold=True))
+
+
+def display_user_prompt(user_input: str) -> None:
+    """Print a box showing what the user typed (with char count)."""
+    print_box(f"📝 Your Prompt ({len(user_input)} chars)", user_input, style="user")
+
+
+def _trunc_for_display(text: str) -> str:
+    """Return *text* truncated to ``MAX_DISPLAY_LINES`` lines with a hidden-line count."""
+    lines = text.splitlines()
+    if len(lines) <= MAX_DISPLAY_LINES:
+        return text
+    shown = "\n".join(lines[:MAX_DISPLAY_LINES])
+    hidden = len(lines) - MAX_DISPLAY_LINES
+    return f"{shown}\n({hidden} more line{'s' if hidden != 1 else ''} truncated)"
+
+
+def display_tool_call(func_name: str, args_str: str) -> None:
+    """Print a tool-call box showing the function name and its arguments."""
+    print_box(f"🔧 {func_name}", args_str, style="tool_call")
+
+
+def display_tool_result(func_name: str, result: str) -> None:
+    """Print a truncated tool-result box (full result is kept separately)."""
+    display_result = _trunc_for_display(str(result))
+    print_box(f"✅ {func_name} Result", display_result, style="tool_result")
+
+
+def display_agent_response(content: str, response: dict, context_length: int) -> None:
+    """Print the agent's text response along with token-speed stats."""
+    print_box("🤖 Agent Response", content, style="agent")
+    speed_info = _format_speed(response, context_length)
+    if speed_info:
+        print(speed_info)
+
+
+def display_tool_success(func_name: str, message: str) -> None:
+    """Print a one-line success/confirmation for tools that don't return text."""
+    print(c(f"   → {message}", GREEN))
+
+
+def display_error(message: str) -> None:
+    """Print an error message in red."""
+    print(c(f"Error: {message}", RED))

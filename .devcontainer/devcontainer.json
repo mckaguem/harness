@@ -1,7 +1,8 @@
 {
   "name": "Nanocoder Sandbox",
   "build": {
-    "dockerfile": "Dockerfile"
+    "dockerfile": "Dockerfile",
+    "context": ".."
   },
   
   // Safeguard: Automatically forwards your local API keys into the container 
@@ -20,9 +21,11 @@
 
   "customizations": {
     "vscode": {
+      "extensions": ["ms-python.python"]
     }
   },
 
   // Run as the non-root 'node' user built into the base image for better safety
-  "remoteUser": "node"
+  "remoteUser": "vscode",
+
 }
