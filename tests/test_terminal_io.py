@@ -74,7 +74,7 @@ class Test_print_box:
 
     @patch("builtins.print")
     def test_calls_print_with_full_box(self, mock_print):
-        with patch("terminal_io.os.get_terminal_size", return_value=os.terminal_size((80, 24))):
+        with patch("terminal_io.boxes.os.get_terminal_size", return_value=os.terminal_size((80, 24))):
             print_box("Title", "Content here", GREEN, width=20)
 
         # print_box joins all lines into one string and calls print once.
@@ -86,7 +86,7 @@ class Test_print_box:
 
     @patch("builtins.print")
     def test_rounded_style_uses_dashes(self, mock_print):
-        with patch("terminal_io.os.get_terminal_size", return_value=os.terminal_size((80, 24))):
+        with patch("terminal_io.boxes.os.get_terminal_size", return_value=os.terminal_size((80, 24))):
             print_box("Title", "Hello world", GREEN, width=20, style="rounded")
 
         output = mock_print.call_args[0][0]
@@ -94,7 +94,7 @@ class Test_print_box:
 
     @patch("builtins.print")
     def test_crossed_style_uses_plus(self, mock_print):
-        with patch("terminal_io.os.get_terminal_size", return_value=os.terminal_size((80, 24))):
+        with patch("terminal_io.boxes.os.get_terminal_size", return_value=os.terminal_size((80, 24))):
             print_box("Title", "Hello world", GREEN, width=20, style="crossed")
 
         output = mock_print.call_args[0][0]
@@ -102,7 +102,7 @@ class Test_print_box:
 
     @patch("builtins.print")
     def test_empty_content_still_has_border(self, mock_print):
-        with patch("terminal_io.os.get_terminal_size", return_value=os.terminal_size((80, 24))):
+        with patch("terminal_io.boxes.os.get_terminal_size", return_value=os.terminal_size((80, 24))):
             print_box("", "", GREEN, width=10)
 
         output = mock_print.call_args[0][0]
@@ -279,7 +279,10 @@ class TestRenderTable:
         assert "Feature" in result
         assert "Status" in result
         assert "Notes" in result
-        assert "|---" in result or "|-" in result  # separator line
+        # Unicode box-drawing characters: ─ │ ┬ ┴ etc.
+        assert "│" in result       # vertical bars
+        assert "─" in result       # horizontal lines
+        assert "┼" in result       # cross separators
         assert "Bash execution" in result
         assert "File read/write" in result
 
@@ -293,8 +296,8 @@ class TestRenderTable:
         # Should still render correctly despite malformed separator.
         assert "Feature" in result
         assert "Bash execution" in result
-        # Should not have garbled output with extra columns.
-        assert result.count('|') > 3  # has multiple pipes for alignment
+        # Unicode box-drawing characters indicate proper rendering.
+        assert "│" in result       # vertical bars present
 
     def test_empty_table(self):
         lines = []
@@ -310,7 +313,9 @@ class TestRenderTable:
         # Should render header with separator but no data rows.
         assert "Col1" in result
         assert "Col2" in result
-        assert "|-" in result or "|---" in result
+        # Unicode box-drawing characters: ─ │ ┬ etc.
+        assert "│" in result       # vertical bars
+        assert "─" in result       # horizontal lines
 
     def test_column_width_calculation(self):
         lines = [
