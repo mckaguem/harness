@@ -5,9 +5,6 @@ from pathlib import Path
 from terminal_io import c, RED, GREEN, DIM
 
 
-with open(Path(__file__).parent / "system_prompt.txt", "r") as _f:
-    SYSTEM_PROMPT = _f.read()
-
 AGENT_TOOLS = [
     {
         "type": "function",

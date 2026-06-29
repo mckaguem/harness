@@ -8,7 +8,6 @@ import pytest
 
 from tools import (
     AGENT_TOOLS,
-    SYSTEM_PROMPT,
     execute_bash,
     is_safe_path,
     read_file,
@@ -23,13 +22,21 @@ class TestSystemPrompt:
     """Ensure the system prompt exists and contains key instructions."""
 
     def test_prompt_is_non_empty_string(self):
-        assert isinstance(SYSTEM_PROMPT, str)
-        assert len(SYSTEM_PROMPT.strip()) > 0
+        # Import from harness since SYSTEM_PROMPT was moved there
+        from harness import build_system_prompt
+        system_prompt = build_system_prompt()
+        
+        assert isinstance(system_prompt, str)
+        assert len(system_prompt.strip()) > 0
 
     def test_mentions_file_operation_restrictions(self):
-        # Should mention working-directory restriction.
-        assert "current directory" in SYSTEM_PROMPT.lower() or (
-            "working directory" in SYSTEM_PROMPT.lower()
+        """The base prompt should mention working-directory restriction."""
+        # Import from harness since SYSTEM_PROMPT was moved there
+        from harness import build_system_prompt
+        system_prompt = build_system_prompt()
+        
+        assert "current directory" in system_prompt.lower() or (
+            "working directory" in system_prompt.lower()
         )
 
 
