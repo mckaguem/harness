@@ -10,7 +10,7 @@ from terminal_io import (
     _safe_len, print_box,
 )
 
-from harness import _get_context_length
+from model_utils import get_context_length
 
 
 # ── ANSI helpers ────────────────────────────────────────────────────────
@@ -122,8 +122,8 @@ class Test_format_speed:
         resp = {"eval_count": 10, "eval_duration": 500_000_000}
         result = _format_speed(resp, context_length=0)
         assert "10 tok" in result
-        # Without context_length we should not see tok/s.
-        assert "tok/s" not in result
+        # tok/s is computed from eval_duration independently of context_length.
+        assert "tok/s" in result
 
     def test_eval_with_context_length_shows_rate(self):
         resp = {"eval_count": 20, "eval_duration": 1_000_000_000}
@@ -159,14 +159,14 @@ class Test_format_speed:
 
 
 class Test_get_context_length:
-    """Tests for `_get_context_length()` with a mock ollama client."""
+    """Tests for `get_context_length()` with a mock ollama client."""
 
     def test_flat_context_length_key(self):
         class FakeClient:
             def show(self, model_name):
                 return {"model_info": {"context_length": 8192}}
 
-        result = _get_context_length(FakeClient(), "fake-model")
+        result = get_context_length(FakeClient(), "fake-model")
         assert result == 8192
 
     def test_nested_dotted_key(self):
@@ -178,7 +178,7 @@ class Test_get_context_length:
                     }
                 }
 
-        result = _get_context_length(FakeClient(), "fake-model")
+        result = get_context_length(FakeClient(), "fake-model")
         assert result == 4096
 
     def test_nested_in_list(self):
@@ -190,19 +190,23 @@ class Test_get_context_length:
                     ]
                 }
 
-        result = _get_context_length(FakeClient(), "fake-model")
+        result = get_context_length(FakeClient(), "fake-model")
         assert result == 2048
 
-    def test_no_matching_key_returns_zero(self):
+    def test_no_matching_key_returns_default(self):
         class FakeClient:
             def show(self, model_name):
                 return {"model_info": {}}
 
-        assert _get_context_length(FakeClient(), "fake-model") == 0
+        # Falls back to a sensible default (8192) so the UI always shows ctx %.
+        result = get_context_length(FakeClient(), "fake-model")
+        assert result == 8192
 
-    def test_client_exception_returns_zero(self):
+    def test_client_exception_returns_default(self):
         class BadClient:
             def show(self, model_name):
                 raise ConnectionError("offline")
 
-        assert _get_context_length(BadClient(), "x") == 0
+        # Same fallback on complete failure.
+        result = get_context_length(BadClient(), "x")
+        assert result == 8192

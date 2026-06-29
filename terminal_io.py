@@ -4,6 +4,7 @@
 import os
 import readline  # importing this enables arrow-key editing / history for input()
 import re
+from model_utils import tokenize_prompt as _tokenize_prompt
 
 # ── ANSI colour helpers ────────────────────────────────────────────────
 RESET   = "\033[0m"
@@ -81,20 +82,107 @@ def print_box(title: str, content: str, colour: str | None = None, width: int = 
         border_bot = "-" * width
 
     def _wrap(text: str, max_len: int):
-        """Split text respecting terminal colour codes."""
-        segments = re.split(r'(\033\[[^m]*m)', text)
-        plain = "".join(s for s in segments if not s.startswith("\033"))
+        """Split text respecting terminal colour codes and embedded newlines.
+
+        Unlike the old plain-text-only version, this preserves ANSI escape
+        sequences in each output line so coloured words (e.g. bold **Harness**)
+        stay intact across wraps — never split mid-segment.
+        """
+        # First pass: split on any embedded newlines so each inner segment is
+        # a single visual line (no '\n' inside it).
+        flat_segments = []
+        for seg in re.split(r'(\033\[[^m]*m)', text):
+            if seg.startswith('\033'):
+                flat_segments.append(seg)
+            elif '\n' not in seg:
+                flat_segments.append(seg)
+            else:
+                # Split plain chunks on newlines.  Newline markers become empty
+                # segments so the flush logic below treats them as line breaks.
+                parts = re.split(r'\n', seg)
+                for i, p in enumerate(parts):
+                    if p:
+                        flat_segments.append(p)
+                    if i < len(parts) - 1:
+                        flat_segments.append('')
+
         lines: list[str] = []
-        cursor = 0
-        while cursor < len(plain):
-            if max_len <= 0 or cursor >= len(plain):
-                break
-            chunk = plain[cursor:cursor + max_len]
-            if cursor > 0 and " " in chunk[:-1]:
-                last_sp = chunk.rfind(" ", 0, -1)
-                chunk = chunk[:last_sp + 1].rstrip()
-            lines.append(chunk)
-            cursor += len(chunk) + 1
+        current_line_segments: list[str] = []
+        current_visible_length = 0
+
+        for segment in flat_segments:
+            if segment.startswith('\033'):
+                # ANSI code — carry through to the next output line.
+                current_line_segments.append(segment)
+            elif segment == '':
+                # Explicit newline → flush and start a fresh line.
+                if current_line_segments:
+                    lines.append(''.join(current_line_segments))
+                    current_line_segments = []
+                    current_visible_length = 0
+            else:
+                seg_len = len(segment)
+
+                # If this plain chunk is wider than max_len on its own, force-break it.
+                while seg_len > max_len:
+                    candidate = segment[:max_len]
+                    last_space = -1
+                    if ' ' in candidate[:-1]:
+                        last_space = candidate.rfind(' ', 0, -1)
+
+                    if last_space >= 0:
+                        piece = segment[:last_space + 1].rstrip()
+                        lines.append(''.join(current_line_segments + [piece]))
+                        current_line_segments = []
+                        current_visible_length = 0
+                        segment = segment[last_space + 1:]
+                        seg_len = len(segment)
+                    else:
+                        piece = segment[:max_len]
+                        lines.append(''.join(current_line_segments + [piece]))
+                        current_line_segments = []
+                        current_visible_length = 0
+                        segment = segment[max_len:]
+                        seg_len = len(segment)
+
+                needed = current_visible_length + seg_len
+
+                if needed <= max_len:
+                    # Fits on the current line — just append.
+                    current_line_segments.append(segment)
+                    current_visible_length += seg_len
+                else:
+                    # Doesn't fit — try to break at a space within the remaining width.
+                    remaining_space = max_len - current_visible_length
+                    candidate = segment[:remaining_space]
+                    last_space = -1
+                    if ' ' in candidate[:-1]:
+                        last_space = candidate.rfind(' ', 0, -1)
+
+                    if last_space >= 0:
+                        piece = segment[:last_space + 1].rstrip()
+                        lines.append(''.join(current_line_segments + [piece]))
+                        current_line_segments = []
+                        current_visible_length = 0
+                        segment = segment[last_space + 1:]
+                        if segment:
+                            current_line_segments.append(segment)
+                            current_visible_length += len(segment)
+                    else:
+                        # No space in remaining width — force break.
+                        piece = segment[:remaining_space]
+                        lines.append(''.join(current_line_segments + [piece]))
+                        current_line_segments = []
+                        current_visible_length = 0
+                        remainder = segment[remaining_space:]
+                        if remainder:
+                            current_line_segments.append(remainder)
+                            current_visible_length += len(remainder)
+
+        # Flush any trailing content.
+        if current_line_segments:
+            lines.append(''.join(current_line_segments))
+
         return lines
 
     title_plain = re.sub(r'\033\[[^m]*m', '', title)
@@ -114,10 +202,19 @@ def print_box(title: str, content: str, colour: str | None = None, width: int = 
     print("\n" + "\n".join(parts) + RESET + "\n")
 
 
-# ── Speed formatting ──────────────────────────────────────────────────
+# ── Speed formatting & tokenization ───────────────────────────────────
 
-def _format_speed(response: dict, context_length: int = 0) -> str:
+
+
+
+
+def _format_speed(response: dict, context_length: int = 0,
+                  prompt_token_count: int | None = None) -> str:
     """Extract and format tokens/sec and context usage from an Ollama chat response.
+
+    When ``prompt_token_count`` is supplied (e.g. via :func:`_tokenize_prompt` it
+    takes precedence over the possibly-zero ``prompt_eval_count`` that Ollama
+    returns after a cache hit.
 
     Produces two stats joined by `` | ``::
 
@@ -135,7 +232,11 @@ def _format_speed(response: dict, context_length: int = 0) -> str:
         else:
             parts.append(f"{eval_count} tok")
 
+    # Use client-side tokenized count when available (more reliable under cache).
     prompt_eval_count = response.get('prompt_eval_count', 0) or 0
+    if prompt_token_count is not None and prompt_token_count > 0:
+        prompt_eval_count = max(prompt_eval_count, prompt_token_count)
+
     if prompt_eval_count > 0:
         ctx_pct_str = ""
         if context_length > 0 and prompt_eval_count > 0:
@@ -247,10 +348,11 @@ def display_tool_result(func_name: str, result: str) -> None:
     print_box(f"✅ {func_name} Result", display_result, style="tool_result")
 
 
-def display_agent_response(content: str, response: dict, context_length: int) -> None:
+def display_agent_response(content: str, response: dict, context_length: int,
+                           prompt_token_count: int | None = None) -> None:
     """Print the agent's text response along with token-speed stats."""
     print_box("🤖 Agent Response", content, style="agent")
-    speed_info = _format_speed(response, context_length)
+    speed_info = _format_speed(response, context_length, prompt_token_count)
     if speed_info:
         print(speed_info)
 

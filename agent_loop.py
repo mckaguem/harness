@@ -1,6 +1,7 @@
 """Main conversation loop — drives chat with Ollama and dispatches tool calls."""
 
 import json
+from model_utils import tokenize_prompt
 from terminal_io import (
     print_system, prompt_user,
     display_tool_call, display_tool_result,
@@ -73,7 +74,8 @@ def run_loop(ollama_client, model_name: str, system_prompt: str,
 
             if not message.get('tool_calls'):
                 content = message.get('content', '')
-                display_agent_response(content, response, context_length)
+                prompt_token_count = tokenize_prompt(ollama_client, messages, model_name)
+                display_agent_response(content, response, context_length, prompt_token_count)
                 break
 
             for tool_call in message['tool_calls']:

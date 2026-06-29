@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import ollama
 from tools import AGENT_TOOLS
+from model_utils import get_context_length
 from agent_loop import run_loop
 
 
@@ -39,42 +40,6 @@ def build_system_prompt() -> str:
     return base + injection
 
 
-def _get_context_length(client, model_name: str) -> int:
-    """Fetch the model's context length from Ollama's show endpoint.
-
-    Ollama stores this as a dotted key in *model_info*, e.g.
-    ``"tokenizer.ggml.context-length"``.  We walk every entry (including
-    nested dicts) to find it regardless of depth or exact prefix.
-    """
-    try:
-        info = client.show(model_name)
-        mi = info.get('model_info', {}) or {}
-
-        if 'context_length' in mi:
-            return int(mi['context_length'])
-
-        def _search(obj):
-            """Recursively search *obj* for a context-length value."""
-            if isinstance(obj, dict):
-                for k, v in obj.items():
-                    if 'context' in str(k).lower() and 'length' in str(k).lower():
-                        try:
-                            return int(v)
-                        except (ValueError, TypeError):
-                            continue
-                    result = _search(v)
-                    if result > 0:
-                        return result
-            elif isinstance(obj, list):
-                for item in obj:
-                    result = _search(item)
-                    if result > 0:
-                        return result
-            return 0
-
-        return _search(mi) or 0
-    except Exception:
-        return 0
 
 
 def main():
@@ -89,7 +54,7 @@ def main():
         ollama_host = ollama_host[: -len("/v1")]
 
     ollama_client = ollama.Client(host=ollama_host)
-    context_length = _get_context_length(ollama_client, MODEL_NAME)
+    context_length = get_context_length(ollama_client, MODEL_NAME)
 
     system_prompt = build_system_prompt()
 
