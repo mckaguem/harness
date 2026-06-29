@@ -1,31 +1,15 @@
 """Main conversation loop — drives chat with Ollama and dispatches tool calls."""
 
 import json
+
 from model_utils import tokenize_prompt
 from terminal_io import (
     print_system, prompt_user,
     display_tool_call, display_tool_result, display_tool_success, display_error,
     display_agent_response,
 )
-from tools import dispatch
-
-
-def cmd_exit(rest: str) -> bool | None:
-    """Handle the /exit command. Returns True to break the loop."""
-    print_system("Goodbye!", "See you next time.")
-    return True  # signal break
-
-
-def cmd_quit(rest: str) -> bool | None:
-    """Handle the /quit command. Returns True to break the loop."""
-    print_system("Goodbye!", "See you next time.")
-    return True  # signal break
-
-
-COMMANDS = {
-    'exit': cmd_exit,
-    'quit': cmd_quit,
-}
+from commands import COMMANDS
+from tools.dispatcher import dispatch
 
 
 def run_loop(ollama_client, model_name: str, system_prompt: str,
@@ -74,11 +58,10 @@ def run_loop(ollama_client, model_name: str, system_prompt: str,
 
             message = response['message']
             messages.append(message)
-            
+
             print("Message length:", len(str(messages)), "Context length:", context_length)
             with open("session.txt", 'w') as thefile:
                 thefile.write(str(messages))
-            
 
             if not message.get('tool_calls'):
                 content = message.get('content', '')

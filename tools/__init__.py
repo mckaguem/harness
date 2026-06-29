@@ -1,38 +1,69 @@
-"""Tools subpackage — one module per tool, plus a dispatcher and shared utils."""
+"""Tools subpackage — self-discovering skills.
 
-from tools.dispatcher import dispatch
-from tools.utils import is_safe_path
+A file is treated as a "skill" if it defines function_def at the top level.
+This module scans the package directory for such files, builds the agent tool
+schema from each one's function_def, and maintains a dispatcher registry
+mapping tool names to their callables.
+"""
 
-
-def _build_agent_tools() -> list:
-    """Assemble the AGENT_TOOLS schema from each submodule's function_def."""
-    from tools import execute_bash as _eb
-    from tools import write_file as _wf
-    from tools import read_file as _rf
-    from tools import edit_file as _ef
-    from tools import grep as _g
-    return [
-        _eb.function_def,
-        _wf.function_def,
-        _rf.function_def,
-        _ef.function_def,
-        _g.function_def,
-    ]
+import importlib.util
+from pathlib import Path
 
 
-AGENT_TOOLS = _build_agent_tools()
+def _discover_skills():
+    """Scan this package's directory for skills — i.e. modules with function_def."""
+    tools_dir = Path(__file__).parent
+    schema = []
+    registry = {}
+
+    skip = {"__init__.py", "utils.py"}
+
+    for path in sorted(tools_dir.glob("*.py")):
+        if path.name in skip or path == Path(__file__).parent / "__init__.py":
+            continue
+
+        try:
+            spec = importlib.util.spec_from_file_location(
+                f"tools.{path.stem}", path
+            )
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        except Exception as e:
+            print(f"[tools] warning: failed to load skill {path.name}: {e}")
+            continue
+
+        function_def = getattr(mod, "function_def", None)
+        if not isinstance(function_def, dict):
+            continue  # not a skill — no function_def at the module level.
+
+        name = function_def["function"]["name"]
+        schema.append(function_def)
+        registry[name] = mod
+
+    return schema, registry
 
 
-# Re-export individual tool functions for direct use (tests, etc.) and backward compat.
-from tools.execute_bash import execute_bash as execute_bash_fn
-from tools.write_file import write_file as write_file_fn
-from tools.read_file import read_file as read_file_fn
-from tools.edit_file import edit_file as edit_file_fn
-from tools.grep import grep as grep_fn
+AGENT_TOOLS: list[dict] = []
+DISPATCH_REGISTRY: dict[str, callable] = {}
 
-# Also expose them without the `_fn` suffix so callers can do `tools.execute_bash(...)`.
-execute_bash = execute_bash_fn
-write_file = write_file_fn
-read_file = read_file_fn
-edit_file = edit_file_fn
-grep = grep_fn
+
+def _build() -> None:
+    """Re-discover skills and populate AGENT_TOOLS / DISPATCH_REGISTRY."""
+    global AGENT_TOOLS, DISPATCH_REGISTRY
+
+    schema, registry = _discover_skills()
+    AGENT_TOOLS = schema  # type: ignore[assignment]
+    DISPATCH_REGISTRY = registry  # type: ignore[assignment]
+
+
+_build()
+
+
+# Backwards-compat re-exports for direct use (tests etc.).
+def __getattr__(name: str):
+    """Allow `from tools import execute_bash` to keep working."""
+    if name in DISPATCH_REGISTRY:
+        fn = getattr(DISPATCH_REGISTRY[name], name)
+        globals()[name] = fn
+        return fn
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

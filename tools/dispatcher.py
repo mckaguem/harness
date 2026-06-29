@@ -1,6 +1,6 @@
-"""Dispatcher — maps tool names to their callables for runtime dispatch."""
+"""Dispatcher — routes a tool name to its callable at runtime."""
 
-import importlib
+from . import DISPATCH_REGISTRY
 
 
 def dispatch(func_name: str, args: dict) -> str:
@@ -10,13 +10,6 @@ def dispatch(func_name: str, args: dict) -> str:
     Raises ``KeyError`` if *func_name* isn't registered — callers should treat
     that as "unknown tool".
     """
-    registry = {
-        "execute_bash", "write_file", "read_file", "edit_file", "grep"
-    }
-
-    if func_name not in registry:
-        raise KeyError(func_name)
-
-    mod = importlib.import_module(f"tools.{func_name}")
+    mod = DISPATCH_REGISTRY[func_name]  # raises KeyError for unknown tools
     fn = getattr(mod, func_name)
     return fn(**args)
