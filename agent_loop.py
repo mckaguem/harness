@@ -9,6 +9,24 @@ from terminal_io import (
 from tools import execute_bash, write_file as _write_file, read_file as _read_file
 
 
+def cmd_exit(rest: str) -> bool | None:
+    """Handle the /exit command. Returns True to break the loop."""
+    print_system("Goodbye!", "See you next time.")
+    return True  # signal break
+
+
+def cmd_quit(rest: str) -> bool | None:
+    """Handle the /quit command. Returns True to break the loop."""
+    print_system("Goodbye!", "See you next time.")
+    return True  # signal break
+
+
+COMMANDS = {
+    'exit': cmd_exit,
+    'quit': cmd_quit,
+}
+
+
 def run_loop(ollama_client, model_name: str, system_prompt: str,
              agent_tools: list, context_length: int) -> None:
     """Run the interactive chat loop.
@@ -23,13 +41,23 @@ def run_loop(ollama_client, model_name: str, system_prompt: str,
     messages = [{"role": "system", "content": system_prompt}]
 
     print_system(f"🚀 Agent Ready — {model_name}",
-                 "Type a message to begin. Type 'exit' or 'quit' to stop.")
+                 "Type a message to begin. Type /exit or /quit to stop.")
 
     while True:
         user_input = prompt_user()
-        if user_input.strip().lower() in ['exit', 'quit']:
-            print_system("Goodbye!", "See you next time.")
-            break
+
+        # Check for slash commands first.
+        if user_input.startswith('/'):
+            parts = user_input[1:].split(' ', 1)
+            command_name = parts[0].lower()
+            rest = parts[1] if len(parts) > 1 else ''
+
+            handler = COMMANDS.get(command_name)
+            if handler:
+                result = handler(rest)
+                if result is True:
+                    break
+                continue
 
         messages.append({"role": "user", "content": user_input})
         display_user_prompt(user_input)
