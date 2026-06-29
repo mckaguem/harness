@@ -1,6 +1,7 @@
 """Agent class and AgentType definition."""
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Generator, List, Dict, Optional
@@ -27,9 +28,11 @@ ERROR = "error"              # An error that is not tied to a specific tool resu
 class AgentType:
     """Definition of an agent — its model, tools, and system prompt."""
     
-    model_name: str
-    system_prompt: str
-    agent_tools: List[str]  # List of tool names, or ["*"] for all
+    name: str = ""
+    model_name: str = ""
+    system_prompt_path: str = "system_prompt.txt"  # Path to the base system prompt file
+    system_prompt: str = ""
+    agent_tools: List[str] = field(default_factory=list)
     
     @classmethod
     def from_file(cls, path: str) -> "AgentType":
@@ -37,9 +40,10 @@ class AgentType:
         
         Expected format::
         
+            name: "my_agent"                              # optional display name
             model_name: "model/identifier"
-            system_prompt_path: "system_prompt.txt"  # or use inline system_prompt
-            agent_tools: [execute_bash, write_file]   # or ["*"] for all
+            system_prompt_path: "system_prompt.txt"       # or use inline system_prompt
+            agent_tools: [execute_bash, write_file]       # or ["*"] for all
         
         Args:
             path: Path to the YAML file.
@@ -54,6 +58,7 @@ class AgentType:
         with open(yaml_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
         
+        name = config.get("name", Path(path).stem)  # fall back to filename stem
         model_name = config.get("model_name")
         if not model_name:
             raise ValueError("YAML must contain 'model_name'")
@@ -74,7 +79,9 @@ class AgentType:
             system_prompt = config.get("system_prompt", "")
         
         return cls(
+            name=name,
             model_name=model_name,
+            system_prompt_path=system_prompt_path,
             system_prompt=system_prompt,
             agent_tools=agent_tools
         )
@@ -146,6 +153,17 @@ class Agent:
         self._client = ollama_client
         self._context_length = context_length
         
+        # Resolve Ollama host, stripping trailing /v1 if present (OpenAI-compatible URLs).
+        raw_host = getattr(ollama_client, "host", None) or os.environ.get(
+            "OLLAMA_HOST",
+            os.environ.get("OPENAI_BASE_URL", "http://localhost:11435"),
+        )
+        self._ollama_host = (
+            raw_host[:-len("/v1")]
+            if raw_host.rstrip("/").endswith("/v1")
+            else raw_host
+        )
+        
         # Filter tool schemas based on AgentType.
         if tool_schemas:
             self._tools = filter_tool_schemas(agent_type, tool_schemas)
@@ -153,6 +171,43 @@ class Agent:
             self._tools = []
         
         self.messages: list[dict] = [{"role": "system", "content": agent_type.system_prompt}]
+        self._injected_text: Optional[str] = None
+    
+    # -- injection API -------------------------------------------------------
+
+    def inject_text(self, s: str) -> None:
+        """Queue *s* to be prepended to the next user input.
+
+        The text is wrapped in a delimiter so that when it is injected into the
+        conversation the agent (and any downstream logic) can tell it apart from
+        genuine user input.
+
+        Args:
+            s: The string to inject. Leading/trailing whitespace is preserved.
+        """
+        self._injected_text = f"<<INJECTED>>\n{s}\n<<END_INJECTED>>"
+
+    # -- internal helpers ----------------------------------------------------
+
+    def _chat(self, messages: list[dict]) -> str:
+        """Send *messages* to the Ollama client and return the response content.
+
+        This is the single point for building the request payload (model,
+        tools, context length) so callers don't have to repeat it.
+
+        Args:
+            messages: The full conversation history to send.
+
+        Returns:
+            The ``message.content`` string from the chat response.
+        """
+        response = self._client.chat(
+            model=self._agent_type.model_name,
+            messages=messages,
+            tools=self._tools if self._tools else None,
+            options={"num_ctx": self._context_length},
+        )
+        return response["message"].get("content", "")
     
     # -- public API ----------------------------------------------------------
     
@@ -172,8 +227,14 @@ class Agent:
             (ERROR,            description)
         """
         from tools.dispatcher import dispatch
-        
-        self.messages.append({"role": "user", "content": user_input})
+
+        # Prepend any injected text to the user input, then clear the queue.
+        effective_input = user_input
+        if self._injected_text is not None:
+            effective_input = f"{self._injected_text}\n\n{user_input}"
+            self._injected_text = None
+
+        self.messages.append({"role": "user", "content": effective_input})
         
         while True:
             response = self._client.chat(
@@ -220,3 +281,45 @@ class Agent:
                     "name": func_name,
                 })
                 yield (TOOL_RESULT, func_name, result)
+
+    def summarize(self) -> str:
+        """Ask the LLM to summarise the conversation accumulated so far.
+
+        Builds a temporary message list from recent history and appends a
+        summary prompt.  The resulting turn is *not* persisted in ``self.messages``
+        — the agent's own history remains untouched.
+
+        Returns:
+            A string containing the generated summary, or an empty string on
+            failure.
+        """
+        
+        transcript_lines = []
+        for msg in self.messages:
+            if msg['role'] == 'system':
+                continue
+            elif msg['role'] == 'tool':
+                # Turn a technical tool response into a simple narrative note
+                transcript_lines.append(f"[The agent received a tool call response.]")
+            else:
+                transcript_lines.append(f"{msg['role'].capitalize()}: {msg['content']}")
+
+        formatted_transcript = "\n".join(transcript_lines)
+    
+        messages= [
+            {
+                'role': 'system',
+                'content': (
+                    "You are an expert summarizer. Your job is to provide a concise, "
+                    "bulleted summary of the provided conversation transcript. "
+                    "Focus purely on the core topics discussed and key conclusions. "
+                    "Do not include introductory or concluding conversational filler."
+                )
+            },
+            {
+                'role': 'user',
+                'content': f"Please summarize this conversation transcript:\n\n{formatted_transcript}"
+            }
+        ]
+        
+        return self._chat(messages)

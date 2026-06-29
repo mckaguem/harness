@@ -14,13 +14,18 @@ from agent import Agent, AgentType
 from tools import AGENT_TOOLS
 
 
-def build_system_prompt() -> str:
-    """Read system_prompt.txt and inject a listing of the current directory.
+def build_system_prompt(base_prompt_path: str = "system_prompt.txt") -> str:
+    """Read the base system prompt file and inject a listing of the current directory.
+
+    Args:
+        base_prompt_path: Path to the base system prompt text file. Defaults to 
+                          ``system_prompt.txt`` in the project root so the default 
+                          harness behavior is unchanged.
 
     If an ``AGENTS.md`` file exists in the working directory its contents are
     appended so the agent can follow any project-specific conventions.
     """
-    prompt_path = Path(__file__).parent / "system_prompt.txt"
+    prompt_path = Path(base_prompt_path)
     base = prompt_path.read_text(encoding="utf-8")
 
     # List files/dirs in the current working directory
@@ -46,15 +51,18 @@ def build_system_prompt() -> str:
     return base + injection
 
 
-def run_loop(agent: Agent, ollama_client: "ollama.Client") -> None:
+def run_loop(agent: Agent, ollama_client: "ollama.Client", on_exit=None) -> None:
     """Run the interactive chat loop.
 
     Args:
         agent: An initialized :class:`Agent` instance with its configuration.
         ollama_client: The Ollama client (kept for future use).
+        on_exit: Optional callback invoked just before the loop breaks due to 
+                 ``/exit`` or ``/quit``. Receives ``(agent, messages)``. Return
+                 value is ignored — the callback can mutate whatever it needs.
     """
     print_system(
-        f"🚀 Agent Ready — {agent._agent_type.model_name}",
+        f"🚀 Agent Ready — {agent._agent_type.name} ({agent._agent_type.model_name})",
         "Type a message to begin. Type /exit or /quit to stop."
     )
 
@@ -69,8 +77,12 @@ def run_loop(agent: Agent, ollama_client: "ollama.Client") -> None:
 
             handler = COMMANDS.get(command_name)
             if handler:
-                result = handler(rest)
-                if result is True:
+                result = handler(rest, agent=agent)
+                if result is True and on_exit is not None:
+                    # Let caller do its own exit-time work (e.g. summarize)
+                    on_exit(agent, agent.messages)
+                    break
+                elif result is True:
                     break
                 continue
 
@@ -109,7 +121,9 @@ def main():
     system_prompt = build_system_prompt()
     
     agent_type = AgentType(
+        name="main",
         model_name=MODEL_NAME,
+        system_prompt_path="system_prompt.txt",
         system_prompt=system_prompt,
         agent_tools=["*"],  # use all available tools
     )
