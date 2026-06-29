@@ -1,19 +1,121 @@
 """Main conversation loop — drives chat with Ollama and dispatches tool calls."""
 
 import json
+from dataclasses import dataclass
+from typing import Generator
 
-from model_utils import tokenize_prompt
+import ollama
+
 from terminal_io import (
     print_system, prompt_user,
-    display_tool_call, display_tool_result, display_tool_success, display_error,
+    display_tool_call, display_tool_result, display_error,
     display_agent_response,
 )
 from commands import COMMANDS
 from tools.dispatcher import dispatch
 
 
-def run_loop(ollama_client, model_name: str, system_prompt: str,
-             agent_tools: list, context_length: int) -> None:
+# ---------------------------------------------------------------------------
+# Output kinds yielded by ``handle_prompt``.
+# ---------------------------------------------------------------------------
+
+RESPONSE = "response"        # Final text from the LLM (no more tool calls).
+TOOL_CALL = "tool_call"      # A function call request from the LLM.
+TOOL_RESULT = "tool_result"  # The result of executing a tool.
+ERROR = "error"              # An error that is not tied to a specific tool result.
+
+
+# ---------------------------------------------------------------------------
+# Shared state bundle passed into the Agent / handle_prompt machinery.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RunContext:
+    """Runtime context shared across agent turns."""
+    ollama_client: "ollama.Client"
+    model_name: str
+    agent_tools: list
+    context_length: int
+
+
+# ---------------------------------------------------------------------------
+# Agent — owns the conversation and processes one user prompt to completion.
+# ---------------------------------------------------------------------------
+
+class Agent:
+    """Owns the conversation state and handles a single user turn."""
+
+    def __init__(self, system_prompt: str, ctx: RunContext):
+        self._ctx = ctx
+        self.messages: list[dict] = [{"role": "system", "content": system_prompt}]
+
+    # -- public API ----------------------------------------------------------
+
+    def handle_prompt(self, user_input: str) -> Generator[tuple[str, ...], None, None]:
+        """Process a single user prompt to completion.
+
+        Yields tuples of ``(kind, ...)`` where ``kind`` is one of
+        :data:`RESPONSE`, :data:`TOOL_CALL`, :data:`TOOL_RESULT` or
+        :data:`ERROR`.  The agent dispatches and executes each tool internally;
+        it never calls display functions itself.
+
+        Yields::
+
+            (RESPONSE,         content, ollama_response)
+            (TOOL_CALL,        func_name, args_str)
+            (TOOL_RESULT,      func_name, result)
+            (ERROR,            description)
+        """
+        self.messages.append({"role": "user", "content": user_input})
+
+        while True:
+            response = self._ctx.ollama_client.chat(
+                model=self._ctx.model_name,
+                messages=self.messages,
+                tools=self._ctx.agent_tools,
+                options={"num_ctx": self._ctx.context_length},
+            )
+
+            message = response["message"]
+            self.messages.append(message)
+
+            if not message.get("tool_calls"):
+                content = message.get("content", "")
+                yield (RESPONSE, content, response)
+                break
+
+            for tool_call in message["tool_calls"]:
+                func_name = tool_call["function"]["name"]
+                args = tool_call["function"]["arguments"]
+
+                try:
+                    args_str = json.dumps(args, indent=2)
+                except Exception:
+                    args_str = str(args)
+
+                yield (TOOL_CALL, func_name, args_str)
+
+                try:
+                    result = dispatch(func_name, args)
+                except KeyError as exc:
+                    description = f"Unknown function '{func_name}'."
+                    yield (ERROR, description)
+                    result = description
+
+                self.messages.append({
+                    "role": "tool",
+                    "content": result,
+                    "name": func_name,
+                })
+                yield (TOOL_RESULT, func_name, result)
+
+
+# ---------------------------------------------------------------------------
+# Outer loop — runs outside the Agent class.
+# ---------------------------------------------------------------------------
+
+def run_loop(ollama_client: "ollama.Client", model_name: str,
+             system_prompt: str, agent_tools: list, context_length: int) -> None:
     """Run the interactive chat loop.
 
     Args:
@@ -23,7 +125,9 @@ def run_loop(ollama_client, model_name: str, system_prompt: str,
         agent_tools: List of tool definitions (JSON-schema-like dicts).
         context_length: Model's context window size (0 if unknown).
     """
-    messages = [{"role": "system", "content": system_prompt}]
+    ctx = RunContext(ollama_client=ollama_client, model_name=model_name,
+                     agent_tools=agent_tools, context_length=context_length)
+    agent = Agent(system_prompt, ctx)
 
     print_system(f"🚀 Agent Ready — {model_name}",
                  "Type a message to begin. Type /exit or /quit to stop.")
@@ -44,54 +148,17 @@ def run_loop(ollama_client, model_name: str, system_prompt: str,
                     break
                 continue
 
-        messages.append({"role": "user", "content": user_input})
-
-        while True:
-            response = ollama_client.chat(
-                model=model_name,
-                messages=messages,
-                tools=agent_tools,
-                options={
-                    'num_ctx': context_length
-                }
-            )
-
-            message = response['message']
-            messages.append(message)
-
-            print("Message length:", len(str(messages)), "Context length:", context_length)
-            with open("session.txt", 'w') as thefile:
-                thefile.write(str(messages))
-
-            if not message.get('tool_calls'):
-                content = message.get('content', '')
-                prompt_token_count = tokenize_prompt(ollama_client, messages, model_name)
-                display_agent_response(content, response, context_length, prompt_token_count)
-                break
-
-            for tool_call in message['tool_calls']:
-                func_name = tool_call['function']['name']
-                args = tool_call['function']['arguments']
-
-                # Format arguments as a readable block.
-                try:
-                    args_str = json.dumps(args, indent=2)
-                except Exception:
-                    args_str = str(args)
-
-                # Step 1: Print the tool call box BEFORE execution.
+        for output in agent.handle_prompt(user_input):
+            kind = output[0]
+            if kind == RESPONSE:
+                _, content, ollama_response = output
+                display_agent_response(content, ollama_response, ctx.context_length, None)
+            elif kind == TOOL_CALL:
+                _, func_name, args_str = output
                 display_tool_call(func_name, args_str)
-
-                try:
-                    result = dispatch(func_name, args)
-                except KeyError:
-                    display_error(f"Unknown function {func_name}")
-                    result = f"Error: Unknown function '{func_name}'."
-
-                # Step 2: Print the tool result box AFTER execution returns.
+            elif kind == TOOL_RESULT:
+                _, func_name, result = output
                 display_tool_result(func_name, result)
-                messages.append({
-                    "role": "tool",
-                    "content": result,
-                    "name": func_name
-                })
+            else:  # ERROR
+                _, description = output
+                display_error(description)
