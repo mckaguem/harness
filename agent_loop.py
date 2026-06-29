@@ -7,7 +7,7 @@ from terminal_io import (
     display_tool_call, display_tool_result,
     display_agent_response, display_tool_success, display_error,
 )
-from tools import execute_bash, write_file as _write_file, read_file as _read_file
+from tools import execute_bash, write_file as _write_file, read_file as _read_file, edit_file, grep
 
 
 def cmd_exit(rest: str) -> bool | None:
@@ -97,9 +97,23 @@ def run_loop(ollama_client, model_name: str, system_prompt: str,
                     display_tool_success(func_name, result)
                 elif func_name == 'read_file':
                     result = _read_file(args.get('filename', ''))
+                elif func_name == 'edit_file':
+                    result = edit_file(
+                        args.get('filename', ''),
+                        args.get('edits', [])
+                    )
+                    display_tool_success(func_name, result)
+                elif func_name == 'grep':
+                    result = grep(
+                        pattern=args.get('pattern', ''),
+                        path=args.get('path', ''),
+                        use_regex=args.get('use_regex', False),
+                        file_filter=args.get('file_filter'),
+                        max_matches=args.get('max_matches', 50)
+                    )
                 else:
                     display_error(f"Unknown function {func_name}")
-                    continue
+                    result = f"Error: Unknown function '{func_name}'."
 
                 # Truncation happens inside the helper; full result still goes to agent.
                 messages.append({

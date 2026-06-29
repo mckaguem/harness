@@ -8,6 +8,7 @@ import pytest
 
 from tools import (
     AGENT_TOOLS,
+    edit_file,
     execute_bash,
     is_safe_path,
     read_file,
@@ -43,8 +44,8 @@ class TestSystemPrompt:
 class TestAgentTools:
     """Ensure the tool definitions are well-formed JSON schemas."""
 
-    def test_has_three_tools(self):
-        assert len(AGENT_TOOLS) == 3
+    def test_has_five_tools(self):
+        assert len(AGENT_TOOLS) == 5
 
     def test_each_tool_is_a_function_type(self):
         for tool in AGENT_TOOLS:
@@ -53,12 +54,17 @@ class TestAgentTools:
 
     def test_required_tool_names_present(self):
         names = {t["function"]["name"] for t in AGENT_TOOLS}
-        assert {"execute_bash", "write_file", "read_file"} <= names
+        assert {"execute_bash", "write_file", "read_file", "edit_file", "grep"} <= names
 
     def test_each_tool_has_parameters_schema(self):
         for tool in AGENT_TOOLS:
             func = tool["function"]
             assert "parameters" in func, f"{func['name']} missing parameters"
+
+    def test_edit_file_edits_parameter_is_array(self):
+        edit_tool = next(t for t in AGENT_TOOLS if t["function"]["name"] == "edit_file")
+        edits_param = edit_tool["function"]["parameters"]["properties"]["edits"]
+        assert edits_param["type"] == "array"
 
 
 # ── Path safety ────────────────────────────────────────────────────────
