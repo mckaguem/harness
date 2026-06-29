@@ -3,9 +3,15 @@
 import os
 from pathlib import Path
 import ollama
+
+from terminal_io import (
+    print_system, prompt_user,
+    display_tool_call, display_tool_result, display_error,
+    display_agent_response,
+)
+from commands import COMMANDS
+from agent import Agent, AgentType
 from tools import AGENT_TOOLS
-from model_utils import get_context_length
-from agent_loop import run_loop
 
 
 def build_system_prompt() -> str:
@@ -40,6 +46,48 @@ def build_system_prompt() -> str:
     return base + injection
 
 
+def run_loop(agent: Agent, ollama_client: "ollama.Client") -> None:
+    """Run the interactive chat loop.
+
+    Args:
+        agent: An initialized :class:`Agent` instance with its configuration.
+        ollama_client: The Ollama client (kept for future use).
+    """
+    print_system(
+        f"🚀 Agent Ready — {agent._agent_type.model_name}",
+        "Type a message to begin. Type /exit or /quit to stop."
+    )
+
+    while True:
+        user_input = prompt_user()
+
+        # Check for slash commands first.
+        if user_input.startswith('/'):
+            parts = user_input[1:].split(' ', 1)
+            command_name = parts[0].lower()
+            rest = parts[1] if len(parts) > 1 else ''
+
+            handler = COMMANDS.get(command_name)
+            if handler:
+                result = handler(rest)
+                if result is True:
+                    break
+                continue
+
+        for output in agent.handle_prompt(user_input):
+            kind = output[0]
+            if kind == "response":
+                _, content, ollama_response = output
+                display_agent_response(content, ollama_response, agent._context_length, None)
+            elif kind == "tool_call":
+                _, func_name, args_str = output
+                display_tool_call(func_name, args_str)
+            elif kind == "tool_result":
+                _, func_name, result = output
+                display_tool_result(func_name, result)
+            else:  # ERROR
+                _, description = output
+                display_error(description)
 
 
 def main():
@@ -54,18 +102,26 @@ def main():
         ollama_host = ollama_host[: -len("/v1")]
 
     ollama_client = ollama.Client(host=ollama_host)
-    #context_length = get_context_length(ollama_client, MODEL_NAME)
     context_length = 2**17
 
+    # Build the agent definition. We construct it programmatically here; an 
+    # alternative would be to load from YAML via AgentType.from_file().
     system_prompt = build_system_prompt()
-
-    run_loop(
-        ollama_client=ollama_client,
+    
+    agent_type = AgentType(
         model_name=MODEL_NAME,
         system_prompt=system_prompt,
-        agent_tools=AGENT_TOOLS,
-        context_length=context_length,
+        agent_tools=["*"],  # use all available tools
     )
+    
+    agent = Agent(
+        agent_type=agent_type,
+        ollama_client=ollama_client,
+        context_length=context_length,
+        tool_schemas=AGENT_TOOLS,  # pass all schemas so filter_tool_schemas can work
+    )
+
+    run_loop(agent, ollama_client)
 
 
 if __name__ == "__main__":
