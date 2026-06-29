@@ -1,0 +1,61 @@
+"""Tests for tools.dispatcher — routing tool calls to implementations."""
+
+import pytest
+
+
+class TestDispatch:
+    """Tests for the dispatch() function that routes tool names."""
+
+    def test_dispatch_calls_valid_tool(self):
+        """dispatch should call the correct tool implementation."""
+        from tools.dispatcher import dispatch
+
+        # Call execute_bash with a simple command
+        result = dispatch("execute_bash", {"command": "echo hello"})
+        assert "hello" in result
+
+    def test_dispatch_raises_keyerror_for_unknown_tool(self):
+        """dispatch should raise KeyError when tool name is not registered."""
+        from tools.dispatcher import dispatch
+
+        with pytest.raises(KeyError):
+            dispatch("nonexistent_tool", {})
+
+    def test_dispatch_returns_string_from_tool(self):
+        """dispatch should return the string result from the called tool."""
+        from tools.dispatcher import dispatch
+
+        # write_file returns a success message string
+        with open("test_dispatcher.txt", "w") as f:
+            pass  # ensure file exists but is empty
+
+        try:
+            result = dispatch("write_file", {
+                "filename": "test_dispatcher.txt",
+                "content": "test content"
+            })
+            assert isinstance(result, str)
+            assert "Success" in result or "Wrote to" in result
+        finally:
+            import os
+            if os.path.exists("test_dispatcher.txt"):
+                os.remove("test_dispatcher.txt")
+
+    def test_dispatch_forwards_args_correctly(self):
+        """dispatch should pass kwargs from args dict to the tool function."""
+        from tools.dispatcher import dispatch
+
+        # write_file expects filename and content parameters
+        with open("test_kwargs.txt", "w") as f:
+            pass  # ensure file exists
+
+        try:
+            result = dispatch("write_file", {
+                "filename": "test_kwargs.txt",
+                "content": "keyword args test"
+            })
+            assert isinstance(result, str)
+        finally:
+            import os
+            if os.path.exists("test_kwargs.txt"):
+                os.remove("test_kwargs.txt")

@@ -353,3 +353,221 @@ class TestRenderCodeBlock:
         # Should still return something (at least borders).
         assert isinstance(result, str)
         assert len(result) > 0
+
+
+# ── Truncation helpers ────────────────────────────────────────────────
+
+from terminal_io import _trunc_for_display, MAX_DISPLAY_LINES
+
+
+class TestTruncForDisplay:
+    """Tests for `_trunc_for_display()` — line-count truncation."""
+
+    def test_short_text_no_truncation(self):
+        assert _trunc_for_display("a\nb") == "a\nb"
+
+    def test_exact_max_lines_no_truncation(self):
+        text = "\n".join(str(i) for i in range(MAX_DISPLAY_LINES))
+        assert _trunc_for_display(text) == text
+
+    def test_one_over_limit_gets_truncated(self):
+        text = "\n".join(str(i) for i in range(MAX_DISPLAY_LINES + 1))
+        result = _trunc_for_display(text)
+        assert "(1 more line truncated)" in result
+        # First MAX_DISPLAY_LINES lines should be present.
+        for i in range(MAX_DISPLAY_LINES):
+            assert f"{i}" in result
+
+    def test_multiple_hidden_lines_counted(self):
+        text = "\n".join(str(i) for i in range(10))
+        result = _trunc_for_display(text)
+        assert "(5 more lines truncated)" in result
+
+    def test_single_hidden_line_singular_form(self):
+        text = "\n".join(str(i) for i in range(MAX_DISPLAY_LINES + 1))
+        assert "1 more line truncated" in _trunc_for_display(text)
+
+    def test_empty_string_returns_empty(self):
+        assert _trunc_for_display("") == ""
+
+    def test_truncated_omits_hidden_lines(self):
+        text = "\n".join(str(i) for i in range(MAX_DISPLAY_LINES + 3))
+        result = _trunc_for_display(text)
+        # Hidden portion (lines 5, 6, 7) should NOT appear in output.
+        assert "(3 more lines truncated)" in result
+        for i in range(MAX_DISPLAY_LINES, MAX_DISPLAY_LINES + 3):
+            assert str(i) not in result
+
+
+# ── Display helpers (thin wrappers around print_box / print(c(...))) ───
+
+from unittest.mock import call as mock_call
+
+from terminal_io.display import (
+    display_user_prompt,
+    display_tool_call,
+    display_tool_result,
+    display_tool_success,
+    display_error,
+)
+from terminal_io.colors import GREEN, RED, BOLD, DIM, CYAN
+
+
+class TestDisplayUserPrompt:
+    """Tests for `display_user_prompt()` — wraps print_box."""
+
+    @patch("builtins.print")
+    def test_calls_print_once(self, mock_print):
+        display_user_prompt("hello world")
+        assert mock_print.call_count == 1
+
+    @patch("builtins.print")
+    def test_includes_char_count_in_title(self, mock_print):
+        with patch("terminal_io.boxes.os.get_terminal_size",
+                   return_value=os.terminal_size((80, 24))):
+            display_user_prompt("hi")
+        output = mock_print.call_args[0][0]
+        assert "2 chars" in output
+
+    @patch("builtins.print")
+    def test_includes_content(self, mock_print):
+        with patch("terminal_io.boxes.os.get_terminal_size",
+                   return_value=os.terminal_size((80, 24))):
+            display_user_prompt("hello world")
+        output = mock_print.call_args[0][0]
+        assert "hello world" in output
+
+    @patch("builtins.print")
+    def test_longer_input_counts_correctly(self, mock_print):
+        with patch("terminal_io.boxes.os.get_terminal_size",
+                   return_value=os.terminal_size((80, 24))):
+            display_user_prompt("abcdefg")
+        output = mock_print.call_args[0][0]
+        assert "7 chars" in output
+
+
+class TestDisplayToolCall:
+    """Tests for `display_tool_call()` — wraps print_box with a 🔧 prefix."""
+
+    @patch("builtins.print")
+    def test_calls_print_once(self, mock_print):
+        display_tool_call("execute_bash", "{\"cmd\": \"ls\"}")
+        assert mock_print.call_count == 1
+
+    @patch("builtins.print")
+    def test_includes_function_name(self, mock_print):
+        with patch("terminal_io.boxes.os.get_terminal_size",
+                   return_value=os.terminal_size((80, 24))):
+            display_tool_call("execute_bash", "ls -la")
+        output = mock_print.call_args[0][0]
+        assert "🔧 execute_bash" in output
+
+    @patch("builtins.print")
+    def test_includes_arguments(self, mock_print):
+        with patch("terminal_io.boxes.os.get_terminal_size",
+                   return_value=os.terminal_size((80, 24))):
+            display_tool_call("write_file", "path: x.txt")
+        output = mock_print.call_args[0][0]
+        assert "x.txt" in output
+
+    @patch("builtins.print")
+    def test_empty_arguments_still_render(self, mock_print):
+        with patch("terminal_io.boxes.os.get_terminal_size",
+                   return_value=os.terminal_size((80, 24))):
+            display_tool_call("grep", "")
+        output = mock_print.call_args[0][0]
+        assert "🔧 grep" in output
+        assert "---" in output   # border still present
+
+
+class TestDisplayToolResult:
+    """Tests for `display_tool_result()` — wraps print_box with truncation."""
+
+    @patch("builtins.print")
+    def test_calls_print_once(self, mock_print):
+        display_tool_result("execute_bash", "output here")
+        assert mock_print.call_count == 1
+
+    @patch("builtins.print")
+    def test_includes_function_name(self, mock_print):
+        with patch("terminal_io.boxes.os.get_terminal_size",
+                   return_value=os.terminal_size((80, 24))):
+            display_tool_result("execute_bash", "ls output")
+        output = mock_print.call_args[0][0]
+        assert "✅ execute_bash Result" in output
+
+    @patch("builtins.print")
+    def test_truncates_long_results(self, mock_print):
+        # Build a result that exceeds MAX_DISPLAY_LINES.
+        long_result = "\n".join(f"line {i}" for i in range(10))
+        with patch("terminal_io.boxes.os.get_terminal_size",
+                   return_value=os.terminal_size((80, 24))):
+            display_tool_result("execute_bash", long_result)
+        output = mock_print.call_args[0][0]
+        assert "5 more lines truncated" in output
+
+    @patch("builtins.print")
+    def test_short_results_not_truncated(self, mock_print):
+        with patch("terminal_io.boxes.os.get_terminal_size",
+                   return_value=os.terminal_size((80, 24))):
+            display_tool_result("read_file", "short text")
+        output = mock_print.call_args[0][0]
+        assert "short text" in output
+        assert "truncated" not in output
+
+    @patch("builtins.print")
+    def test_coverts_non_string_results(self, mock_print):
+        # Should handle non-string results by wrapping with str().
+        with patch("terminal_io.boxes.os.get_terminal_size",
+                   return_value=os.terminal_size((80, 24))):
+            display_tool_result("some_func", 12345)
+        output = mock_print.call_args[0][0]
+        assert "12345" in output
+
+
+class TestDisplayToolSuccess:
+    """Tests for `display_tool_success()` — one-line green confirmation."""
+
+    @patch("builtins.print")
+    def test_calls_print_with_green_message(self, mock_print):
+        display_tool_success("write_file", "saved x.txt")
+        assert mock_print.call_count == 1
+        output = mock_print.call_args[0][0]
+        assert isinstance(output, str)
+        # Should contain the message text.
+        assert "saved x.txt" in output
+
+    @patch("builtins.print")
+    def test_message_is_green(self, mock_print):
+        display_tool_success("write_file", "done")
+        output = mock_print.call_args[0][0]
+        assert GREEN in output   # wrapped in green ANSI code
+
+    @patch("builtins.print")
+    def test_empty_message_still_prints(self, mock_print):
+        display_tool_success("write_file", "")
+        assert mock_print.call_count == 1
+
+
+class TestDisplayError:
+    """Tests for `display_error()` — one-line red error message."""
+
+    @patch("builtins.print")
+    def test_calls_print_with_red_message(self, mock_print):
+        display_error("something broke")
+        assert mock_print.call_count == 1
+        output = mock_print.call_args[0][0]
+        assert isinstance(output, str)
+        assert "something broke" in output
+
+    @patch("builtins.print")
+    def test_message_is_red(self, mock_print):
+        display_error("oops")
+        output = mock_print.call_args[0][0]
+        assert RED in output   # wrapped in red ANSI code
+
+    @patch("builtins.print")
+    def test_prefix_included(self, mock_print):
+        display_error("bad arg")
+        output = mock_print.call_args[0][0]
+        assert "Error:" in output
