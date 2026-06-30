@@ -1,65 +1,52 @@
-"""Handler for the /sub command — spawn a sub-agent conversation."""
+"""Handler for the /sub command — spawn an interactive sub-agent conversation."""
 
-from pathlib import Path
-import ollama
-
-from terminal_io.display import print_system, display_error
-from agent import Agent, AgentType, build_system_prompt, user_loop
-from tools import AGENT_TOOLS
+from terminal_io.display import print_system
 
 
 def cmd_sub(rest: str, parent_agent) -> bool | None:
     """Spawn an interactive conversation with a sub-agent.
+
+    Loads the named sub-agent via :meth:`Agent.spawn_subagent`, prints a status
+    banner, then drives the interactive loop using :func:`user_loop`.  On exit
+    the conversation is summarised and injected into the parent so it continues
+    with that context.
 
     Args:
         rest: The sub-agent name (e.g. ``"analyst"`` from ``/sub analyst``).
         parent_agent: The calling agent whose message history receives the summary.
 
     Returns:
-        False to continue the parent loop after returning from the sub-agent.
+        False to continue the parent loop after returning from the sub-agent,
+        or True if an error occurs and we want to break (currently never).
     """
     sub_name = rest.strip()
     if not sub_name:
         print_system("Error", "Usage: /sub <agent-name>  (e.g. /sub analyst)")
         return False
 
-    yaml_path = Path("agents") / f"{sub_name}.yaml"
+    # Lazy imports — ``agent.loop`` pulls from this module, so top-level imports
+    # of any ``agent`` symbol would trigger a circular import at runtime.
+    from agent import Agent, user_loop
+    from tools import AGENT_TOOLS
+
     try:
-        agent_type = AgentType.from_file(str(yaml_path))
-    except FileNotFoundError as exc:
-        print_system(
-            "Error",
-            f"No agent definition found at {yaml_path}\nRun 'ls agents/' to see available agents."
+        sub_agent = Agent.spawn_subagent(
+            sub_name, parent_agent, tool_schemas=AGENT_TOOLS
         )
+    except FileNotFoundError as exc:
+        print_system("Error", str(exc))
         return False
 
-    # Build the system prompt using harness's helper so sub-agents get the same
-    # cwd listing and AGENTS.md injection as the main agent.
-    system_prompt = build_system_prompt(agent_type.system_prompt_path)
-    agent_type.system_prompt = system_prompt  # override with augmented prompt
-
     print_system(
-        f"🤖 Sub-agent '{sub_name}' loaded — {agent_type.model_name}",
+        f"🤖 Sub-agent '{sub_name}' loaded — {sub_agent._agent_type.model_name}",
         "Type a message to begin. Type /exit or /quit to return."
-    )
-
-    # Create the sub-agent using Agent.handle_prompt() for proper tool dispatch.
-    client = ollama.Client(host=parent_agent._ollama_host)
-    context_length = parent_agent._context_length
-    sub_agent = Agent(
-        agent_type=agent_type,
-        ollama_client=client,
-        context_length=context_length,
-        tool_schemas=AGENT_TOOLS,  # let filter_tool_schemas pick the right ones
     )
 
     def _on_exit(agent, messages):
         """Summarize the sub-agent conversation and inject it into the parent.
 
-        Rather than mutating ``parent_agent.messages`` directly, we hand the
-        summary off to ``parent_agent.inject_text()`` so that the injected text
-        is queued and will be prepended to the next user prompt with a clear
-        delimiter so the parent agent can tell it apart from genuine input.
+        The summary is injected via :meth:`inject_text` so it is queued and
+        prepended to the next user prompt with a clear delimiter.
         """
         print_system(
             f"📝 Summarizing '{sub_name}' conversation...",
@@ -77,9 +64,7 @@ def cmd_sub(rest: str, parent_agent) -> bool | None:
         except Exception as exc:
             print_system("Error", f"Failed to summarize sub-agent conversation: {exc}")
 
-    # Run the interactive loop — reuses agent.user_loop for display & prompt handling.
-    user_loop(sub_agent, client, on_exit=_on_exit)
+    # Drive the interactive loop — reuses ``user_loop`` for display & prompt handling.
+    user_loop(sub_agent, sub_agent._client, on_exit=_on_exit)
 
     return False
-
-

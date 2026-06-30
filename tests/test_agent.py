@@ -26,7 +26,11 @@ agent_tools: [execute_bash, write_file]
         try:
             agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
             assert agent_type.model_name == "llama3"
-            assert agent_type.system_prompt == "You are a helpful assistant"
+            # ``from_file`` now builds the augmented system prompt (base file + cwd listing),
+            # so verify it starts with the base text and includes the injected content.
+            assert agent_type.system_prompt.startswith("You are a helpful assistant")
+            assert "Current working directory contents" in agent_type.system_prompt
+            assert "config.yaml" in agent_type.system_prompt
             assert agent_type.agent_tools == ["execute_bash", "write_file"]
         finally:
             os.chdir("/workspaces/harness")
@@ -125,7 +129,9 @@ agent_tools: []
         os.chdir(tmp_path)
         try:
             agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
-            assert agent_type.system_prompt == "File prompt wins"
+            # ``from_file`` now augments the prompt with cwd listing, so check prefix instead of exact match.
+            assert agent_type.system_prompt.startswith("File prompt wins")
+            assert "Current working directory contents" in agent_type.system_prompt
         finally:
             os.chdir("/workspaces/harness")
 

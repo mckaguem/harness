@@ -53,15 +53,13 @@ class Agent:
             if raw_host.rstrip("/").endswith("/v1")
             else raw_host
         )
-        
         # Filter tool schemas based on AgentType.
         from agent.utils import filter_tool_schemas
-        
         if tool_schemas:
             self._tools = filter_tool_schemas(agent_type, tool_schemas)
         else:
             self._tools = []
-        
+
         self.messages: list[dict] = [{"role": "system", "content": agent_type.system_prompt}]
         self._injected_text: Optional[str] = None
     
@@ -173,6 +171,56 @@ class Agent:
                     "name": func_name,
                 })
                 yield (TOOL_RESULT, func_name, result)
+
+    @classmethod
+    def spawn_subagent(cls, sub_name: str, parent_agent: "Agent", tool_schemas=None):
+        """Build and return a configured ``Agent`` for the named sub-agent.
+
+        Pure factory — does **not** start any conversation or display anything.
+        The returned agent can be driven however the caller wants (interactive
+        loop, single prompt via :meth:`handle_prompt`, tool-based invocation, etc.).
+
+        The sub-agent is built from ``agents/<sub_name>.yaml``, inherits the parent's
+        Ollama host and context length, gets an augmented system prompt (cwd listing +
+        AGENTS.md) from :meth:`AgentType._build_system_prompt`, and has its tool schemas
+        filtered by its own ``agent_tools``.
+
+        Args:
+            sub_name: The YAML file stem (e.g. ``"analyst"`` from ``/sub analyst``).
+            parent_agent: The calling agent — used for the Ollama host and context length.
+            tool_schemas: All available tool schemas passed through to :meth:`filter_tool_schemas`.
+                          If ``None``, defaults to all tools (equivalent to ``["*"]``).
+
+        Returns:
+            A fully-constructed :class:`Agent` instance ready for prompting.
+
+        Raises:
+            FileNotFoundError: If the YAML file or its base system prompt file is missing and no
+                               inline fallback was provided in the YAML.
+            ValueError: If required fields are absent or malformed in the YAML.
+        """
+        from pathlib import Path
+        from agent.types import AgentType
+
+        yaml_path = Path("agents") / f"{sub_name}.yaml"
+        # ``AgentType.from_file`` now builds the augmented system prompt internally,
+        # so no extra work is needed here.
+        agent_type = AgentType.from_file(str(yaml_path))
+
+        # Reuse the parent's Ollama client host and context window.
+        client = ollama.Client(host=parent_agent._ollama_host)
+        context_length = parent_agent._context_length
+
+        if tool_schemas is None:
+            from tools import AGENT_TOOLS
+            tool_schemas = AGENT_TOOLS
+
+        return cls(
+            agent_type=agent_type,
+            ollama_client=client,
+            context_length=context_length,
+            tool_schemas=tool_schemas,
+        )
 
     def summarize(self) -> str:
         """Ask the LLM to summarise the conversation accumulated so far.
