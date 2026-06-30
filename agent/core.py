@@ -239,12 +239,17 @@ class Agent:
             tool_schemas=tool_schemas,
         )
 
-    def summarize(self) -> str:
+    def summarize(self, summary_prompt: Optional[str] = None) -> str:
         """Ask the LLM to summarise the conversation accumulated so far.
 
         Builds a temporary message list from recent history and appends a
         summary prompt.  The resulting turn is *not* persisted in ``self.messages``
         — the agent's own history remains untouched.
+
+        Args:
+            summary_prompt: Optional override for how to summarise. If provided,
+                this replaces the default "expert summarizer" system message and
+                user instruction, letting the caller specify any custom guidance.
 
         Returns:
             A string containing the generated summary, or an empty string on
@@ -263,8 +268,15 @@ class Agent:
 
         formatted_transcript = "\n".join(transcript_lines)
     
-        messages= [
-            {
+        if summary_prompt is not None:
+            messages = [
+                {
+                    'role': 'user',
+                    'content': f"{summary_prompt}\n\nConversation transcript:\n\n{formatted_transcript}"
+                }
+            ]
+        else:
+            messages = [ {
                 'role': 'system',
                 'content': (
                     "You are an expert summarizer. Your job is to provide a concise, "

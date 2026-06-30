@@ -10,13 +10,11 @@ from terminal_io import (
     display_agent_response,
 )
 from commands import COMMANDS
-from agent import Agent, AgentType, build_system_prompt, user_loop
+from agent import Agent, AgentType, user_loop
 from tools import AGENT_TOOLS
 
 
 def main():
-    MODEL_NAME = 'hf.co/deepreinforce-ai/Ornith-1.0-35B-GGUF:Q6_K'
-
     ollama_host = os.environ.get(
         "OLLAMA_HOST",
         os.environ.get("OPENAI_BASE_URL", "http://localhost:11435"),
@@ -28,17 +26,8 @@ def main():
     ollama_client = ollama.Client(host=ollama_host)
     context_length = 2**17
 
-    # Build the agent definition. We construct it programmatically here; an 
-    # alternative would be to load from YAML via AgentType.from_file().
-    system_prompt = build_system_prompt()
-    
-    agent_type = AgentType(
-        name="main",
-        model_name=MODEL_NAME,
-        system_prompt_path="system_prompt.txt",
-        system_prompt=system_prompt,
-        agent_tools=["*"],  # use all available tools
-    )
+    # Build the agent definition from YAML.
+    agent_type = AgentType.from_file("agents/main.yaml")
     
     agent = Agent(
         agent_type=agent_type,

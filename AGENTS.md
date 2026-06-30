@@ -17,35 +17,6 @@ The model is hardcoded in `harness.py::main()` — change `MODEL_NAME` to switch
 - Only one tool call per LLM response — loop repeats until the model yields a plain RESPONSE.
 - System prompt is prepended on every Ollama call — keep `system_prompt.txt` lean; put project conventions here instead of cramming them into it.
 
-## Agent Types
-
-Five agent configurations are defined as YAML files in `agents/`. Each specifies a name, model, system prompt path, and allowed tool set.
-
-| Agent | Model | Tools | Role / Purpose |
-|-------|-------|-------|----------------|
-| **main** | Ornith-1.0-35B (Q6_K) | All (`*`) | Primary conversational agent loaded by `harness.py`. Full autonomy. |
-| **analyst** | Ornith-1.0-35B | `read_file`, `grep` | Code analysis and research — reads files, searches codebases. |
-| **coder** | Ornith-1.0-35B | `execute_bash`, `write_file`, `read_file`, `edit_file` | Writing and executing code changes on disk. |
-| **writer** | Ornith-1.0-35B | `write_file`, `read_file` | Document and content writing without shell access. |
-
-Sub-agents are launched via the `/sub <name>` slash command (interactive) or the `run_subagent` tool (programmatic). Each has a dedicated system prompt in `agents/prompts/`.
-
-You should make use of the `run_subagent` tool for tasks where you don't need to know all of the details, such as:
-
-- summarise the contents of a file
-- make a git commit
-- summarise the contents of a directory
-- other tasks which would require looking at a lot of data, but where you only want 
-
-If you are a subagent, you can also make calls to `run_subagent` for sub-tasks, such as:
-
-- summarising a single file when asked to summarise a directory (repeated for each file)
-- updating documentation in a single file when asked to update documentation in a directory (repeated for each file)
-- other tasks which can be divided up into smaller tasks that are mostly independent, and for which you don't need to know the details.
-
-Prefer to run several subagents whenever the task can be reasonably broken down into subtasks.
-
-
 ## Source-file summaries
 
 ### Top-level

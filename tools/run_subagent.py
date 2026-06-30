@@ -9,6 +9,25 @@ the parent's conversation.  The sub-agent has access to all tools unless its
 YAML constrains ``agent_tools``.
 """
 
+output_prompt = """
+## Output Format (CRITICAL)
+
+You must return your final result EXCLUSIVELY as a valid JSON object. Do not include markdown formatting (such as ```json), conversational greetings, explanations, or any text outside of the JSON structure. 
+
+Your output must adhere strictly to this schema:
+{
+  "summary_of_actions": "A concise, high-level summary of what you accomplished.",
+  "actionable_data": {
+    "file_paths": ["/exact/path/to/file1.py"],
+    "line_numbers": [42, 89],
+    "verbatim_snippets": ["def parse_data():", "return None"]
+  },
+  "unresolved_issues": "Detailed explanation of any errors encountered, tools that failed, or data you could not find. Output null if everything succeeded."
+}
+
+If you are reading or modifying code, the `actionable_data` fields must be exhaustively populated so the next agent does not have to re-read the files.
+"""
+
 
 def run_subagent(sub_agent: str, task: str) -> str:
     """Spawn a named sub-agent and execute *task* on it.
@@ -31,7 +50,9 @@ def run_subagent(sub_agent: str, task: str) -> str:
         # contextvar bound by handle_prompt().
         sub = Agent.spawn_subagent(sub_agent)  # type: ignore[call-arg]
         result_text = ""
-        for kind, *args in sub.handle_prompt(task):
+        prompt = f"{task}\n\n{output_prompt}"
+
+        for kind, *args in sub.handle_prompt(prompt):
             if kind == RESPONSE:
                 result_text = args[0]
 
