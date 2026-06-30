@@ -1,4 +1,4 @@
 name: "writer"
 model_name: "hf.co/deepreinforce-ai/Ornith-1.0-35B-GGUF:Q6_K"
 system_prompt_path: "agents/prompts/writer.txt"
-agent_tools: ["write_file", "read_file"]
+agent_tools: ["write_file", "read_file", "run_subagent"]
