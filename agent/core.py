@@ -1,11 +1,15 @@
 """Agent class — owns the conversation and processes one user prompt to completion."""
 
+import contextvars
 import json
 import os
 from typing import Dict, Generator, List, Optional
 
 import ollama
 
+
+# Current agent in the running conversation (set by handle_prompt).
+CURRENT_AGENT: contextvars.ContextVar = contextvars.ContextVar("current_agent", default=None)
 
 # ---------------------------------------------------------------------------
 # Output kinds yielded by ``handle_prompt``.
@@ -62,6 +66,10 @@ class Agent:
 
         self.messages: list[dict] = [{"role": "system", "content": agent_type.system_prompt}]
         self._injected_text: Optional[str] = None
+
+        # Bind this instance as the current agent in the thread context so tools
+        # can spawn sub-agents without an explicit parent reference.
+        CURRENT_AGENT.set(self)
     
     # -- injection API -------------------------------------------------------
 
@@ -173,7 +181,8 @@ class Agent:
                 yield (TOOL_RESULT, func_name, result)
 
     @classmethod
-    def spawn_subagent(cls, sub_name: str, parent_agent: "Agent", tool_schemas=None):
+    def spawn_subagent(cls, sub_name: str, parent_agent: Optional["Agent"] = None,
+                       tool_schemas: Optional[List[Dict]] = None):
         """Build and return a configured ``Agent`` for the named sub-agent.
 
         Pure factory — does **not** start any conversation or display anything.
@@ -208,6 +217,14 @@ class Agent:
         agent_type = AgentType.from_file(str(yaml_path))
 
         # Reuse the parent's Ollama client host and context window.
+        if parent_agent is None:
+            from agent.core import CURRENT_AGENT
+            parent_agent = CURRENT_AGENT.get()
+        if parent_agent is None:
+            raise RuntimeError(
+                "No sub-agent name provided and no current agent in context. "
+                "Pass sub_name or call run_subagent from within a handle_prompt loop."
+            )
         client = ollama.Client(host=parent_agent._ollama_host)
         context_length = parent_agent._context_length
 
