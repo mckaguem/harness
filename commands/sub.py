@@ -4,7 +4,7 @@ from pathlib import Path
 import ollama
 
 from terminal_io.display import print_system, display_error
-from agent import Agent, AgentType
+from agent import Agent, AgentType, build_system_prompt, user_loop
 from tools import AGENT_TOOLS
 
 
@@ -35,7 +35,6 @@ def cmd_sub(rest: str, parent_agent) -> bool | None:
 
     # Build the system prompt using harness's helper so sub-agents get the same
     # cwd listing and AGENTS.md injection as the main agent.
-    from harness import build_system_prompt, run_loop
     system_prompt = build_system_prompt(agent_type.system_prompt_path)
     agent_type.system_prompt = system_prompt  # override with augmented prompt
 
@@ -78,8 +77,8 @@ def cmd_sub(rest: str, parent_agent) -> bool | None:
         except Exception as exc:
             print_system("Error", f"Failed to summarize sub-agent conversation: {exc}")
 
-    # Run the interactive loop — reuses harness.run_loop for display & prompt handling.
-    run_loop(sub_agent, client, on_exit=_on_exit)
+    # Run the interactive loop — reuses agent.user_loop for display & prompt handling.
+    user_loop(sub_agent, client, on_exit=_on_exit)
 
     return False
 

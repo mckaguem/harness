@@ -11,13 +11,13 @@ class TestBuildSystemPrompt:
     """Tests for build_system_prompt() function."""
 
     def test_returns_string(self):
-        from harness import build_system_prompt
+        from agent.utils import build_system_prompt
         result = build_system_prompt()
         assert isinstance(result, str)
 
     def test_includes_base_prompt_content(self):
         """build_system_prompt should include content from system_prompt.txt."""
-        from harness import build_system_prompt
+        from agent.utils import build_system_prompt
         result = build_system_prompt()
         
         # Read the base prompt file directly
@@ -28,7 +28,7 @@ class TestBuildSystemPrompt:
 
     def test_includes_cwd_listing(self):
         """build_system_prompt should include current working directory contents."""
-        from harness import build_system_prompt
+        from agent.utils import build_system_prompt
         result = build_system_prompt()
         
         # Should contain "Current working directory contents:" section
@@ -41,7 +41,7 @@ class TestBuildSystemPrompt:
 
     def test_includes_agents_md_when_exists(self):
         """build_system_prompt should append AGENTS.md if it exists."""
-        from harness import build_system_prompt
+        from agent.utils import build_system_prompt
         
         # Verify AGENTS.md exists (it does in this project)
         agents_path = Path.cwd() / "AGENTS.md"
@@ -67,7 +67,7 @@ class TestBuildSystemPrompt:
             # Change to tmp directory (AGENTS.md won't exist there by default)
             os.chdir(tmp_path)
             
-            from harness import build_system_prompt
+            from agent.utils import build_system_prompt
             
             result = build_system_prompt()
             assert isinstance(result, str)
@@ -86,7 +86,7 @@ class TestBuildSystemPrompt:
             # Create a minimal system_prompt.txt
             (tmp_path / "system_prompt.txt").write_text("Test prompt")
             
-            from harness import build_system_prompt
+            from agent.utils import build_system_prompt
             
             # Should not raise exception even if other files have issues
             result = build_system_prompt()
@@ -100,14 +100,14 @@ class TestRunLoop:
 
     def test_run_loop_calls_print_system_on_start(self):
         """run_loop should print a welcome message on startup."""
-        from harness import run_loop
+        from agent.loop import user_loop
         
         # Create mock agent and client
         mock_agent = MagicMock()
         mock_agent._agent_type.model_name = "test-model"
         mock_client = MagicMock()
         
-        with patch("harness.print_system") as mock_print:
+        with patch("agent.loop.print_system") as mock_print:
             # Mock prompt_user to return /exit immediately (to break loop)
             call_count = [0]
             
@@ -117,21 +117,21 @@ class TestRunLoop:
                     return "/exit"
                 raise AssertionError("Should only be called once")
             
-            with patch("harness.prompt_user", side_effect=side_effect):
-                run_loop(mock_agent, mock_client)
+            with patch("agent.loop.prompt_user", side_effect=side_effect):
+                user_loop(mock_agent, mock_client)
             
             # Should have called print_system once
             assert mock_print.call_count == 1
 
     def test_run_loop_handles_exit_command(self):
         """run_loop should exit when user types /exit."""
-        from harness import run_loop
+        from agent.loop import user_loop
         
         mock_agent = MagicMock()
         mock_agent._agent_type.model_name = "test-model"
         mock_client = MagicMock()
         
-        with patch("harness.print_system"):
+        with patch("agent.loop.print_system"):
             # First call returns /exit to break loop
             call_count = [0]
             
@@ -141,18 +141,18 @@ class TestRunLoop:
                     return "/exit"
                 raise AssertionError("Should only be called once")
             
-            with patch("harness.prompt_user", side_effect=side_effect):
-                run_loop(mock_agent, mock_client)
+            with patch("agent.loop.prompt_user", side_effect=side_effect):
+                user_loop(mock_agent, mock_client)
 
     def test_run_loop_handles_quit_command(self):
         """run_loop should exit when user types /quit."""
-        from harness import run_loop
+        from agent.loop import user_loop
         
         mock_agent = MagicMock()
         mock_agent._agent_type.model_name = "test-model"
         mock_client = MagicMock()
         
-        with patch("harness.print_system"):
+        with patch("agent.loop.print_system"):
             # First call returns /quit to break loop
             call_count = [0]
             
@@ -162,12 +162,12 @@ class TestRunLoop:
                     return "/quit"
                 raise AssertionError("Should only be called once")
             
-            with patch("harness.prompt_user", side_effect=side_effect):
-                run_loop(mock_agent, mock_client)
+            with patch("agent.loop.prompt_user", side_effect=side_effect):
+                user_loop(mock_agent, mock_client)
 
     def test_run_loop_displays_agent_response(self):
         """run_loop should display agent responses."""
-        from harness import run_loop
+        from agent.loop import user_loop
         
         mock_agent = MagicMock()
         mock_agent._agent_type.model_name = "test-model"
@@ -178,7 +178,7 @@ class TestRunLoop:
             ("response", "Hello world!", {"eval_count": 10})
         ]
         
-        with patch("harness.print_system"):
+        with patch("agent.loop.print_system"):
             # Provide normal message then /exit to break loop
             call_count = [0]
             
@@ -190,16 +190,16 @@ class TestRunLoop:
                     return "/exit"
                 raise AssertionError("Should only be called twice")
             
-            with patch("harness.prompt_user", side_effect=side_effect):
-                with patch("harness.display_agent_response") as mock_display:
-                    run_loop(mock_agent, mock_client)
+            with patch("agent.loop.prompt_user", side_effect=side_effect):
+                with patch("agent.loop.display_agent_response") as mock_display:
+                    user_loop(mock_agent, mock_client)
                     
                     # Should have called display_agent_response once
                     assert mock_display.call_count == 1
 
     def test_run_loop_displays_tool_calls(self):
         """run_loop should display tool calls."""
-        from harness import run_loop
+        from agent.loop import user_loop
         
         mock_agent = MagicMock()
         mock_agent._agent_type.model_name = "test-model"
@@ -210,7 +210,7 @@ class TestRunLoop:
             ("tool_call", "execute_bash", '{"command": "ls"}')
         ]
         
-        with patch("harness.print_system"):
+        with patch("agent.loop.print_system"):
             # Provide normal message then /exit to break loop
             call_count = [0]
             
@@ -222,16 +222,16 @@ class TestRunLoop:
                     return "/exit"
                 raise AssertionError("Should only be called twice")
             
-            with patch("harness.prompt_user", side_effect=side_effect):
-                with patch("harness.display_tool_call") as mock_display:
-                    run_loop(mock_agent, mock_client)
+            with patch("agent.loop.prompt_user", side_effect=side_effect):
+                with patch("agent.loop.display_tool_call") as mock_display:
+                    user_loop(mock_agent, mock_client)
                     
                     # Should have called display_tool_call once
                     assert mock_display.call_count == 1
 
     def test_run_loop_displays_tool_results(self):
         """run_loop should display tool results."""
-        from harness import run_loop
+        from agent.loop import user_loop
         
         mock_agent = MagicMock()
         mock_agent._agent_type.model_name = "test-model"
@@ -242,7 +242,7 @@ class TestRunLoop:
             ("tool_result", "execute_bash", "file1.txt\nfile2.txt")
         ]
         
-        with patch("harness.print_system"):
+        with patch("agent.loop.print_system"):
             # Provide normal message then /exit to break loop
             call_count = [0]
             
@@ -254,16 +254,16 @@ class TestRunLoop:
                     return "/exit"
                 raise AssertionError("Should only be called twice")
             
-            with patch("harness.prompt_user", side_effect=side_effect):
-                with patch("harness.display_tool_result") as mock_display:
-                    run_loop(mock_agent, mock_client)
+            with patch("agent.loop.prompt_user", side_effect=side_effect):
+                with patch("agent.loop.display_tool_result") as mock_display:
+                    user_loop(mock_agent, mock_client)
                     
                     # Should have called display_tool_result once
                     assert mock_display.call_count == 1
 
     def test_run_loop_displays_errors(self):
         """run_loop should display error messages."""
-        from harness import run_loop
+        from agent.loop import user_loop
         
         mock_agent = MagicMock()
         mock_agent._agent_type.model_name = "test-model"
@@ -274,7 +274,7 @@ class TestRunLoop:
             ("ERROR", "Connection timeout")
         ]
         
-        with patch("harness.print_system"):
+        with patch("agent.loop.print_system"):
             # Provide normal message then /exit to break loop
             call_count = [0]
             
@@ -286,16 +286,16 @@ class TestRunLoop:
                     return "/exit"
                 raise AssertionError("Should only be called twice")
             
-            with patch("harness.prompt_user", side_effect=side_effect):
-                with patch("harness.display_error") as mock_display:
-                    run_loop(mock_agent, mock_client)
+            with patch("agent.loop.prompt_user", side_effect=side_effect):
+                with patch("agent.loop.display_error") as mock_display:
+                    user_loop(mock_agent, mock_client)
                     
                     # Should have called display_error once
                     assert mock_display.call_count == 1
 
     def test_run_loop_handles_multiple_outputs(self):
         """run_loop should handle multiple outputs from a single prompt."""
-        from harness import run_loop
+        from agent.loop import user_loop
         
         mock_agent = MagicMock()
         mock_agent._agent_type.model_name = "test-model"
@@ -308,7 +308,7 @@ class TestRunLoop:
             ("tool_result", "execute_bash", "file1.txt"),
         ]
         
-        with patch("harness.print_system"):
+        with patch("agent.loop.print_system"):
             # Provide normal message then /exit to break loop
             call_count = [0]
             
@@ -320,11 +320,11 @@ class TestRunLoop:
                     return "/exit"
                 raise AssertionError("Should only be called twice")
             
-            with patch("harness.prompt_user", side_effect=side_effect):
-                with patch("harness.display_agent_response") as mock_resp:
-                    with patch("harness.display_tool_call") as mock_tool:
-                        with patch("harness.display_tool_result") as mock_result:
-                            run_loop(mock_agent, mock_client)
+            with patch("agent.loop.prompt_user", side_effect=side_effect):
+                with patch("agent.loop.display_agent_response") as mock_resp:
+                    with patch("agent.loop.display_tool_call") as mock_tool:
+                        with patch("agent.loop.display_tool_result") as mock_result:
+                            user_loop(mock_agent, mock_client)
                             
                             # Should have called each display function once
                             assert mock_resp.call_count == 1
@@ -333,7 +333,7 @@ class TestRunLoop:
 
     def test_run_loop_ignores_unknown_command(self):
         """run_loop should continue when encountering unknown slash commands."""
-        from harness import run_loop
+        from agent.loop import user_loop
         
         mock_agent = MagicMock()
         mock_agent._agent_type.model_name = "test-model"
@@ -344,7 +344,7 @@ class TestRunLoop:
             ("response", "Test response", {"eval_count": 10})
         ]
         
-        with patch("harness.print_system"):
+        with patch("agent.loop.print_system"):
             # First call: unknown command, second call: exit
             call_count = [0]
             
@@ -356,5 +356,5 @@ class TestRunLoop:
                     return "/exit"
                 raise AssertionError("Should only be called twice")
             
-            with patch("harness.prompt_user", side_effect=side_effect):
-                run_loop(mock_agent, mock_client)
+            with patch("agent.loop.prompt_user", side_effect=side_effect):
+                user_loop(mock_agent, mock_client)

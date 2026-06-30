@@ -1,13 +1,10 @@
-"""Agent class and AgentType definition."""
+"""Agent class — owns the conversation and processes one user prompt to completion."""
 
 import json
 import os
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Generator, List, Dict, Optional
+from typing import Dict, Generator, List, Optional
 
 import ollama
-import yaml
 
 
 # ---------------------------------------------------------------------------
@@ -21,113 +18,6 @@ ERROR = "error"              # An error that is not tied to a specific tool resu
 
 
 # ---------------------------------------------------------------------------
-# AgentType — definition of an agent (model, tools, system prompt).
-# ---------------------------------------------------------------------------
-
-@dataclass
-class AgentType:
-    """Definition of an agent — its model, tools, and system prompt."""
-    
-    name: str = ""
-    model_name: str = ""
-    system_prompt_path: str = "system_prompt.txt"  # Path to the base system prompt file
-    system_prompt: str = ""
-    agent_tools: List[str] = field(default_factory=list)
-    
-    @classmethod
-    def from_file(cls, path: str) -> "AgentType":
-        """Load agent definition from a YAML file.
-        
-        Expected format::
-        
-            name: "my_agent"                              # optional display name
-            model_name: "model/identifier"
-            system_prompt_path: "system_prompt.txt"       # or use inline system_prompt
-            agent_tools: [execute_bash, write_file]       # or ["*"] for all
-        
-        Args:
-            path: Path to the YAML file.
-            
-        Returns:
-            An AgentType instance.
-        """
-        yaml_path = Path(path)
-        if not yaml_path.is_file():
-            raise FileNotFoundError(f"Agent definition file not found: {path}")
-        
-        with open(yaml_path, "r", encoding="utf-8") as f:
-            config = yaml.safe_load(f)
-        
-        name = config.get("name", Path(path).stem)  # fall back to filename stem
-        model_name = config.get("model_name")
-        if not model_name:
-            raise ValueError("YAML must contain 'model_name'")
-        
-        # Load system prompt from file or use inline text
-        system_prompt_path = config.get("system_prompt_path", "system_prompt.txt")
-        agent_tools = config.get("agent_tools", [])
-        
-        if not isinstance(agent_tools, list):
-            raise ValueError("'agent_tools' must be a list of strings")
-        
-        # Load system prompt from file
-        sys_prompt_file = Path(system_prompt_path)
-        if sys_prompt_file.is_file():
-            system_prompt = sys_prompt_file.read_text(encoding="utf-8").strip()
-        else:
-            # Use inline system_prompt if provided
-            system_prompt = config.get("system_prompt", "")
-        
-        return cls(
-            name=name,
-            model_name=model_name,
-            system_prompt_path=system_prompt_path,
-            system_prompt=system_prompt,
-            agent_tools=agent_tools
-        )
-
-
-# ---------------------------------------------------------------------------
-# Tool schema filtering.
-# ---------------------------------------------------------------------------
-
-def filter_tool_schemas(agent_type: AgentType, all_schemas: List[Dict]) -> List[Dict]:
-    """Filter tool schemas to include only those named in ``agent_type.agent_tools``.
-    
-    If ``agent_type.agent_tools`` contains ``"*"``, all schemas are returned.
-    Otherwise, only schemas whose ``function.name`` is in the list are kept.
-    
-    Args:
-        agent_type: The agent definition specifying which tools to use.
-        all_schemas: All available tool schema dicts (each must have a 
-                     ``"function"`` key with a ``"name"`` field).
-                     
-    Returns:
-        Filtered list of tool schemas.
-        
-    Raises:
-        ValueError: If any name in ``agent_type.agent_tools`` is not in the 
-                    available schemas (and the name is not ``"*"``).
-    """
-    if "*" in agent_type.agent_tools:
-        return all_schemas
-    
-    # Build a lookup of name -> schema for fast matching.
-    name_to_schema = {schema["function"]["name"]: schema for schema in all_schemas}
-    
-    requested_names = set(agent_type.agent_tools)
-    
-    missing = requested_names - name_to_schema.keys()
-    if missing:
-        raise ValueError(
-            f"AgentType '{agent_type.model_name}' requests tools "
-            f"{sorted(missing)} that are not available."
-        )
-    
-    return [name_to_schema[name] for name in agent_type.agent_tools]
-
-
-# ---------------------------------------------------------------------------
 # Agent — owns the conversation and processes one user prompt to completion.
 # ---------------------------------------------------------------------------
 
@@ -135,7 +25,7 @@ class Agent:
     """Owns the conversation state and handles a single user turn."""
     
     def __init__(self, 
-                 agent_type: AgentType, 
+                 agent_type: "AgentType", 
                  ollama_client: "ollama.Client", 
                  context_length: int,
                  tool_schemas: Optional[List[Dict]] = None):
@@ -165,6 +55,8 @@ class Agent:
         )
         
         # Filter tool schemas based on AgentType.
+        from agent.utils import filter_tool_schemas
+        
         if tool_schemas:
             self._tools = filter_tool_schemas(agent_type, tool_schemas)
         else:
