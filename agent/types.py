@@ -97,3 +97,15 @@ class AgentType:
             system_prompt=system_prompt,
             agent_tools=agent_tools,
         )
+    
+    def inject_extra_system_prompt(self, text: str) -> None:
+        """Append additional text to the existing system prompt.
+
+        This is useful for injecting context-specific instructions without
+        rebuilding the entire augmented prompt (which includes cwd listing + AGENTS.md).
+
+        Args:
+            text: The string to append. Leading/trailing whitespace should be
+                  provided by the caller if desired.
+        """
+        self.system_prompt = f"{self.system_prompt}\n\n{text}"

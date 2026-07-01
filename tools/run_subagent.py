@@ -1,32 +1,49 @@
 """run_subagent — spawn a sub-agent, run a task, return the result.
 
 Creates a fresh :class:`Agent` from ``agents/<sub_agent>.yaml``, runs
-``handle_prompt(task)`` synchronously on it, captures the final response text,
-and returns it as a string to the calling agent.
+``handle_prompt(task)`` synchronously on it, and returns structured findings
+back to the calling (parent) agent.
 
 Each call spawns an isolated sub-agent — no shared history with prior calls or
 the parent's conversation.  The sub-agent has access to all tools unless its
-YAML constrains ``agent_tools``.
+YAML constrains ``agent_tools``, plus a runtime-injected ``complete_task`` tool
+that it must invoke exactly once when done.
+
+## Flow
+
+1. Load the termination prompt from :file:`run_subagent.txt` (repo root).
+2. Spawn the sub-agent, inject the termination text into its system_prompt via
+   :meth:`AgentType.inject_extra_system_prompt`, and pass ``complete_task`` as
+   an extra tool schema via :meth:`Agent.spawn_subagent`.
+3. Drive the sub-agent with ``task + termination_prompt``.  When the sub-agent
+   calls ``complete_task``, dispatch that call directly, capture its return
+   string (the parsed JSON payload), and return it immediately to the parent —
+   bypassing any further RESPONSE yields.
+
+If the sub-agent never calls ``complete_task`` (i.e. it falls back to a plain
+text response), we fall through and return that response text as before.
 """
 
-output_prompt = """
-## Output Format (CRITICAL)
 
-You must return your final result EXCLUSIVELY as a valid JSON object. Do not include markdown formatting (such as ```json), conversational greetings, explanations, or any text outside of the JSON structure. 
+def _load_termination_prompt() -> str:
+    """Read the termination-prompt file (part 1 of :file:`run_subagent.txt`).
 
-Your output must adhere strictly to this schema:
-{
-  "summary_of_actions": "A concise, high-level summary of what you accomplished.",
-  "actionable_data": {
-    "file_paths": ["/exact/path/to/file1.py"],
-    "line_numbers": [42, 89],
-    "verbatim_snippets": ["def parse_data():", "return None"]
-  },
-  "unresolved_issues": "Detailed explanation of any errors encountered, tools that failed, or data you could not find. Output null if everything succeeded."
-}
+    The file contains two sections separated by ``---------------``; this
+    function returns everything *before* that separator — the role description
+    and termination protocol, which is what we want to append to the sub-agent's
+    system prompt.
+    """
+    from pathlib import Path
 
-If you are reading or modifying code, the `actionable_data` fields must be exhaustively populated so the next agent does not have to re-read the files.
-"""
+    path = Path("run_subagent.txt")
+    if not path.is_file():
+        return ""  # graceful fallback; caller decides how to handle
+
+    content = path.read_text(encoding="utf-8")
+    separator_idx = content.find("---------------")
+    if separator_idx == -1:
+        return content.strip()
+    return content[:separator_idx].strip()
 
 
 def run_subagent(sub_agent: str, task: str) -> str:
@@ -39,21 +56,53 @@ def run_subagent(sub_agent: str, task: str) -> str:
               sub-agent's :meth:`Agent.handle_prompt` loop.
 
     Returns:
-        The final response text produced by the sub-agent (the last
-        ``RESPONSE`` yield from its ``handle_prompt`` generator), or an error
-        message if spawning or running failed.
+        On success, one of:
+        * If the sub-agent invokes :func:`complete_task <tools.complete_task>`,
+          the parsed-and-echoed JSON payload (the structured findings) is
+          returned to the parent agent — this is the normal/expected path.
+        * Otherwise, the final ``RESPONSE`` text produced by the sub-agent.
+        An error message if spawning or running failed.
     """
+    import json as _json
+
     try:
-        from agent import Agent, RESPONSE
+        from agent import Agent, RESPONSE, TOOL_CALL  # noqa: F401 (explicit guards)
+
+        termination_prompt = _load_termination_prompt()
 
         # No explicit parent needed — spawn_subagent falls back to the current
         # contextvar bound by handle_prompt().
-        sub = Agent.spawn_subagent(sub_agent)  # type: ignore[call-arg]
-        result_text = ""
-        prompt = f"{task}\n\n{output_prompt}"
+        sub = Agent.spawn_subagent(
+            sub_agent,
+            extra_tools=[_get_complete_task_def()],  # inject complete_task at runtime
+        )
 
-        for kind, *args in sub.handle_prompt(prompt):
-            if kind == RESPONSE:
+        # Append termination protocol to sub-agent's existing system prompt.
+        sub._agent_type.inject_extra_system_prompt(termination_prompt)
+
+
+        result_text = ""
+        for kind, *args in sub.handle_prompt(task):
+            if kind == TOOL_CALL and args[0] == "complete_task":
+                # Dispatch the complete_task call directly and capture its return value.
+                func_name = args[0]
+                try:
+                    args_data = _json.loads(args[1])
+                except Exception as exc:
+                    description = (
+                        f"Error parsing complete_task arguments ({exc}). "
+                        "The sub-agent produced malformed JSON."
+                    )
+                    # Append this error to the sub's message log so it can self-correct,
+                    # then break — we've already yielded an ERROR, which is enough signal.
+                    return description
+
+                from tools.dispatcher import dispatch
+
+                result = dispatch(func_name, args_data)
+                return result  # <-- hand structured findings back to parent agent
+
+            elif kind == RESPONSE:
                 result_text = args[0]
 
         return result_text if result_text.strip() else "(sub-agent produced no output)"
@@ -62,6 +111,13 @@ def run_subagent(sub_agent: str, task: str) -> str:
         return f"Error: {exc}"
     except Exception as exc:
         return f"Error running sub-agent '{sub_agent}': {exc}"
+
+
+def _get_complete_task_def():
+    """Lazily import and return the ``complete_task`` function_def dict."""
+    from tools.complete_task import function_def
+
+    return function_def
 
 
 function_def = {

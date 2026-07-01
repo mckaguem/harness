@@ -32,7 +32,8 @@ class Agent:
                  agent_type: "AgentType", 
                  ollama_client: "ollama.Client", 
                  context_length: int,
-                 tool_schemas: Optional[List[Dict]] = None):
+                 tool_schemas: Optional[List[Dict]] = None,
+                 extra_tools: Optional[List[Dict]] = None):
         """Initialize an Agent.
         
         Args:
@@ -42,6 +43,10 @@ class Agent:
             tool_schemas: All available tool schema dicts. If provided, the 
                          agent will only expose the schemas whose names are in 
                          ``agent_type.agent_tools`` (or all if ``"*"`` is used).
+            extra_tools: Additional function_def dicts that should be added to
+                         the filtered tool list regardless of YAML constraints.
+                         Useful for tools injected at runtime (e.g. ``complete_task``
+                         in sub-agent sessions) without modifying agent YAML files.
         """
         self._agent_type = agent_type
         self._client = ollama_client
@@ -63,6 +68,10 @@ class Agent:
             self._tools = filter_tool_schemas(agent_type, tool_schemas)
         else:
             self._tools = []
+        
+        # Append any extra tools (e.g. runtime-injected ones like complete_task).
+        if extra_tools:
+            self._tools.extend(extra_tools)
 
         self.messages: list[dict] = [{"role": "system", "content": agent_type.system_prompt}]
         self._injected_text: Optional[str] = None
@@ -182,7 +191,8 @@ class Agent:
 
     @classmethod
     def spawn_subagent(cls, sub_name: str, parent_agent: Optional["Agent"] = None,
-                       tool_schemas: Optional[List[Dict]] = None):
+                       tool_schemas: Optional[List[Dict]] = None,
+                       extra_tools: Optional[List[Dict]] = None):
         """Build and return a configured ``Agent`` for the named sub-agent.
 
         Pure factory — does **not** start any conversation or display anything.
@@ -199,6 +209,9 @@ class Agent:
             parent_agent: The calling agent — used for the Ollama host and context length.
             tool_schemas: All available tool schemas passed through to :meth:`filter_tool_schemas`.
                           If ``None``, defaults to all tools (equivalent to ``["*"]``).
+            extra_tools: Additional function_def dicts added after filtering. Useful for
+                         runtime-injected tools like ``complete_task`` without modifying
+                         agent YAML files.
 
         Returns:
             A fully-constructed :class:`Agent` instance ready for prompting.
@@ -237,6 +250,7 @@ class Agent:
             ollama_client=client,
             context_length=context_length,
             tool_schemas=tool_schemas,
+            extra_tools=extra_tools,
         )
 
     def summarize(self, summary_prompt: Optional[str] = None) -> str:
