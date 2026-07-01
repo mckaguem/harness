@@ -75,6 +75,12 @@ class Agent:
 
         self.messages: list[dict] = [{"role": "system", "content": agent_type.system_prompt}]
         self._injected_text: Optional[str] = None
+        
+        # Cache-friendly task state management — all dynamic state is injected
+        # at the tail end of messages, never touching messages[0].
+        from agent.task_list import get_task_list, TaskList
+        self._task_list: Optional[TaskList] = get_task_list()
+        self._max_loops: int = 5  # Safety ceiling to prevent infinite loops
 
         # Bind this instance as the current agent in the thread context so tools
         # can spawn sub-agents without an explicit parent reference.
@@ -95,6 +101,55 @@ class Agent:
         self._injected_text = f"<<INJECTED>>\n{s}\n<<END_INJECTED>>"
 
     # -- internal helpers ----------------------------------------------------
+
+    def _inject_task_state(self, messages: list[dict]) -> list[dict]:
+        """Inject task state into the last user message without modifying system prompt.
+        
+        This method preserves Ollama's prefix cache by keeping messages[0] (system)
+        completely static. It intercepts the very last message in the array (which
+        should be the latest user turn) and wraps its content with formatted task
+        state markdown using explicit structural delimiters.
+        
+        Args:
+            messages: The conversation history to modify.
+            
+        Returns:
+            A new list of messages with task state injected into the last user message.
+        """
+        if not self._task_list or len(messages) < 2:
+            return messages
+        
+        # Create a copy to avoid mutating the original
+        modified_messages = messages.copy()
+        
+        # Find the last user message (index -1 should be the latest user turn)
+        last_msg_idx = len(modified_messages) - 1
+        if modified_messages[last_msg_idx]["role"] != "user":
+            return messages  # Don't modify non-user messages
+        
+        # Get original content and task state markdown
+        original_content = modified_messages[last_msg_idx]["content"]
+        task_state_md = self._task_list.to_markdown()
+        
+        # Wrap with explicit structural delimiters
+        wrapped_content = f"""
+[SYSTEM STATE]
+The current state of your task execution list is:
+{task_state_md}
+
+Execute the next logical step based on this state.
+
+[USER NEW INSTRUCTION]
+{original_content}
+"""
+        
+        # Update only the content, preserving role and other metadata
+        modified_messages[last_msg_idx] = {
+            **modified_messages[last_msg_idx],
+            "content": wrapped_content
+        }
+        
+        return modified_messages
 
     def _chat(self, messages: list[dict]) -> str:
         """Send *messages* to the Ollama client and return the response content.
@@ -143,10 +198,19 @@ class Agent:
 
         self.messages.append({"role": "user", "content": effective_input})
         
+        loop_count = 0
         while True:
+            # Safety ceiling to prevent infinite loops (Component 4)
+            if loop_count >= self._max_loops:
+                yield (ERROR, f"Maximum loop count ({self._max_loops}) exceeded. Breaking out of handle_prompt.")
+                break
+            
+            # Apply cache-friendly context injection before sending to Ollama (Component 3)
+            messages_to_send = self._inject_task_state(self.messages)
+            
             response = self._client.chat(
                 model=self._agent_type.model_name,
-                messages=self.messages,
+                messages=messages_to_send,
                 tools=self._tools if self._tools else None,
                 options={"num_ctx": self._context_length},
             )
@@ -162,6 +226,25 @@ class Agent:
             for tool_call in message["tool_calls"]:
                 func_name = tool_call["function"]["name"]
                 args = tool_call["function"]["arguments"]
+                
+                # Termination circuit breaker (Component 4)
+                if func_name == "complete_task":
+                    if self._task_list and self._task_list.has_incomplete_tasks():
+                        # Block termination - append error instruction to history
+                        blocked_message = {
+                            "role": "user",
+                            "content": (
+                                "[SYSTEM ERROR] Execution termination blocked. "
+                                "You still have incomplete tasks in your state machine. "
+                                "You must finish them or update their status to 'failed' "
+                                "before you can invoke complete_task."
+                            )
+                        }
+                        self.messages.append(blocked_message)
+                        yield (TOOL_RESULT, func_name, "_error_", 
+                               blocked_message["content"])
+                        loop_count += 1
+                        continue
                 
                 try:
                     args_str = json.dumps(args, indent=2)
