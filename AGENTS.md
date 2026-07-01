@@ -1,116 +1,143 @@
 # Project: Harness — Local Ollama Agent CLI
 
-## What this is
-A terminal-based chat harness that connects to a local LLM (via **Ollama**) and gives it tools for executing bash commands, reading/writing/editing files, recursive grep search, and spawning specialized sub-agents. It's the runtime you're running inside.
+## 1. Project Overview & Mission
 
-## Running it
-```bash
-python harness.py            # uses OLLAMA_HOST env var, or http://localhost:11435
-OLLAMA_HOST=http://… python harness.py   # custom Ollama endpoint
+- **Core Objective:** Provide a terminal-based, self-contained agent runtime that connects to a local LLM (via Ollama) and equips it with sandboxed tools — bash execution, file I/O, recursive grep, and sub-agent delegation — enabling autonomous coding, analysis, and system administration tasks without cloud dependencies.
+- **Target Audience/Use Case:** Developers who want an extensible, offline-capable AI coding assistant that can read/write code, run commands, spawn specialized workers (analyst, coder, writer), and operate entirely within the current working directory for safety.
+
+## 2. Technical Stack & Architecture
+
+| Layer | Technology |
+|-------|-----------|
+| **Language & Runtime** | Python 3.10+ (uses type hints like `str | None`, walrus operators) |
+| **LLM Client** | `ollama` — connects to local Ollama instance (default `http://localhost:11435`, overridable via `OLLAMA_HOST`) |
+| **Terminal UI** | `rich` for colored output, Unicode box-drawing, syntax highlighting; `prompt_toolkit` for readline-style input with history and tab completion |
+| **Config Parsing** | `pyyaml` — agent definitions are YAML files in `agents/` |
+| **Architecture Pattern** | Monolithic modular package — generator-driven conversation loop with clear separation between agent logic (`agent/`) and display logic (`terminal_io/`). Zero-registration auto-discovery for tools and sub-agents. |
+
+### Key Runtime Flow
+
+1. `harness.py::main()` resolves Ollama host, creates client, loads `agents/main.yaml` via `AgentType.from_file()`, filters tool schemas, instantiates `Agent`, launches `user_loop()`.
+2. `handle_prompt()` is a generator yielding typed tuples `(RESPONSE | TOOL_CALL | TOOL_RESULT | ERROR, *args)` — one per LLM interaction cycle.
+3. Each cycle: append user message → call Ollama chat API (with tools if model supports them) → dispatch tool calls via `tools.dispatcher` → append results → repeat until plain RESPONSE or max-loop ceiling (5).
+
+## 3. Agent Persona & Operational Rules
+
+- **Role:** You are an autonomous, senior full-stack engineer operating within a terminal agent runtime. You have sandboxed access to shell commands and file operations, all bounded by path-safety guards.
+- **Tone & Behavioral Guardrails:**
+  - Be concise and direct. Do not engage in conversational filler.
+  - Prioritize readability and maintainability over clever micro-optimizations unless performance is a stated requirement.
+  - **Do not guess:** If a requirement, API contract, or library version is ambiguous, stop and ask the user for clarification.
+  - Prefer targeted edits (`edit_file`) over full rewrites — atomicity matters; partial failures should leave files untouched.
+- **Runtime Constraints (enforced at code level):**
+  - All file reads/writes are gated by `is_safe_path()` — path traversal outside CWD is blocked.
+  - Bash commands have a 30-second timeout (`TimeoutExpired` → RED error).
+  - Sub-agent spawns create isolated sessions with no shared conversation history.
+  - System prompt is auto-augmented each session: base prompt + CWD listing + full AGENTS.md contents.
+
+## 4. Coding Standards & Style Guide
+
+### Patterns to Follow
+
+- **Functional-ish, procedural where it matters.** Tools are standalone functions (not methods). The agent core uses a generator pattern for its loop — separate concerns between logic (`agent/core.py`) and rendering (`terminal_io/`).
+- **Type hints on public APIs.** Use `str | None` union syntax. Document function signatures via docstrings only when non-obvious; keep code self-documenting.
+- **No manual registration.** Tool skills are auto-discovered: any `.py` file in `tools/` with a top-level `function_def` dict is loaded at import time. New capabilities = one new file, done. Same for sub-agents (YAML + optional prompt).
+- **Fail closed on security.** Every path operation calls `is_safe_path()` first. Return `( "_error_", RED_message )` — never raise uncaught exceptions that could leak paths to the LLM.
+
+### Formatting & Linting
+
+- No explicit linter config is present in this repo. Follow standard Python conventions:
+  - **Black-style** line length (88 chars) as default; don't exceed ~120 without justification.
+  - **f-strings** for all string formatting — no `.format()` or `%` operators unless compatibility demands it.
+  - **Single quotes** for strings, double quotes for docstrings.
+  - Keep imports top-of-file: stdlib → third-party (`ollama`, `rich`, `pyyaml`, `prompt_toolkit`) → local (`from tools import ...`).
+
+### Error Handling
+
+- Tools return typed tuples: `(type_tag, content)` where `type_tag` is `"text"`, `"json"`, `"diff"`, `"bash"` for Rich syntax rendering, or `"_error_"` to trigger red error display.
+- Never silently swallow exceptions in tool code. Catch specific ones (FileNotFoundError, PermissionError, TimeoutExpired) and wrap with descriptive context.
+- `edit_file` uses atomic semantics: if any edit's `old_text` isn't found, the file is left completely untouched and a structured error reports the problematic edit plus first 3 lines of expected text for debugging.
+
+### Testing Requirements
+
+- **Framework:** pytest (no fixtures beyond stdlib — tests use `tmp_path`, manual CWD switching via `os.chdir()`, and `unittest.mock.patch` for subprocess/client mocks).
+- **Coverage expectations:** Every new tool or agent must have corresponding tests in `tests/`. Mirror the naming convention: `test_<module_name>.py`.
+- **Test structure pattern:** Use class-based organization (`class TestEditFileSafety:`) grouping related cases. Assert on both return values and side effects (file content, directory state).
+- Run with: `pytest tests/`
+
+## 5. Repository Structure Context
+
+```
+harness/
+├── harness.py                  # Entry point — wires config, creates Agent, launches user_loop
+├── model_utils.py              # Ollama client helpers — URL resolution, tokenize-based count, context-length detection
+├── original_source.py          # ARCHIVE ONLY. The monolithic single-file this was refactored from. Do NOT modify.
+├── system_prompt.txt           # Base prompt text (auto-augmented with CWD + AGENTS.md each session)
+├── requirements.txt            # Runtime deps: ollama, prompt_toolkit, pyyaml, rich
+│
+├── agent/                      # Agent runtime package
+│   ├── core.py                 # Core Agent class — conversation state, handle_prompt() generator loop, spawn_subagent(), summarize()
+│   ├── loop.py                 # user_loop() interactive chat driver with slash-command handling
+│   ├── types.py                # AgentType dataclass + YAML loading (from_file), prompt augmentation
+│   └── utils.py                # filter_tool_schemas(), build_system_prompt() — shared across all agent instances
+│
+├── agents/                     # Sub-agent definitions (declarative)
+│   ├── main.yaml               # Primary orchestrator: all tools, main.txt system prompt
+│   ├── analyst.yaml            # Read-only analysis: read_file + grep (+ run_subagent)
+│   ├── coder.yaml              # Code implementation: execute_bash + write_file + read_file + edit_file (+ run_subagent)
+│   ├── writer.yaml             # Documentation/content: write_file + read_file (+ run_subagent)
+│   └── prompts/                # Per-agent .txt system prompt files (main.txt, analyst.txt, coder.txt, writer.txt)
+│
+├── commands/                   # Slash-command handlers (/exit, /quit, /sub)
+│   ├── __init__.py             # COMMANDS dict registry — maps name → handler(rest, agent) -> bool
+│   └── sub.py                  # /sub <name> — spawns interactive sub-agent session with summary injection on exit
+│
+├── tools/                      # Auto-discovered tool skills (see §4 patterns)
+│   ├── __init__.py             # Skill auto-loader — scans *.py for top-level function_def, builds AGENT_TOOLS + DISPATCH_REGISTRY
+│   ├── dispatcher.py           # Runtime: dispatch(func_name, args) → fn(**args), raises KeyError on unknown tools
+│   ├── utils.py                # is_safe_path() — path traversal guard used by ALL file-modifying tools
+│   ├── execute_bash.py         # Shell execution with 30s timeout, combined stdout+stderr output
+│   ├── write_file.py           # Atomic file write with safety guard
+│   ├── read_file.py            # File read with char-count display
+│   ├── edit_file.py            # Ordered search-and-replace with atomic rollback on partial failure
+│   ├── grep.py                 # Recursive pattern search (literal/regex), binary skipping, max_matches cap
+│   └── run_subagent.py         # Programmatic non-interactive sub-agent invocation via handle_prompt() generator
+│
+├── terminal_io/                # Terminal display layer — keep all print/rendering here
+│   ├── __init__.py             # Public API re-export surface
+│   ├── colors.py               # ANSI constants + c(text, colour) helper
+│   ├── boxes.py                # print_box() with Unicode borders — use this for ALL terminal output
+│   ├── display.py              # High-level: display_user_prompt(), display_tool_call(), display_error(), etc.
+│   ├── prompt.py               # Readline-enabled user input prompt (arrow keys, history, tab completion)
+│   ├── trunc.py                # MAX_DISPLAY_LINES cap with "[...]" indicators for long outputs
+│   └── markdown/               # Markdown→terminal renderer (tables as Unicode boxes, code blocks highlighted)
+│       ├── helpers.py          # display_agent_response() orchestrator — splits inline/block regions
+│       ├── blocks.py           # _render_table(), _render_code_block() with monospace/bg coloring
+│       └── inline.py           # Bold/italic/strong-italic → ANSI BOLD/DIM, inline code → blue+bold mono
+│
+├── tests/                      # pytest suite — mirrors source layout exactly
+│   ├── test_tools.py           # execute_bash, write_file, read_file (execution + timeouts + path safety)
+│   ├── test_edit_file.py       # Chained edits, atomic rollback, error messages, line counting
+│   ├── test_grep.py            # Literal vs regex, file_filter, binary skipping, traversal rejection
+│   ├── test_terminal_io.py     # ANSI length measurement, box wrapping, markdown rendering output
+│   ├── test_agent.py           # AgentType.from_file(), filter_tool_schemas() logic
+│   ├── test_commands.py        # /exit and /quit handler return values
+│   ├── test_dispatcher.py      # dispatch() function lookup + KeyError for unknown names
+│   └── test_harness.py         # End-to-end: build_system_prompt augmentation, user_loop flow with mocks
+└── AGENTS.md                   # ← You are reading this file. Agents get it injected into every session prompt.
 ```
 
-The model is hardcoded in `harness.py::main()` — change `MODEL_NAME` to switch. The default is `hf.co/deepreinforce-ai/Ornith-1.0-35B-GGUF:Q6_K` with a 2^17 (131072) token context window.
+## 6. Workflow & Git Guardrails
 
-## Operating constraints (enforced at runtime)
-- All file reads/writes must stay **within the current working directory** (`is_safe_path` guard).
-- Bash commands have a 30-second timeout.
-- Only one tool call per LLM response — loop repeats until the model yields a plain RESPONSE.
-- System prompt is prepended on every Ollama call — keep `system_prompt.txt` lean; put project conventions here instead of cramming them into it.
-
-## Source-file summaries
-
-### Top-level
-
-| File | Purpose |
-|------|---------|
-| **`harness.py`** | Entry point. Wires up configuration, builds the system prompt (base text + cwd listing + AGENTS.md), creates the main `AgentType`, and launches `user_loop`. |
-| **`model_utils.py`** | Ollama utilities: resolves the client's base URL, tokenizes prompts via `/api/tokenize` for accurate counting, and fetches context length from `show` (with deep nested-key search and an 8K fallback). |
-| **`original_source.py`** | Archive of the original monolithic single-file implementation the project was refactored from. Reference only — do not modify. |
-| **`system_prompt.txt`** | Base system prompt text, augmented at runtime by `build_system_prompt()` with cwd listing + AGENTS.md contents each session. Role definition and operating rules live here. |
-| **`requirements.txt`** | Python dependencies: `ollama`, `pyyaml`. |
-
-### `agent/` — Agent runtime package
-
-| File | Purpose |
-|------|---------|
-| **`__init__.py`** | Re-exports public API: `AgentType`, `Agent`, `CURRENT_AGENT`, status constants (`RESPONSE`, `TOOL_CALL`, `TOOL_RESULT`, `ERROR`), and utilities (`filter_tool_schemas`, `build_system_prompt`, `user_loop`). |
-| **`core.py`** | Core `Agent` class (~240 lines). Manages conversation state via a `messages` list. `handle_prompt()` is a generator yielding `(kind, *args)` tuples that drive the LLM call loop: calls Ollama → checks for tool_calls → dispatches via `tools.dispatcher` → appends results → repeats until RESPONSE. `inject_text()` enables cross-agent communication; `spawn_subagent()` classmethod creates an agent from `agents/*.yaml` inheriting host/context length; `summarize()` builds a temporary transcript and sends it to the LLM for a bulleted summary without persisting. |
-| **`loop.py`** | Interactive chat loop (`user_loop`). While-True: prompts user via `prompt_user()`, checks slash commands (`/exit`, `/quit`, `/sub`) from `COMMANDS` dict, otherwise calls `agent.handle_prompt(user_input)` and displays each yielded output based on kind. Supports optional `on_exit` callback for post-session summarization. |
-| **`types.py`** | `AgentType` dataclass (~90 lines): `name`, `model_name`, `system_prompt_path`, `system_prompt`, `agent_tools`. `_build_system_prompt()` static method loads the base prompt and injects cwd + AGENTS.md. `from_file(path)` classmethod loads YAML config, validates required fields (model_name mandatory), and builds the augmented system prompt. |
-| **`utils.py`** | Shared utilities (~50 lines). `filter_tool_schemas(agent_type, all_schemas)` returns only schemas whose function names match the agent's tool list (raises ValueError for missing tools). `build_system_prompt(base_prompt_path="system_prompt.txt")` reads the base file and appends cwd listing + AGENTS.md. |
-
-### `agents/` — Agent definitions directory
-
-| File / Dir | Purpose |
-|------------|---------|
-| **`main.yaml`** | Primary agent config: all tools, system prompt from root `system_prompt.txt`. Loaded by harness.py as the default agent. |
-| **`analyst.yaml`** | Analyst sub-agent: code analysis and research with `read_file`, `grep`. Prompt at `agents/prompts/analyst.txt`. |
-| **`coder.yaml`** | Coder sub-agent: writing/executing code changes with `execute_bash`, `write_file`, `read_file`, `edit_file`. Prompt at `agents/prompts/coder.txt`. |
-| **`sysadmin.yaml`** | Sysadmin sub-agent: system administration tasks with `execute_bash`, `read_file`. Prompt at `agents/prompts/sysadmin.txt`. |
-| **`writer.yaml`** | Writer sub-agent: document and content writing with `write_file`, `read_file`. Prompt at `agents/prompts/writer.txt`. |
-| **`prompts/`** | Directory containing `.txt` system prompt files for each specialized agent. |
-
-### `commands/` — Slash command handlers
-
-| File | Purpose |
-|------|---------|
-| **`__init__.py`** | Slash command handler registry (~40 lines). Maps `'exit'`, `'quit'`, `'sub'` to handler functions via the `COMMANDS` dict. Handlers receive `(rest, agent)` and return bool (True = break loop for exit/quit). |
-| **`sub.py`** | Sub-agent interactive session handler (~70 lines). Implementation of `/sub <name>`: validates name, lazy-imports `Agent` + `user_loop`, calls `Agent.spawn_subagent()`, handles `FileNotFoundError` gracefully, prints a status banner with model name. Defines `_on_exit` callback that calls `agent.summarize()` then injects the formatted summary back into the parent agent via `parent_agent.inject_text()`. |
-
-### `tools/` — Tool implementations
-
-A file in this package is treated as a "skill" if it defines `function_def` at the top level. The package auto-discovers these files to build `AGENT_TOOLS` and its dispatch registry — no manual registration needed.
-
-| File | Purpose |
-|------|---------|
-| **`__init__.py`** | Self-discovering skill loader (~60 lines). Scans the package directory for modules with a top-level `function_def`, loads each `.py` via `importlib.util.spec_from_file_location`, validates it's a dict, and uses `function.name` as the registry key. Populates module-level `AGENT_TOOLS` (schema list) and `DISPATCH_REGISTRY` (name→module). Calls `_build()` at import time for auto-discovery. `__getattr__` re-exports tool callables for backwards compatibility (`from tools import execute_bash`). |
-| **`dispatcher.py`** | Runtime tool invocation router (~15 lines). `dispatch(func_name, args)` looks up the function in `DISPATCH_REGISTRY`, retrieves it by attribute name from the corresponding module, calls it with keyword arguments via `fn(**args)`, and returns the result string. Raises KeyError for unknown tools. |
-| **`utils.py`** | Shared path safety guard (~15 lines). `is_safe_path(filename)` resolves both cwd and target paths and checks that the target is relative to cwd. Returns False on any exception (catches permission errors, invalid paths). Used by all file-modifying tools to prevent directory traversal attacks. |
-| **`execute_bash.py`** (~35 lines) | Shell command execution. `execute_bash(command)` runs `subprocess.run` with shell=True, capture_output=True, text=True, 30-second timeout. Combines stdout+stderr (prefixed "STDERR:" marker). Returns colored error messages for TimeoutExpired or general exceptions. Schema: name="execute_bash", parameters={command:string required}. |
-| **`write_file.py`** (~30 lines) | File writing with safety guard. `write_file(filename, content)` validates path safety first (returns RED error if unsafe), then writes in write mode ('w') with utf-8 encoding. Returns GREEN success or RED error on exception. Schema: name="write_file", parameters={filename:string required, content:string required}. |
-| **`read_file.py`** (~35 lines) | File reading with safety guard. `read_file(filename)` validates path first (returns RED error if unsafe), then reads in read mode ('r') utf-8. Prints a terminal message showing filename + character count (DIM colored). Returns content string or RED error for FileNotFoundError/other exceptions. Schema: name="read_file", parameters={filename:string required}. |
-| **`edit_file.py`** (~100 lines) | Ordered search-and-replace engine with validation. `edit_file(filename, edits)` validates the edits list is non-empty, checks path safety once upfront, reads existing content, then iterates through edits sequentially — each finds first occurrence of old_text in current (already-modified) content and replaces it with new_text. Tracks changes_made with line counts. If any old_text not found, returns RED error listing the problematic edit and first 3 lines of expected text for debugging. Writes only if different from original. Schema: name="edit_file", parameters={filename:string required, edits:[{old_text:string, new_text:string}] array required}. |
-| **`grep.py`** (~180 lines) | Recursive file search with regex support and filtering. `grep(pattern, path, use_regex=False, file_filter=None, max_matches=50)` validates inputs, resolves target within cwd (returns RED error if outside), compiles regex if requested. Decides between single-file or recursive directory walk via os.walk(). Prunes __pycache__, .git/, and dot-directories from traversal. Skips binary files (_is_binary checks for null bytes in first 8KB). Applies file_filter glob/suffix matching. Reads line-by-line, caps matches at max_matches. Returns "file:line — content" format per match with a GREEN summary showing count and "(limited to N)" if capped. Schema: name="grep", parameters={pattern:string required, path:string required, use_regex:boolean optional, file_filter:string optional, max_matches:int optional}. |
-| **`run_subagent.py`** (~50 lines) | Programmatic (non-interactive) sub-agent invocation. `run_subagent(sub_agent, task)` calls `Agent.spawn_subagent()` without an explicit parent (falls back to CURRENT_AGENT ContextVar). Iterates through `sub.handle_prompt(task)` generator, captures the final RESPONSE yield as result_text. Returns "(sub-agent produced no output)" if empty. Catches FileNotFoundError and general exceptions. Schema: name="run_subagent", parameters={sub_agent:string required, task:string required}. |
-
-### `terminal_io/` — Terminal I/O layer
-
-| File | Purpose |
-|------|---------|
-| **`__init__.py`** | Package surface: re-exports the full public API from all submodules — display helpers, colors, boxes, markdown rendering, prompt handling, truncation, and speed formatting. Single import point for callers. |
-| **`colors.py`** | ANSI color constants (`RESET`, `BOLD`, `DIM`, `CYAN`, `GREEN`, `BLUE`, `YELLOW`, `RED`, `MAGENTA`) and the `c(text, colour)` helper wrapping text in escape sequences. Used throughout tools/ for error/success messaging. |
-| **`boxes.py`** | Box-drawing UI component. `print_box(title, content, style)` renders a colored box with title bar, ANSI-aware body text wrapping, and Unicode borders. Styles: `'system'`, `'user'`, `'agent'`, `'tool_call'`, `'tool_result'` — each with different border characters and colors for visual distinction between message types. |
-| **`display.py`** | High-level display coordination (~5 functions). `print_system(title, content)` renders system message box; `display_user_prompt(text)` shows user input in styled box; `display_tool_call(func_name, args_str)` displays tool calls with function name and formatted JSON args; `display_tool_result(func_name, result)` shows execution output; `display_error(description)` renders error messages in red. |
-| **`prompt.py`** | User input prompt with readline support. `prompt_user()` returns user-typed string with arrow key navigation, command history, and tab completion via Python's readline module. |
-| **`trunc.py`** | Text truncation helpers for display control. Caps output to `MAX_DISPLAY_LINES` lines so long tool results don't flood the terminal. Preserves beginning/end of truncated text with "[...]" indicators. Used by display functions before rendering large outputs. |
-| **`speed.py`** | Token-per-second speed formatting for Ollama chat responses. Extracts timing metrics from the response object and formats as "X tokens/sec" string for display in agent response headers. |
-
-### `terminal_io/markdown/` — Markdown rendering subpackage
-
-| File | Purpose |
-|------|---------|
-| **`__init__.py`** | Re-exports three main renderers: `display_agent_response`, `_render_table`, `_render_code_block`. Public API for markdown content rendering. |
-| **`helpers.py`** | Orchestrates the markdown-to-terminal rendering pipeline. `display_agent_response(content, ollama_response, context_length, speed)` splits content into inline/block regions, renders them appropriately (tables as Unicode boxes, code blocks with syntax highlighting), formats speed/context metadata headers, and prints the final colored box via `terminal_io.print_box`. |
-| **`blocks.py`** | Block-level renderers for complex markdown elements. `_render_table(rows)` uses Unicode box-drawing characters (┌─┬┐│├─┼┤└─┴┘) with column alignment based on content width; `_render_code_block(content, language)` displays fenced code blocks with optional language label, monospace formatting, and background color differentiation. |
-| **`inline.py`** | Inline element transformers. Handles bold (`**text**`) → BOLD ANSI, italic (`*text*`) → DIM ANSI, strong italic (`***text***`) → DIM+BOLD combination, inline code (`` `code` ``) → blue+bold monospace formatting. |
-
-### `tests/` — Test suite
-
-| File | Purpose |
-|------|---------|
-| **`__init__.py`** | Empty package marker. |
-| **`test_tools.py`** | Tests for core tool implementations: execute_bash (command execution, timeout handling), write_file (write operations, path safety), read_file (read operations, missing file errors). Validates basic functionality and error paths. |
-| **`test_edit_file.py`** | Focused tests on the edit_file engine: chained edits apply sequentially with correct line counts, old_text not found returns descriptive error listing expected text snippet, empty edits list rejected, no effective changes detected when content unchanged. |
-| **`test_grep.py`** | Tests for grep: literal vs regex pattern matching, file_filter glob/suffix application, binary file skipping via null byte detection, path traversal rejection for out-of-cwd targets, max_matches capping behavior. |
-| **`test_terminal_io.py`** | Tests for terminal I/O helpers: ANSI-safe string length measurement (accounts for escape codes), box printing with proper wrapping and border characters, markdown rendering output formatting for tables/code blocks/inline elements. |
-| **`test_agent.py`** | Tests for agent module: AgentType.from_file() YAML loading, build_system_prompt augmentation, filter_tool_schemas tool filtering logic. |
-| **`test_commands.py`** | Tests for slash command handlers: /exit and /quit breaking the loop, /sub spawning sub-agents correctly. |
-| **`test_dispatcher.py`** | Tests for tools.dispatcher.dispatch(): correct function lookup by name, keyword argument passing, KeyError raised for unknown tool names. |
-| **`test_harness.py`** | Tests for harness.py entry point: build_system_prompt() augmentation (base prompt content, cwd listing, AGENTS.md injection), user_loop behavior (slash commands /exit and /quit break loop, display functions called for response/tool_call/tool_result/error kinds). Validates end-to-end flow with mocked agent and client. |
-
-## Conventions to follow
-
-1. **Prefer existing box-print helpers** (`print_box`, role-specific wrappers) for terminal output — they handle ANSI-aware wrapping, color coding, and truncation. Don't raw print long text.
-2. **Keep tool calls in the `tools/` package** — new capabilities go there as both a schema entry (so Ollama knows about them) *and* an implementation function. Auto-discovery means no manual registration needed.
-3. **Tests mirror source layout.** Add test files alongside any new logic, and run with `pytest tests/`.
-4. **Don't modify `system_prompt.txt` lightly** — the harness augments it automatically each session (cwd listing + AGENTS.md). Overcrowding it bloats every request; put project conventions in this file instead.
+- **File Modifications:** Never rewrite entire files if only modifying a specific function. Use targeted edits (`edit_file` tool or manual precise search-and-replace). The `edit_file.py` engine supports multiple ordered replacements in one call — prefer it over separate write operations.
+- **Commit Messages:** Follow Conventional Commits format: `type(scope): description`. Examples:
+  - `feat(tools): add run_subagent with isolated session spawning`
+  - `fix(agent): prevent infinite loop when model returns empty tool_calls`
+  - `refactor(terminal_io): extract markdown rendering into subpackage`
+  - `test(edit_file): add atomic rollback test case for partial old_text failures`
+  - `docs(AGENTS.md): restructure with operational rules and architecture map`
+- **Breaking Changes:** Alert the user immediately if a requested change breaks existing type definitions, tool schemas (OpenAI function-calling format), or architectural boundaries. Specifically: never modify an existing agent's YAML without confirming its current tool list is intentional; never remove a file from `tools/` that has corresponding tests in `tests/`.
+- **Adding New Tools:** Create one `.py` file in `tools/`, define `function_def` at module level (OpenAI schema dict) and the callable matching that function name. No registration needed — import triggers auto-discovery. Add a mirror test file in `tests/`.
+- **Adding New Agents:** Create YAML in `agents/` with required fields (`name`, `model_name`, `system_prompt_path`). Optionally add `agents/prompts/<name>.txt`. Use `"*"` for all tools or list specific names. The harness does validation at load time — missing `model_name` raises immediately.
+- **Display Rules:** Always use `terminal_io` helpers (`print_box`, role-specific display functions) for terminal output. Never raw-print long text — box printers handle ANSI-aware wrapping, color coding, and truncation. Markdown from the LLM is rendered through `display_agent_response()` which handles tables as Unicode boxes and code blocks with syntax highlighting.
+- **System Prompt Discipline:** Don't modify `system_prompt.txt` lightly — it gets auto-augmented each session (CWD listing + AGENTS.md). Keep role definitions lean here; put project conventions in this AGENTS.md instead to avoid bloating every LLM request.
