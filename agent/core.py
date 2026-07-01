@@ -45,7 +45,7 @@ class Agent:
                          ``agent_type.agent_tools`` (or all if ``"*"`` is used).
             extra_tools: Additional function_def dicts that should be added to
                          the filtered tool list regardless of YAML constraints.
-                         Useful for tools injected at runtime (e.g. ``complete_task``
+                         Useful for tools injected at runtime (e.g. ``submit_results``
                          in sub-agent sessions) without modifying agent YAML files.
         """
         self._agent_type = agent_type
@@ -69,7 +69,7 @@ class Agent:
         else:
             self._tools = []
         
-        # Append any extra tools (e.g. runtime-injected ones like complete_task).
+        # Append any extra tools (e.g. runtime-injected ones like submit_results).
         if extra_tools:
             self._tools.extend(extra_tools)
 
@@ -78,8 +78,8 @@ class Agent:
         
         # Cache-friendly task state management — all dynamic state is injected
         # at the tail end of messages, never touching messages[0].
-        from agent.task_list import get_task_list, TaskList
-        self._task_list: Optional[TaskList] = get_task_list()
+        from agent.task_list import TaskList
+        self._task_list: Optional[TaskList] = TaskList()
         self._max_loops: int = 5  # Safety ceiling to prevent infinite loops
 
         # Bind this instance as the current agent in the thread context so tools
@@ -228,7 +228,7 @@ Execute the next logical step based on this state.
                 args = tool_call["function"]["arguments"]
                 
                 # Termination circuit breaker (Component 4)
-                if func_name == "complete_task":
+                if func_name == "submit_results":
                     if self._task_list and self._task_list.has_incomplete_tasks():
                         # Block termination - append error instruction to history
                         blocked_message = {
@@ -237,7 +237,7 @@ Execute the next logical step based on this state.
                                 "[SYSTEM ERROR] Execution termination blocked. "
                                 "You still have incomplete tasks in your state machine. "
                                 "You must finish them or update their status to 'failed' "
-                                "before you can invoke complete_task."
+                                "before you can invoke submit_results."
                             )
                         }
                         self.messages.append(blocked_message)
@@ -302,7 +302,7 @@ Execute the next logical step based on this state.
             tool_schemas: All available tool schemas passed through to :meth:`filter_tool_schemas`.
                           If ``None``, defaults to all tools (equivalent to ``["*"]``).
             extra_tools: Additional function_def dicts added after filtering. Useful for
-                         runtime-injected tools like ``complete_task`` without modifying
+                         runtime-injected tools like ``submit_results`` without modifying
                          agent YAML files.
 
         Returns:

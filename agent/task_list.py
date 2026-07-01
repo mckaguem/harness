@@ -5,8 +5,8 @@ execution tasks within an LLM agent's context window. It is designed to be
 cache-friendly by keeping all dynamic state in a structured format that can be
 injected into message payloads without modifying the static system prompt.
 
-The TaskList uses a singleton pattern for easy access from tools and core
-agent logic, ensuring consistent state across the application.
+Each Agent instance maintains its own TaskList for independent task tracking,
+enabling multiple agents to operate concurrently without shared state conflicts.
 """
 
 from dataclasses import dataclass
@@ -37,9 +37,8 @@ class TaskList:
     """Manages a collection of tasks and their lifecycle states.
     
     This class provides methods to initialize, update, and query the state
-    of multiple tasks. It's designed to be thread-safe for use in concurrent
-    agent environments and maintains a clean interface for serialization
-    to markdown format for LLM context injection.
+    of multiple tasks. It's designed for concurrent agent environments where
+    each Agent instance holds its own independent TaskList.
     """
     
     def __init__(self):
@@ -134,16 +133,3 @@ class TaskList:
             lines.append(line)
         
         return "\n".join(lines)
-
-
-# Module-level singleton instance for easy access from tools and core logic
-_task_list_singleton = TaskList()
-
-
-def get_task_list() -> TaskList:
-    """Get the module-level singleton TaskList instance.
-    
-    Returns:
-        The shared TaskList instance used throughout the application.
-    """
-    return _task_list_singleton

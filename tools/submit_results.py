@@ -1,4 +1,4 @@
-"""complete_task — sub-agent termination signal.
+"""submit_results — sub-agent termination signal.
 
 When a sub-agent has finished executing its assigned task, it must invoke this
 tool exactly once to return structured findings back to the calling (parent)
@@ -19,7 +19,7 @@ the parent agent can see it in its tool-result display before reading the JSON.
 """
 
 
-def complete_task(json_payload: str) -> str:
+def submit_results(json_payload: str) -> str:
     """Signal task completion and return structured findings to the parent agent.
 
     Args:
@@ -37,14 +37,14 @@ def complete_task(json_payload: str) -> str:
     try:
         data = _json.loads(json_payload)
     except Exception as exc:
-        return f"Error: 'complete_task' received invalid JSON payload ({exc}). " \
-               f"The calling agent must fix the payload and call complete_task again."
+        return f"Error: 'submit_results' received invalid JSON payload ({exc}). " \
+               f"The calling agent must fix the payload and call submit_results again."
 
     # Basic structural validation.
     required_keys = ("summary_of_actions", "actionable_data", "unresolved_issues")
     missing = [k for k in required_keys if k not in data]
     if missing:
-        return (f"Error: 'complete_task' payload is missing required key(s): "
+        return (f"Error: 'submit_results' payload is missing required key(s): "
                 f"{', '.join(missing)}.")
 
     # Echo the structured data back so the parent agent can consume it.
@@ -54,7 +54,7 @@ def complete_task(json_payload: str) -> str:
 function_def = {
     "type": "function",
     "function": {
-        "name": "complete_task",
+        "name": "submit_results",
         "description": (
             "Signal task completion and return structured findings to the "
             "parent agent.  The 'json_payload' argument must be a single, "
