@@ -36,10 +36,28 @@ def display_tool_call(func_name: str, args_str: str) -> None:
         console.print(Panel(args_str, title=f"🔧 {func_name}", border_style="blue"))
 
 
-def display_tool_result(func_name: str, result: str) -> None:
-    """Print a truncated tool-result panel."""
-    display_result = _trunc_for_display(str(result))
-    console.print(Panel(display_result, title=f"✅ {func_name} Result", border_style="yellow"))
+def display_tool_result(func_name: str, result_type: str, content: str) -> None:
+    """Print a truncated tool-result panel with syntax highlighting.
+
+    Args:
+        func_name: Name of the tool that produced the result.
+        result_type: Rich-recognized format type (e.g., ``"python"``, ``"json"``).
+                     Use ``"_error_"`` to render a distinct error panel.
+        content: The plain text content without ANSI codes.
+    """
+    display_content = _trunc_for_display(content)
+    
+    if result_type == "_error_":
+        # Render errors distinctly — red border, red text, no syntax highlight
+        console.print(Panel(
+            f"[red]{display_content}[/red]",
+            title=f"❌ {func_name} Error",
+            border_style="red"
+        ))
+    else:
+        # Apply Rich Syntax highlighting for the appropriate format
+        syntax = Syntax(display_content, result_type, theme="monokai")
+        console.print(Panel(syntax, title=f"✅ {func_name} Result", border_style="yellow"))
 
 
 def display_tool_call_with_result(func_name: str, args_str: str, result: str) -> None:

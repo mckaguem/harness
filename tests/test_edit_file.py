@@ -9,6 +9,13 @@ import pytest
 from tools.edit_file import edit_file
 
 
+def _unwrap(result):
+    """Unpack a (type, content) tuple into its string payload."""
+    if isinstance(result, tuple) and len(result) == 2:
+        return result[1]
+    return str(result)
+
+
 class TestEditFileSafety:
     """Path traversal guard applies to edits too."""
 
@@ -17,7 +24,8 @@ class TestEditFileSafety:
         try:
             os.chdir(tmp_path)
             result = edit_file("../etc/passwd", [{"old_text": "x", "new_text": "y"}])
-            assert "traversal" in result.lower() or "Error" in result
+            content = _unwrap(result)
+            assert "traversal" in content.lower() or "Error" in content
         finally:
             os.chdir(old_cwd)
 
@@ -28,7 +36,8 @@ class TestEditFileSafety:
             target = tmp_path / "t.txt"
             target.write_text("hello")
             result = edit_file(str(target), [])
-            assert "non-empty" in result.lower() or "Error" in result
+            content = _unwrap(result)
+            assert "non-empty" in content.lower() or "Error" in content
         finally:
             os.chdir(old_cwd)
 
@@ -41,7 +50,8 @@ class TestEditFileErrors:
         try:
             os.chdir(tmp_path)
             result = edit_file("nope.txt", [{"old_text": "x", "new_text": "y"}])
-            assert "not found" in result.lower() or "Error" in result
+            content = _unwrap(result)
+            assert "not found" in content.lower() or "Error" in content
         finally:
             os.chdir(old_cwd)
 
@@ -52,7 +62,8 @@ class TestEditFileErrors:
             target = tmp_path / "t.txt"
             target.write_text("hello world")
             result = edit_file(str(target), [{"old_text": "xyz_nonexistent", "new_text": "abc"}])
-            assert "not found" in result.lower() or "Error" in result
+            content = _unwrap(result)
+            assert "not found" in content.lower() or "Error" in content
         finally:
             os.chdir(old_cwd)
 
@@ -63,7 +74,8 @@ class TestEditFileErrors:
             target = tmp_path / "t.txt"
             target.write_text("hello")
             result = edit_file(str(target), [{"old_text": "", "new_text": "y"}])
-            assert "invalid" in result.lower() or "Error" in result
+            content = _unwrap(result)
+            assert "invalid" in content.lower() or "Error" in content
         finally:
             os.chdir(old_cwd)
 
@@ -74,7 +86,8 @@ class TestEditFileErrors:
             target = tmp_path / "t.txt"
             target.write_text("hello")
             result = edit_file(str(target), [{"old_text": "hello", "new_text": None}])
-            assert "invalid" in result.lower() or "Error" in result
+            content = _unwrap(result)
+            assert "invalid" in content.lower() or "Error" in content
         finally:
             os.chdir(old_cwd)
 
@@ -90,7 +103,8 @@ class TestEditFileSuccess:
             target.write_text("hello world")
             result = edit_file(str(target), [{"old_text": "world", "new_text": "earth"}])
             assert target.read_text() == "hello earth"
-            assert "Edit #1" in result
+            content = _unwrap(result)
+            assert "Edit #1" in content
         finally:
             os.chdir(old_cwd)
 
@@ -105,8 +119,9 @@ class TestEditFileSuccess:
                 {"old_text": "gamma", "new_text": "GAMMA"},
             ])
             assert target.read_text() == "alpha BETA GAMMA"
-            assert "Edit #1" in result
-            assert "Edit #2" in result
+            content = _unwrap(result)
+            assert "Edit #1" in content
+            assert "Edit #2" in content
         finally:
             os.chdir(old_cwd)
 
@@ -179,7 +194,8 @@ class TestEditFileSuccess:
                 "new_text": "replaced",
             }])
             # old_text has 1 newline → 2 lines replaced.
-            assert "2 line(s)" in result
+            content_str = _unwrap(result)
+            assert "2 line(s)" in content_str
         finally:
             os.chdir(old_cwd)
 
@@ -205,7 +221,8 @@ class TestEditFileAtomicRollback:
                 {"old_text": "beta", "new_text": "BETA"},    # would succeed in memory
                 {"old_text": "nonexistent_xyz", "new_text": "X"},  # fails → roll back
             ])
-            assert "Edit #2" in result
+            content = _unwrap(result)
+            assert "Edit #2" in content
             # File must be untouched — atomic rollback.
             assert target.read_text() == original
         finally:
@@ -221,6 +238,7 @@ class TestEditFileAtomicRollback:
                 {"old_text": "beta", "new_text": "BETA"},
                 {"old_text": "nope", "new_text": "X"},
             ])
-            assert "Edit #2" in result
+            content = _unwrap(result)
+            assert "Edit #2" in content
         finally:
             os.chdir(old_cwd)

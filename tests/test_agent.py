@@ -393,7 +393,7 @@ class TestAgentHandlePrompt:
         assert "ls" in args_str
         
         # Second: TOOL_RESULT (from dispatch)
-        kind, func_name, result = outputs[1]
+        kind, func_name, result_type, result = outputs[1]
         assert kind == TOOL_RESULT
         assert func_name == "execute_bash"
         

@@ -52,8 +52,8 @@ def user_loop(agent: "Agent", ollama_client: "ollama.Client", on_exit=None) -> N
                 _, func_name, args_str = output
                 display_tool_call(func_name, args_str)
             elif kind == "tool_result":
-                _, func_name, result = output
-                display_tool_result(func_name, result)
+                _, func_name, result_type, content = output
+                display_tool_result(func_name, result_type, content)
             else:  # ERROR
                 _, description = output
                 display_error(description)

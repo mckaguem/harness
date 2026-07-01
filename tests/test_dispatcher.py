@@ -12,7 +12,11 @@ class TestDispatch:
 
         # Call execute_bash with a simple command
         result = dispatch("execute_bash", {"command": "echo hello"})
-        assert "hello" in result
+        if isinstance(result, tuple) and len(result) == 2:
+            _, result_content = result
+        else:
+            result_content = str(result)
+        assert "hello" in result_content
 
     def test_dispatch_raises_keyerror_for_unknown_tool(self):
         """dispatch should raise KeyError when tool name is not registered."""
@@ -34,8 +38,12 @@ class TestDispatch:
                 "filename": "test_dispatcher.txt",
                 "content": "test content"
             })
-            assert isinstance(result, str)
-            assert "Success" in result or "Wrote to" in result
+            if isinstance(result, tuple) and len(result) == 2:
+                _, result_content = result
+            else:
+                result_content = str(result)
+            assert isinstance(result_content, str)
+            assert "Success" in result_content or "Wrote to" in result_content
         finally:
             import os
             if os.path.exists("test_dispatcher.txt"):
@@ -54,7 +62,11 @@ class TestDispatch:
                 "filename": "test_kwargs.txt",
                 "content": "keyword args test"
             })
-            assert isinstance(result, str)
+            if isinstance(result, tuple) and len(result) == 2:
+                _, result_content = result
+            else:
+                result_content = str(result)
+            assert isinstance(result_content, str)
         finally:
             import os
             if os.path.exists("test_kwargs.txt"):

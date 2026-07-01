@@ -27,6 +27,9 @@ from .display import (
 # Truncation
 from .trunc import _trunc_for_display, MAX_DISPLAY_LINES
 
+# Box utilities (re-export for backwards compat)
+from .boxes import _safe_len
+
 
 __all__ = [
     # Colors (re-exported for tools)

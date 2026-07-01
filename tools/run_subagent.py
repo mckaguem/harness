@@ -46,7 +46,7 @@ def _load_termination_prompt() -> str:
     return content[:separator_idx].strip()
 
 
-def run_subagent(sub_agent: str, task: str) -> str:
+def run_subagent(sub_agent: str, task: str) -> tuple:
     """Spawn a named sub-agent and execute *task* on it.
 
     Args:
@@ -95,22 +95,28 @@ def run_subagent(sub_agent: str, task: str) -> str:
                     )
                     # Append this error to the sub's message log so it can self-correct,
                     # then break — we've already yielded an ERROR, which is enough signal.
-                    return description
+                    return ("_error_", description)
 
                 from tools.dispatcher import dispatch
 
                 result = dispatch(func_name, args_data)
-                return result  # <-- hand structured findings back to parent agent
+                if isinstance(result, tuple):
+                    type_, content = result
+                    return ("json", content)  # Always JSON for complete_task results
+                return ("json", str(result))
 
             elif kind == RESPONSE:
                 result_text = args[0]
 
-        return result_text if result_text.strip() else "(sub-agent produced no output)"
+        return (
+            "text",
+            result_text if result_text.strip() else "(sub-agent produced no output)",
+        )
 
     except FileNotFoundError as exc:
-        return f"Error: {exc}"
+        return ("_error_", f"Error: {exc}")
     except Exception as exc:
-        return f"Error running sub-agent '{sub_agent}': {exc}"
+        return ("_error_", f"Error running sub-agent '{sub_agent}': {exc}")
 
 
 def _get_complete_task_def():

@@ -485,14 +485,14 @@ class TestDisplayToolResult:
 
     @patch("builtins.print")
     def test_calls_print_once(self, mock_print):
-        display_tool_result("execute_bash", "output here")
+        display_tool_result("execute_bash", "bash", "output here")
         assert mock_print.call_count == 1
 
     @patch("builtins.print")
     def test_includes_function_name(self, mock_print):
         with patch("terminal_io.boxes.os.get_terminal_size",
                    return_value=os.terminal_size((80, 24))):
-            display_tool_result("execute_bash", "ls output")
+            display_tool_result("execute_bash", "bash", "ls output")
         output = mock_print.call_args[0][0]
         assert "✅ execute_bash Result" in output
 
@@ -502,7 +502,7 @@ class TestDisplayToolResult:
         long_result = "\n".join(f"line {i}" for i in range(10))
         with patch("terminal_io.boxes.os.get_terminal_size",
                    return_value=os.terminal_size((80, 24))):
-            display_tool_result("execute_bash", long_result)
+            display_tool_result("execute_bash", "bash", long_result)
         output = mock_print.call_args[0][0]
         assert "5 more lines truncated" in output
 
@@ -510,7 +510,7 @@ class TestDisplayToolResult:
     def test_short_results_not_truncated(self, mock_print):
         with patch("terminal_io.boxes.os.get_terminal_size",
                    return_value=os.terminal_size((80, 24))):
-            display_tool_result("read_file", "short text")
+            display_tool_result("read_file", "python", "short text")
         output = mock_print.call_args[0][0]
         assert "short text" in output
         assert "truncated" not in output
@@ -520,7 +520,7 @@ class TestDisplayToolResult:
         # Should handle non-string results by wrapping with str().
         with patch("terminal_io.boxes.os.get_terminal_size",
                    return_value=os.terminal_size((80, 24))):
-            display_tool_result("some_func", 12345)
+            display_tool_result("some_func", "text", 12345)
         output = mock_print.call_args[0][0]
         assert "12345" in output
 

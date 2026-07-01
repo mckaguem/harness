@@ -17,7 +17,11 @@ class TestGrepSafety:
         try:
             os.chdir(tmp_path)
             result = grep("test", "../etc/passwd")
-            assert "traversal" in result.lower() or "Error" in result
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
+            assert result_type == "_error_" or "traversal" in result_content.lower() or "Error" in result_content
         finally:
             os.chdir(old_cwd)
 
@@ -26,7 +30,11 @@ class TestGrepSafety:
         try:
             os.chdir(tmp_path)
             result = grep("test", "nonexistent_dir/file.txt")
-            assert "not a file" in result.lower() or "Error" in result
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
+            assert result_type == "_error_" or "not a file" in result_content.lower() or "Error" in result_content
         finally:
             os.chdir(old_cwd)
 
@@ -37,7 +45,11 @@ class TestGrepSafety:
             target = tmp_path / "t.txt"
             target.write_text("hello world")
             result = grep("", str(target))
-            assert "non-empty" in result.lower() or "Error" in result
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
+            assert result_type == "_error_" or "non-empty" in result_content.lower() or "Error" in result_content
         finally:
             os.chdir(old_cwd)
 
@@ -48,7 +60,11 @@ class TestGrepSafety:
             target = tmp_path / "t.txt"
             target.write_text("hello")
             result = grep("test", str(target), max_matches=0)
-            assert ">= 1" in result.lower() or "Error" in result
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
+            assert result_type == "_error_" or ">= 1" in result_content.lower() or "Error" in result_content
         finally:
             os.chdir(old_cwd)
 
@@ -63,8 +79,12 @@ class TestGrepLiteralSearch:
             target = tmp_path / "t.txt"
             target.write_text("hello world\nfoo bar")
             result = grep("world", str(target))
-            assert "1 match" in result.lower() or "Found 1" in result
-            assert "world" in result
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
+            assert "1 match" in result_content.lower() or "Found 1" in result_content
+            assert "world" in result_content
         finally:
             os.chdir(old_cwd)
 
@@ -75,7 +95,11 @@ class TestGrepLiteralSearch:
             target = tmp_path / "t.txt"
             target.write_text("apple banana apple\ncherry apple")
             result = grep("apple", str(target))
-            assert "2 matches" in result.lower() or "Found 2" in result
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
+            assert "2 matches" in result_content.lower() or "Found 2" in result_content
         finally:
             os.chdir(old_cwd)
 
@@ -86,7 +110,11 @@ class TestGrepLiteralSearch:
             target = tmp_path / "t.txt"
             target.write_text("hello world")
             result = grep("xyz_nonexistent", str(target))
-            assert "no matches found" in result.lower() or "not found" in result.lower()
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
+            assert "no matches found" in result_content.lower() or "not found" in result_content.lower()
         finally:
             os.chdir(old_cwd)
 
@@ -98,7 +126,11 @@ class TestGrepLiteralSearch:
             target.write_text("Hello hello HELLO")
             result = grep("hello", str(target))
             # Should only match lowercase.
-            assert "1 match" in result.lower() or "Found 1" in result
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
+            assert "1 match" in result_content.lower() or "Found 1" in result_content
         finally:
             os.chdir(old_cwd)
 
@@ -113,7 +145,11 @@ class TestGrepRegexSearch:
             target = tmp_path / "t.txt"
             target.write_text("func1()\nfunc2()\nvar_x = 5\nimport re")
             result = grep(r"func\d+\(\)", str(target), use_regex=True)
-            assert "2 matches" in result.lower() or "Found 2" in result
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
+            assert "2 matches" in result_content.lower() or "Found 2" in result_content
         finally:
             os.chdir(old_cwd)
 
@@ -124,7 +160,11 @@ class TestGrepRegexSearch:
             target = tmp_path / "t.txt"
             target.write_text("hello")
             result = grep("[invalid", str(target), use_regex=True)
-            assert "Invalid regex" in result or "error" in result.lower()
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
+            assert result_type == "_error_" or "Invalid regex" in result_content or "error" in result_content.lower()
         finally:
             os.chdir(old_cwd)
 
@@ -135,7 +175,11 @@ class TestGrepRegexSearch:
             target = tmp_path / "t.txt"
             target.write_text("line 1\nimport os\nline 3")
             result = grep(r"^import", str(target), use_regex=True)
-            assert "2" in result  # line number
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
+            assert "2" in result_content  # line number
         finally:
             os.chdir(old_cwd)
 
@@ -153,7 +197,11 @@ class TestGrepDirectorySearch:
             (tmp_path / "sub" / "b.txt").write_text("foo bar hello")
 
             result = grep("hello", str(tmp_path))
-            assert "2 matches" in result.lower() or "Found 2" in result
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
+            assert "2 matches" in result_content.lower() or "Found 2" in result_content
         finally:
             os.chdir(old_cwd)
 
@@ -170,8 +218,12 @@ class TestGrepDirectorySearch:
             (tmp_path / "real.py").write_text("# import statement hello")
 
             result = grep("hello", str(tmp_path))
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
             # Should only find the match in real.py, not __pycache__.
-            assert "1 match" in result.lower() or "Found 1" in result
+            assert "1 match" in result_content.lower() or "Found 1" in result_content
         finally:
             os.chdir(old_cwd)
 
@@ -188,8 +240,12 @@ class TestGrepDirectorySearch:
             (tmp_path / "main.py").write_text("# hello world")
 
             result = grep("hello", str(tmp_path))
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
             # Should only find the match in main.py, not .git/.
-            assert "1 match" in result.lower() or "Found 1" in result
+            assert "1 match" in result_content.lower() or "Found 1" in result_content
         finally:
             os.chdir(old_cwd)
 
@@ -205,8 +261,12 @@ class TestGrepFileFilter:
             (tmp_path / "b.txt").write_text("hello foo")
 
             result = grep("hello", str(tmp_path), file_filter="*.py")
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
             # Should only match in a.py.
-            assert "1 match" in result.lower() or "Found 1" in result
+            assert "1 match" in result_content.lower() or "Found 1" in result_content
         finally:
             os.chdir(old_cwd)
 
@@ -218,8 +278,12 @@ class TestGrepFileFilter:
             (tmp_path / "main.py").write_text("hello main")
 
             result = grep("hello", str(tmp_path), file_filter="*.py")
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
             # Both files match *.py.
-            assert "2 matches" in result.lower() or "Found 2" in result
+            assert "2 matches" in result_content.lower() or "Found 2" in result_content
         finally:
             os.chdir(old_cwd)
 
@@ -237,7 +301,11 @@ class TestGrepMaxMatches:
             target.write_text(content)
 
             result = grep("match", str(target), max_matches=3)
-            assert "limited to 3" in result.lower() or "(limited to 3)" in result
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
+            assert "limited to 3" in result_content.lower() or "(limited to 3)" in result_content
         finally:
             os.chdir(old_cwd)
 
@@ -255,8 +323,12 @@ class TestGrepBinaryFiles:
             (tmp_path / "text.txt").write_text("hello world")
 
             result = grep("hello", str(tmp_path))
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
             # Should only find the match in text.txt, not binary.bin.
-            assert "1 match" in result.lower() or "Found 1" in result
+            assert "1 match" in result_content.lower() or "Found 1" in result_content
         finally:
             os.chdir(old_cwd)
 
@@ -271,8 +343,12 @@ class TestGrepOutputFormat:
             target = tmp_path / "t.txt"
             target.write_text("line 1\nhello line 2")
             result = grep("hello", str(target))
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
             # Should include file path and line number.
-            assert str(target.name) in result or target.relative_to(Path.cwd()).as_posix() in result
+            assert str(target.name) in result_content or target.relative_to(Path.cwd()).as_posix() in result_content
         finally:
             os.chdir(old_cwd)
 
@@ -283,7 +359,11 @@ class TestGrepOutputFormat:
             target = tmp_path / "t.txt"
             target.write_text("this is a long line with hello in it")
             result = grep("hello", str(target))
+            if isinstance(result, tuple):
+                result_type, result_content = result
+            else:
+                result_type, result_content = "text", str(result)
             # Should include the content snippet.
-            assert "long line with hello" in result
+            assert "long line with hello" in result_content
         finally:
             os.chdir(old_cwd)

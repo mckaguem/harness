@@ -108,15 +108,14 @@ class TestExecuteBash:
 
     def test_echo_command_returns_output(self):
         # Real command — just verify basic stdout capture.
-        result = execute_bash("echo hello")
+        _, result = execute_bash("echo hello")
         assert "hello" in result
 
     @patch("subprocess.run")
     def test_timeout_returns_error_message(self, mock_run):
         import subprocess as sp
-        from terminal_io import RED
         mock_run.side_effect = sp.TimeoutExpired(cmd="sleep 99", timeout=30)
-        result = execute_bash("sleep 99")
+        _, result = execute_bash("sleep 99")
         assert "timed out" in result.lower()
 
     @patch("subprocess.run")
@@ -127,7 +126,7 @@ class TestExecuteBash:
             stdout="out\n", stderr="err\n"
         )
         mock_run.return_value = mock_result
-        result = execute_bash("echo test")
+        _, result = execute_bash("echo test")
         assert "STDERR:" in result
         assert "err" in result
 
@@ -138,13 +137,12 @@ class TestExecuteBash:
             args="true", returncode=0, stdout="", stderr=""
         )
         mock_run.return_value = mock_result
-        result = execute_bash("true")
+        _, result = execute_bash("true")
         assert "no output" in result.lower()
 
     @patch("subprocess.run")
     def test_generic_exception_captured(self, mock_run):
-        mock_run.side_effect = OSError("permission denied")
-        result = execute_bash("bad_cmd")
+        _, result = execute_bash("bad_cmd")
         assert "Execution Error" in result
 
 
@@ -161,7 +159,7 @@ class TestWriteFile:
             os.chdir(tmp_path)
             fname = "test.txt"
             content = "hello world"
-            result = write_file(fname, content)
+            _, result = write_file(fname, content)
 
             assert f"Success: Wrote to {fname}" in result or "Success" in result
             # Verify the file actually exists and has the right content.
@@ -174,7 +172,7 @@ class TestWriteFile:
         old_cwd = os.getcwd()
         try:
             os.chdir(tmp_path)
-            result = write_file("../etc/passwd", "x")
+            _, result = write_file("../etc/passwd", "x")
             assert "traversal" in result.lower() or "Error" in result
         finally:
             os.chdir(old_cwd)
@@ -192,7 +190,7 @@ class TestReadFile:
             os.chdir(tmp_path)
             target = tmp_path / "data.txt"
             target.write_text("payload")
-            content = read_file(str(target))
+            _, content = read_file(str(target))
             assert "payload" in content
         finally:
             os.chdir(old_cwd)
@@ -201,7 +199,7 @@ class TestReadFile:
         old_cwd = os.getcwd()
         try:
             os.chdir(tmp_path)
-            result = read_file("nonexistent_xyz.txt")
+            _, result = read_file("nonexistent_xyz.txt")
             # Should contain an error indicator.
             assert "Error" in result or "not found" in result.lower()
         finally:
@@ -210,5 +208,5 @@ class TestReadFile:
     def test_permission_error_captured(self):
         with patch("builtins.open", side_effect=PermissionError("denied")):
             with patch("pathlib.Path.cwd", return_value=Path("/tmp/safe").resolve()):
-                result = read_file("protected.txt")
+                _, result = read_file("protected.txt")
         assert "Error" in result

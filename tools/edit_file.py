@@ -1,7 +1,9 @@
 """edit_file — apply ordered search-and-replace edits to a file."""
 
+from tools.utils import is_safe_path, _strip_ansi
 
-def edit_file(filename: str, edits: list[dict]) -> str:
+
+def edit_file(filename: str, edits: list[dict]) -> tuple:
     """Apply ordered search-and-replace edits to *filename*.
 
     Each edit is ``{"old_text": ..., "new_text": ...}``.  The first occurrence of
@@ -12,17 +14,20 @@ def edit_file(filename: str, edits: list[dict]) -> str:
     If any edit cannot find its ``old_text``, processing stops and an error is
     returned listing what was found vs. expected, so you can adjust and retry.
 
-    Returns a description of successful edits or an error message.
+    Returns:
+        A ``(type, text)`` tuple.  Uses ``"diff"`` when changes were applied,
+        ``"text"`` for status messages (no effective changes), or ``"_error_"``
+        to signal a distinct error rendering in the display layer.
     """
-    from tools.utils import is_safe_path
 
     if not isinstance(edits, list) or len(edits) == 0:
-        return "Error: `edits` must be a non-empty list."
+        return ("_error_", _strip_ansi("Error: `edits` must be a non-empty list."))
 
     # Path safety check once up front.
     if not is_safe_path(filename):
         return (
-            "Error: Path traversal detected. You may only edit files in the current directory."
+            "_error_",
+            _strip_ansi("Error: Path traversal detected. You may only edit files in the current directory."),
         )
 
     # Read existing content first — we want a clean error if it doesn't exist.
@@ -30,9 +35,9 @@ def edit_file(filename: str, edits: list[dict]) -> str:
         with open(filename, 'r', encoding='utf-8') as f:
             content = f.read()
     except FileNotFoundError:
-        return f"Error: File {filename} not found."
+        return ("_error_", _strip_ansi(f"Error: File {filename} not found."))
     except Exception as e:
-        return f"Error reading file for editing: {str(e)}"
+        return ("_error_", f"Error reading file for editing: {e}")
 
     original_content = content
     changes_made: list[str] = []
@@ -42,9 +47,9 @@ def edit_file(filename: str, edits: list[dict]) -> str:
         new_text = edit.get("new_text")
 
         if not old_text or not isinstance(old_text, str):
-            return f"Error: Edit #{i+1} has invalid or missing `old_text`."
+            return ("_error_", _strip_ansi(f"Error: Edit #{i+1} has invalid or missing `old_text`."))
         if new_text is None or not isinstance(new_text, str):
-            return f"Error: Edit #{i+1} has invalid or missing `new_text`."
+            return ("_error_", _strip_ansi(f"Error: Edit #{i+1} has invalid or missing `new_text`."))
 
         idx = content.find(old_text)
         if idx == -1:
@@ -53,9 +58,12 @@ def edit_file(filename: str, edits: list[dict]) -> str:
             snippet_preview = "\n".join(snippet_lines)
             preview = (snippet_preview + "...") if len(snippet_lines) > 3 else snippet_preview
             return (
-                f"Error: Edit #{i+1} failed — `old_text` not found in {filename}. "
-                f"Searched for:\n    {preview}\n\n"
-                f"Adjust the old_text (include surrounding context if needed) and retry."
+                "_error_",
+                _strip_ansi(
+                    f"Edit #{i+1} failed — `old_text` not found in {filename}. "
+                    f"Searched for:\n    {preview}\n\n"
+                    f"Adjust the old_text (include surrounding context if needed) and retry."
+                ),
             )
 
         content = content[:idx] + new_text + content[idx + len(old_text):]
@@ -65,16 +73,16 @@ def edit_file(filename: str, edits: list[dict]) -> str:
         )
 
     if content == original_content:
-        return f"No effective changes made to {filename}."
+        return ("text", _strip_ansi(f"No effective changes made to {filename}."))
 
     try:
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(content)
     except Exception as e:
-        return f"Error writing edited file: {str(e)}"
+        return ("_error_", f"Error writing edited file: {e}")
 
     result = "\n".join(changes_made)
-    return result
+    return ("diff", _strip_ansi(result))
 
 
 function_def = {

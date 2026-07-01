@@ -1,8 +1,15 @@
 """execute_bash — run a shell command in the terminal."""
 
+from tools.utils import _strip_ansi
 
-def execute_bash(command: str) -> str:
-    """Execute bash command."""
+
+def execute_bash(command: str) -> tuple:
+    """Execute bash command.
+
+    Returns:
+        A ``(type, text)`` tuple.  ``type`` is ``"bash"`` for successful output or
+        ``"_error_"`` to signal a distinct error rendering in the display layer.
+    """
     try:
         import subprocess
         result = subprocess.run(
@@ -15,11 +22,11 @@ def execute_bash(command: str) -> str:
         output = result.stdout
         if result.stderr:
             output += f"\nSTDERR:\n{result.stderr}"
-        return output if output.strip() else "Command executed successfully with no output."
+        return ("bash", _strip_ansi(output)) if output.strip() else ("bash", "Command executed successfully with no output.")
     except subprocess.TimeoutExpired:
-        return "Error: Command timed out after 30 seconds."
+        return ("_error_", _strip_ansi("Error: Command timed out after 30 seconds."))
     except Exception as e:
-        return f"Execution Error: {str(e)}"
+        return ("_error_", f"Execution Error: {e}")
 
 
 function_def = {

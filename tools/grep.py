@@ -3,6 +3,7 @@
 import os
 import re
 from pathlib import Path
+from tools.utils import _strip_ansi
 
 
 def grep(
@@ -11,7 +12,7 @@ def grep(
     use_regex: bool = False,
     file_filter: str | None = None,
     max_matches: int = 50,
-) -> str:
+) -> tuple:
     """Search for *pattern* inside files under the cwd.
 
     Returns a structured string of matches — one block per hit — plus a summary
@@ -34,33 +35,33 @@ def grep(
 
     Returns
     -------
-    str
-        A summary line listing file/line/content for each match, followed by a
-        count. If no matches are found or an error occurs, returns a message
-        indicating that.
+    tuple[str, str]
+        A ``(type, text)`` tuple where type is ``"text"`` for results or errors,
+        or ``"_error_"`` to signal a distinct error rendering in the display layer.
     """
-    from terminal_io import c, RED, GREEN, DIM
 
     if not pattern:
-        return c("Error: `pattern` must be non-empty.", RED)
+        return ("_error_", _strip_ansi("Error: `pattern` must be non-empty."))
 
     if max_matches < 1:
-        return c("Error: `max_matches` must be >= 1.", RED)
+        return ("_error_", _strip_ansi("Error: `max_matches` must be >= 1."))
 
     cwd = Path.cwd().resolve()
     target = (Path.cwd() / path).resolve()
 
     # Safety — every candidate path must stay inside cwd.
     if not target.is_relative_to(cwd):
-        return c(
-            "Error: Path traversal detected. `path` must be within the current directory.",
-            RED,
+        return (
+            "_error_",
+            _strip_ansi(
+                "Error: Path traversal detected. `path` must be within the current directory."
+            ),
         )
 
     try:
         compiled = re.compile(pattern) if use_regex else None
     except re.error as e:
-        return c(f"Error: Invalid regex pattern — {e}", RED)
+        return ("_error_", _strip_ansi(f"Error: Invalid regex pattern — {e}"))
 
     files_to_search: list[Path] = []
 
@@ -89,18 +90,21 @@ def grep(
         elif target.is_file():
             files_to_search.append(target.relative_to(cwd))
         else:
-            return c(
-                f"Error: `{path}` is not a file or directory in the current workspace.",
-                RED,
+            return (
+                "_error_",
+                _strip_ansi(
+                    f"Error: `{path}` is not a file or directory in the current workspace."
+                ),
             )
     except Exception as e:
-        return c(f"Error scanning path `{path}`: {e}", RED)
+        return ("_error_", f"Error scanning path `{path}`: {e}")
 
     if not files_to_search:
         # Helpful message — tell the user we looked but found nothing to scan.
         filter_note = f" with file_filter=`{file_filter}`" if file_filter else ""
         return (
-            c(f"No files found under `{path}`{filter_note} to search.", DIM)
+            "text",
+            _strip_ansi(f"No files found under `{path}`{filter_note} to search."),
         )
 
     matches: list[dict] = []  # {"file": str, "line_no": int, "content": str}
@@ -119,33 +123,32 @@ def grep(
                             "content": line.strip(),
                         })
         except PermissionError as e:
-            return c(f"Permission denied reading `{abs_path}`: {e}", RED)
+            return ("_error_", _strip_ansi(f"Permission denied reading `{abs_path}`: {e}"))
         except Exception as e:
             # Skip unreadable files gracefully — don't abort the whole search.
             continue
 
     if not matches:
         return (
-            f"No matches found for pattern {'(regex) ' if use_regex else ''}"
-            f"`{pattern}` under `{path}`."
+            "text",
+            _strip_ansi(
+                f"No matches found for pattern {'(regex) ' if use_regex else ''}`{pattern}` under `{path}`."
+            ),
         )
 
     lines_out = []
     for m in matches:
         # Format: file:line — content snippet.
-        lines_out.append(f"{c(m['file'], DIM)}:{m['line_no']}  {m['content']}")
+        lines_out.append(f"{m['file']}:{m['line_no']}  {m['content']}")
 
     summary_line = (
-        c(
-            f"Found {len(matches)} match{'es' if len(matches) != 1 else ''}"
-            f" for pattern `{pattern}`",
-            GREEN,
-        )
-        + f" under `{path}`."
-        + (c(f" (limited to {max_matches})", DIM) if len(matches) >= max_matches else "")
+        f"Found {len(matches)} match{'es' if len(matches) != 1 else ''}"
+        f" for pattern `{pattern}`"
+        f" under `{path}`."
+        + (f" (limited to {max_matches})" if len(matches) >= max_matches else "")
     )
 
-    return "\n".join([summary_line] + lines_out)
+    return ("text", _strip_ansi("\n".join([summary_line] + lines_out)))
 
 
 def _is_binary(path: Path) -> bool:

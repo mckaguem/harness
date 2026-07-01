@@ -169,25 +169,34 @@ class Agent:
                     args_str = str(args)
                 
                 yield (TOOL_CALL, func_name, args_str)
-                
+
                 try:
                     result = dispatch(func_name, args)
                 except KeyError as exc:
                     description = f"Unknown function '{func_name}'."
+                    result_type = "_error_"
                     yield (ERROR, description)
-                    result = description
+                    result_text = description
                 except Exception as exc:
                     # Handle unexpected errors (e.g., wrong args to tool)
                     description = f"Error calling {func_name}: {exc}"
+                    result_type = "_error_"
                     yield (ERROR, description)
-                    result = description
+                    result_text = description
+                else:
+                    # Unpack tuple from tools — handle both new-style and legacy plain-string returns.
+                    if isinstance(result, tuple) and len(result) == 2:
+                        result_type, result_content = result
+                    else:
+                        result_type, result_content = "text", str(result)
+                    result_text = result_content
                 
                 self.messages.append({
                     "role": "tool",
-                    "content": result,
+                    "content": result_text,
                     "name": func_name,
                 })
-                yield (TOOL_RESULT, func_name, result)
+                yield (TOOL_RESULT, func_name, result_type, result_text)
 
     @classmethod
     def spawn_subagent(cls, sub_name: str, parent_agent: Optional["Agent"] = None,

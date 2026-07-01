@@ -239,7 +239,7 @@ class TestRunLoop:
         
         # Mock handle_prompt to yield a tool_result output
         mock_agent.handle_prompt.return_value = [
-            ("tool_result", "execute_bash", "file1.txt\nfile2.txt")
+            ("tool_result", "execute_bash", "bash", "file1.txt\nfile2.txt")
         ]
         
         with patch("agent.loop.print_system"):
@@ -305,7 +305,7 @@ class TestRunLoop:
         mock_agent.handle_prompt.return_value = [
             ("response", "Thinking...", {"eval_count": 5}),
             ("tool_call", "execute_bash", '{"command": "ls"}'),
-            ("tool_result", "execute_bash", "file1.txt"),
+            ("tool_result", "execute_bash", "bash", "file1.txt"),
         ]
         
         with patch("agent.loop.print_system"):
