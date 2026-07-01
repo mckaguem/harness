@@ -1,11 +1,7 @@
 """User input prompt with readline support (arrow keys, history)."""
 
 import os
-import readline
-from rich.console import Console
-
-
-console = Console()
+from pathlib import Path
 
 
 def prompt_user() -> str:
@@ -25,43 +21,34 @@ def prompt_user() -> str:
         The assembled input (newlines preserved).  Returns ``""`` if the user
         hits Ctrl+D on a blank line at the very start of an entry.
     """
-    history_path = os.path.expanduser("~/.history")
-    try:
-        readline.read_history_file(history_path)
-    except FileNotFoundError:
-        pass
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.history import FileHistory
 
-    lines: list[str] = []
-    main_prompt_shown = False
+    history_path = Path.home() / ".history"
+
+    session_kwargs: dict = {
+        "multiline": True,
+        "auto_suggest": False,
+        "enable_history_search": True,
+        "search_ignore_case": True,
+        "complete_while_typing": False,
+        "mouse_support": False,
+        "wrap_lines": True,
+        "history": FileHistory(str(history_path)),
+    }
+
+    session = PromptSession(**session_kwargs)
 
     while True:
         try:
-            if not main_prompt_shown:
-                console.print("[cyan bold]You> [/cyan bold]", end="")
-                main_prompt_shown = True
-            
-            line = input("  ... " if lines else "")
+            text = session.prompt("You> ", multiline=True)
+            if not text.strip():
+                continue  # skip accidental empty submissions
+            return text
+        except KeyboardInterrupt:
+            print("^C")
+            continue
         except EOFError:
-            # Ctrl+D at any point submits what's been typed so far.
             break
 
-        # Empty line on a fresh entry with nothing accumulated → submit empty.
-        if line == "" and not lines:
-            return ""
-
-        # Empty line on a continuation row finishes the multi-line entry.
-        if line == "":
-            break
-
-        lines.append(line)
-
-    text = "\n".join(lines)
-
-    # Persist non-empty submissions to history.
-    if text.strip():
-        try:
-            readline.append_history_file(1, history_path)
-        except Exception:
-            pass
-
-    return text
+    return ""
