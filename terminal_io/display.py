@@ -8,7 +8,6 @@ from rich.markdown import Markdown
 from rich.syntax import Syntax
 import json
 
-from .trunc import _trunc_for_display, MAX_DISPLAY_LINES
 from .speed import _format_speed
 
 console = Console()
@@ -45,7 +44,7 @@ def display_tool_result(func_name: str, result_type: str, content: str) -> None:
                      Use ``"_error_"`` to render a distinct error panel.
         content: The plain text content without ANSI codes.
     """
-    display_content = _trunc_for_display(content)
+    display_content = content
     
     if result_type == "_error_":
         # Render errors distinctly — red border, red text, no syntax highlight
@@ -63,7 +62,7 @@ def display_tool_result(func_name: str, result_type: str, content: str) -> None:
 def display_tool_call_with_result(func_name: str, args_str: str, result: str) -> None:
     """Print a single combined panel containing the tool call and its result."""
     # Format call and result sections
-    content = f"**Call:**\n```json\n{args_str}\n```\n\n---\n\n**Result:**\n```text\n{_trunc_for_display(str(result))}\n```"
+    content = f"**Call:**\n```json\n{args_str}\n```\n\n---\n\n**Result:**\n```text\n{str(result)}\n```"
     console.print(Panel(content, title=f"🔧 {func_name}", border_style="blue", expand=False))
 
 
