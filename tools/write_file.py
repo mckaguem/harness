@@ -3,21 +3,20 @@
 
 def write_file(filename: str, content: str) -> str:
     """Write to a file if it is within the current working directory."""
-    from terminal_io import c, RED, GREEN
     from tools.utils import is_safe_path
 
+
     if not is_safe_path(filename):
-        return c(
-            "Error: Path traversal detected. You may only write to the current directory.",
-            RED
+        return (
+            "Error: Path traversal detected. You may only write to the current directory."
         )
 
     try:
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(content)
-        return c(f"Success: Wrote to {filename}", GREEN)
+        return f"Success: Wrote to {filename}"
     except Exception as e:
-        return c(f"Error writing to file: {str(e)}", RED)
+        return f"Error writing to file: {str(e)}"
 
 
 function_def = {

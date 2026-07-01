@@ -17,11 +17,9 @@ def execute_bash(command: str) -> str:
             output += f"\nSTDERR:\n{result.stderr}"
         return output if output.strip() else "Command executed successfully with no output."
     except subprocess.TimeoutExpired:
-        from terminal_io import c, RED
-        return c("Error: Command timed out after 30 seconds.", RED)
+        return "Error: Command timed out after 30 seconds."
     except Exception as e:
-        from terminal_io import c, RED
-        return c(f"Execution Error: {str(e)}", RED)
+        return f"Execution Error: {str(e)}"
 
 
 function_def = {

@@ -14,17 +14,15 @@ def edit_file(filename: str, edits: list[dict]) -> str:
 
     Returns a description of successful edits or an error message.
     """
-    from terminal_io import c, RED, DIM, GREEN
     from tools.utils import is_safe_path
 
     if not isinstance(edits, list) or len(edits) == 0:
-        return c("Error: `edits` must be a non-empty list.", RED)
+        return "Error: `edits` must be a non-empty list."
 
     # Path safety check once up front.
     if not is_safe_path(filename):
-        return c(
-            "Error: Path traversal detected. You may only edit files in the current directory.",
-            RED
+        return (
+            "Error: Path traversal detected. You may only edit files in the current directory."
         )
 
     # Read existing content first — we want a clean error if it doesn't exist.
@@ -32,9 +30,9 @@ def edit_file(filename: str, edits: list[dict]) -> str:
         with open(filename, 'r', encoding='utf-8') as f:
             content = f.read()
     except FileNotFoundError:
-        return c(f"Error: File {filename} not found.", RED)
+        return f"Error: File {filename} not found."
     except Exception as e:
-        return c(f"Error reading file for editing: {str(e)}", RED)
+        return f"Error reading file for editing: {str(e)}"
 
     original_content = content
     changes_made: list[str] = []
@@ -44,9 +42,9 @@ def edit_file(filename: str, edits: list[dict]) -> str:
         new_text = edit.get("new_text")
 
         if not old_text or not isinstance(old_text, str):
-            return c(f"Error: Edit #{i+1} has invalid or missing `old_text`.", RED)
+            return f"Error: Edit #{i+1} has invalid or missing `old_text`."
         if new_text is None or not isinstance(new_text, str):
-            return c(f"Error: Edit #{i+1} has invalid or missing `new_text`.", RED)
+            return f"Error: Edit #{i+1} has invalid or missing `new_text`."
 
         idx = content.find(old_text)
         if idx == -1:
@@ -54,11 +52,10 @@ def edit_file(filename: str, edits: list[dict]) -> str:
             snippet_lines = old_text.splitlines()[:3]
             snippet_preview = "\n".join(snippet_lines)
             preview = (snippet_preview + "...") if len(snippet_lines) > 3 else snippet_preview
-            return c(
+            return (
                 f"Error: Edit #{i+1} failed — `old_text` not found in {filename}. "
                 f"Searched for:\n    {preview}\n\n"
-                f"Adjust the old_text (include surrounding context if needed) and retry.",
-                RED
+                f"Adjust the old_text (include surrounding context if needed) and retry."
             )
 
         content = content[:idx] + new_text + content[idx + len(old_text):]
@@ -68,16 +65,16 @@ def edit_file(filename: str, edits: list[dict]) -> str:
         )
 
     if content == original_content:
-        return c(f"No effective changes made to {filename}.", DIM)
+        return f"No effective changes made to {filename}."
 
     try:
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(content)
     except Exception as e:
-        return c(f"Error writing edited file: {str(e)}", RED)
+        return f"Error writing edited file: {str(e)}"
 
     result = "\n".join(changes_made)
-    return c(result, GREEN)
+    return result
 
 
 function_def = {

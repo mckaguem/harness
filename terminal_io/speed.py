@@ -1,7 +1,8 @@
 """Token-speed formatting for Ollama chat responses."""
 
+from rich.console import Console
 
-from .colors import DIM, c
+console = Console()
 
 
 def _format_speed(response: dict, context_length: int = 0,
@@ -41,5 +42,5 @@ def _format_speed(response: dict, context_length: int = 0,
         parts.append(f"{prompt_eval_count} in{ctx_pct_str}")
 
     if parts:
-        return c(f"⏱ {' | '.join(parts)}", DIM)
+        return f"[dim]⏱ {' | '.join(parts)}[/dim]"
     return ""

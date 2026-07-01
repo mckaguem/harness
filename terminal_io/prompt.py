@@ -1,16 +1,11 @@
 """User input prompt with readline support (arrow keys, history)."""
 
-
 import os
 import readline
+from rich.console import Console
 
-from .colors import CYAN, BOLD, c, RESET
 
-
-# readline needs ANSI codes wrapped in \001...\002 (invisible markers)
-# so it can track cursor position correctly for multi-line input.
-_PROMPT_MAIN = c("\nYou> ", CYAN, bold=True).replace(RESET, "\001" + RESET + "\002")
-_PROMPT_CONT = "  ... "
+console = Console()
 
 
 def prompt_user() -> str:
@@ -37,13 +32,15 @@ def prompt_user() -> str:
         pass
 
     lines: list[str] = []
+    main_prompt_shown = False
 
     while True:
         try:
-            if lines:
-                line = input(_PROMPT_CONT)
-            else:
-                line = input(_PROMPT_MAIN)
+            if not main_prompt_shown:
+                console.print("[cyan bold]You> [/cyan bold]", end="")
+                main_prompt_shown = True
+            
+            line = input("  ... " if lines else "")
         except EOFError:
             # Ctrl+D at any point submits what's been typed so far.
             break
