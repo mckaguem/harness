@@ -43,9 +43,20 @@ def display_tool_result(func_name: str, result_type: str, content: str) -> None:
         result_type: Rich-recognized format type (e.g., ``"python"``, ``"json"``).
                      Use ``"_error_"`` to render a distinct error panel.
         content: The plain text content without ANSI codes.
+
+    Behavior
+    --------
+    If the result is longer than 5 lines, only the first 5 are shown followed by
+    an ellipsis line indicating how many lines were truncated (e.g. ``... [8 lines truncated]``).
     """
-    display_content = content
-    
+    # Truncate if longer than 5 lines
+    lines = content.splitlines()
+    if len(lines) > 5:
+        truncated_count = len(lines) - 5
+        display_content = '\n'.join(lines[:5]) + f'\n... [{truncated_count} line{"s" if truncated_count != 1 else ""} truncated]'
+    else:
+        display_content = content
+
     if result_type == "_error_":
         # Render errors distinctly — red border, red text, no syntax highlight
         console.print(Panel(

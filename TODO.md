@@ -10,5 +10,4 @@
 - Providers other than Ollama
 - Separate agent specification from model specification.  Use a model profile type thing in between.
 - Some way of being able to view everything that goes to the LLM
-- Limit display of long tool results
 - Streaming responses (including thinking)
