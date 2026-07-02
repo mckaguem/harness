@@ -1,9 +1,10 @@
 """update_task_status — Tool for updating task execution state machine."""
 
 from agent.core import CURRENT_AGENT
+from tools.tool_result import ToolResult
 
 
-def update_task_status(task_id: int, status: str) -> tuple:
+def update_task_status(task_id: int, status: str) -> tuple | ToolResult:
     """Update the status of a specific task.
 
     Updates the status field of a Task object in the current agent's TaskList instance.
@@ -14,8 +15,9 @@ def update_task_status(task_id: int, status: str) -> tuple:
         status: New status value (must be one of VALID_STATUSES)
 
     Returns:
-        A (type_tag, text) tuple indicating success or failure.
-        type_tag is "text" on success or "_error_" on failure.
+        On success: a :class:`ToolResult` containing status text for the LLM and
+            the full formatted task list for user display.
+        On failure: a ``(type_tag, text)`` tuple indicating an error condition.
 
     Raises:
         ValueError: If the provided status is not in VALID_STATUSES.
@@ -28,7 +30,13 @@ def update_task_status(task_id: int, status: str) -> tuple:
     try:
         updated = current_agent._task_list.update_status(task_id, status)
         if updated:
-            return ("text", f"Task {task_id} updated to '{status}' successfully.")
+            return ToolResult(
+                llm_text=f"Task {task_id} updated to '{status}' successfully.",
+                display_text=current_agent._task_list.to_markdown(),
+                type_tag="markdown",
+                title="📋 Task List",
+                theme="status",
+            )
         else:
             return ("_error_", f"Task with ID {task_id} not found in current task list")
     except ValueError as e:

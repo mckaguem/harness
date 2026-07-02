@@ -253,6 +253,8 @@ Execute the next logical step based on this state.
                 
                 yield (TOOL_CALL, func_name, args_str)
 
+                # `result` will hold the raw return from dispatch — initialized to None so it's always defined.
+                result = None
                 try:
                     result = dispatch(func_name, args)
                 except KeyError as exc:
@@ -267,19 +269,22 @@ Execute the next logical step based on this state.
                     yield (ERROR, description)
                     result_text = description
                 else:
-                    # Unpack tuple from tools — handle both new-style and legacy plain-string returns.
-                    if isinstance(result, tuple) and len(result) == 2:
-                        result_type, result_content = result
+                    # Unpack tool result — handle both new-style ToolResult and legacy tuple returns.
+                    from tools.tool_result import ToolResult
+                    if isinstance(result, ToolResult):
+                        result_type = result.type_tag or "text"
+                        result_text = result.llm_text  # what LLM receives as message history
+                    elif isinstance(result, tuple) and len(result) == 2:
+                        result_type, result_text = result
                     else:
-                        result_type, result_content = "text", str(result)
-                    result_text = result_content
+                        result_type, result_text = "text", str(result)
                 
                 self.messages.append({
                     "role": "tool",
                     "content": result_text,
                     "name": func_name,
                 })
-                yield (TOOL_RESULT, func_name, result_type, result_text)
+                yield (TOOL_RESULT, func_name, result_type, result)
 
     @classmethod
     def spawn_subagent(cls, sub_name: str, parent_agent: Optional["Agent"] = None,

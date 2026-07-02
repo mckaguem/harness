@@ -1,9 +1,10 @@
 """initialize_task_list — Tool for initializing the task execution state machine."""
 
 from agent.core import CURRENT_AGENT
+from tools.tool_result import ToolResult
 
 
-def initialize_task_list(tasks: list[str]) -> tuple:
+def initialize_task_list(tasks: list[str]) -> tuple | ToolResult:
     """Initialize or reset the task list with a new set of tasks.
 
     This tool clears any existing tasks and populates the current agent's TaskList instance
@@ -14,8 +15,9 @@ def initialize_task_list(tasks: list[str]) -> tuple:
                Each string becomes one task with auto-incremented IDs.
 
     Returns:
-        A (type_tag, text) tuple indicating success or failure.
-        type_tag is "text" on success or "_error_" on failure.
+        On success: a :class:`ToolResult` containing status text for the LLM and
+            the full formatted task list for user display.
+        On failure: a ``(type_tag, text)`` tuple indicating an error condition.
 
     Raises:
         ValueError: If the input is invalid (empty list, empty descriptions).
@@ -27,7 +29,13 @@ def initialize_task_list(tasks: list[str]) -> tuple:
 
     try:
         current_agent._task_list.initialize_tasks(tasks)
-        return ("text", f"Initialized {len(tasks)} tasks successfully.")
+        return ToolResult(
+            llm_text=f"Initialized {len(tasks)} tasks successfully.",
+            display_text=current_agent._task_list.to_markdown(),
+            type_tag="markdown",
+            title="📋 Task List",
+            theme="status",
+        )
     except ValueError as e:
         return ("_error_", f"Failed to initialize task list: {e}")
 
