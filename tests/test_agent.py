@@ -11,32 +11,30 @@ class TestAgentTypeFromFile:
     """Tests for AgentType.from_file() YAML loading."""
 
     def test_loads_valid_yaml(self, tmp_path):
-        """Should load a valid YAML file correctly."""
+        """Should load a valid YAML file correctly with inline system_prompt."""
         from agent import AgentType
         
         yaml_content = """
 model_name: "llama3"
-system_prompt_path: "prompt.txt"
+system_prompt: "You are a helpful assistant."
 agent_tools: [execute_bash, write_file]
 """
         (tmp_path / "config.yaml").write_text(yaml_content)
-        (tmp_path / "prompt.txt").write_text("You are a helpful assistant")
         
         os.chdir(tmp_path)
         try:
             agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
             assert agent_type.model_name == "llama3"
-            # ``from_file`` now builds the augmented system prompt (base file + cwd listing),
-            # so verify it starts with the base text and includes the injected content.
-            assert agent_type.system_prompt.startswith("You are a helpful assistant")
-            assert "Current working directory contents" in agent_type.system_prompt
-            assert "config.yaml" in agent_type.system_prompt
+            # System prompt should start with base text and include cwd name injection.
+            assert agent_type.system_prompt.startswith("You are a helpful assistant.")
+            assert "Current working directory name:" in agent_type.system_prompt
+            assert tmp_path.name in agent_type.system_prompt  # cwd dir name injected
             assert agent_type.agent_tools == ["execute_bash", "write_file"]
         finally:
             os.chdir("/workspaces/harness")
 
     def test_uses_inline_system_prompt(self, tmp_path):
-        """Should use inline system_prompt if no file specified."""
+        """Should use inline system_prompt from YAML."""
         from agent import AgentType
         
         yaml_content = """
@@ -50,7 +48,10 @@ agent_tools: ["*"]
         try:
             agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
             assert agent_type.model_name == "mistral"
-            assert agent_type.system_prompt == "You are Mistral."
+            # Should be augmented with cwd name.
+            assert agent_type.system_prompt.startswith("You are Mistral.")
+            assert "Current working directory name:" in agent_type.system_prompt
+            assert tmp_path.name in agent_type.system_prompt
             assert agent_type.agent_tools == ["*"]
         finally:
             os.chdir("/workspaces/harness")
@@ -113,36 +114,30 @@ system_prompt: "Test prompt"
         finally:
             os.chdir("/workspaces/harness")
 
-    def test_uses_system_prompt_file_if_exists(self, tmp_path):
-        """Should prefer system_prompt_path file over inline text."""
+    def test_raises_value_error_missing_system_prompt(self, tmp_path):
+        """Should raise ValueError if system_prompt is missing from YAML."""
         from agent import AgentType
         
         yaml_content = """
 model_name: "test"
-system_prompt_path: "prompt.txt"
-system_prompt: "Inline prompt (should be ignored)"
 agent_tools: []
 """
-        (tmp_path / "config.yaml").write_text(yaml_content)
-        (tmp_path / "prompt.txt").write_text("File prompt wins")
+        (tmp_path / "no_prompt.yaml").write_text(yaml_content)
         
         os.chdir(tmp_path)
         try:
-            agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
-            # ``from_file`` now augments the prompt with cwd listing, so check prefix instead of exact match.
-            assert agent_type.system_prompt.startswith("File prompt wins")
-            assert "Current working directory contents" in agent_type.system_prompt
+            with pytest.raises(ValueError, match="missing required 'system_prompt'"):
+                AgentType.from_file(str(tmp_path / "no_prompt.yaml"))
         finally:
             os.chdir("/workspaces/harness")
 
-    def test_falls_back_to_inline_if_no_file(self, tmp_path):
-        """Should fall back to inline system_prompt if file doesn't exist."""
+    def test_system_prompt_only_includes_cwd_name(self, tmp_path):
+        """Should only inject cwd name — not full listing or AGENTS.md."""
         from agent import AgentType
         
         yaml_content = """
 model_name: "test"
-system_prompt_path: "missing.txt"
-system_prompt: "Fallback prompt"
+system_prompt: "Hello world."
 agent_tools: []
 """
         (tmp_path / "config.yaml").write_text(yaml_content)
@@ -150,7 +145,30 @@ agent_tools: []
         os.chdir(tmp_path)
         try:
             agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
-            assert agent_type.system_prompt == "Fallback prompt"
+            # Should NOT contain full cwd listing.
+            assert "Current working directory contents:" not in agent_type.system_prompt
+            # Should NOT contain AGENTS.md.
+            assert "--- AGENTS.md ---" not in agent_type.system_prompt
+            # Should contain the simple cwd name injection.
+            assert "Current working directory name:" in agent_type.system_prompt
+        finally:
+            os.chdir("/workspaces/harness")
+
+    def test_name_defaults_to_stem(self, tmp_path):
+        """Should fall back to YAML filename stem if 'name' is not specified."""
+        from agent import AgentType
+        
+        yaml_content = """
+model_name: "test"
+system_prompt: "Test"
+agent_tools: []
+"""
+        (tmp_path / "my_agent.yaml").write_text(yaml_content)
+        
+        os.chdir(tmp_path)
+        try:
+            agent_type = AgentType.from_file(str(tmp_path / "my_agent.yaml"))
+            assert agent_type.name == "my_agent"
         finally:
             os.chdir("/workspaces/harness")
 

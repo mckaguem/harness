@@ -11,7 +11,7 @@ that it must invoke exactly once when done.
 
 ## Flow
 
-1. Load the termination prompt from :file:`agents/prompts/subagent_termination.txt`.
+1. Embed the termination prompt as a module-level constant (no external file dependency).
 2. Spawn the sub-agent, inject the termination text into its system_prompt via
    :meth:`AgentType.inject_extra_system_prompt`, and pass ``submit_results`` as
    an extra tool schema via :meth:`Agent.spawn_subagent`.
@@ -24,26 +24,14 @@ If the sub-agent never calls ``submit_results`` (i.e. it falls back to a plain
 text response), we fall through and return that response text as before.
 """
 
+TERMINATION_PROMPT = """\
+You are a specialized sub-agent execution thread. Your purpose is to execute the user's task with absolute technical precision using your permitted tools.
 
-def _load_termination_prompt() -> str:
-    """Read the termination-prompt file.
+## Termination Protocol (CRITICAL)
+When you have completed your assigned task, you must NOT write a final conversational response. You must explicitly invoke the `submit_results` tool to return your findings. 
 
-    Looks for agents/prompts/subagent_termination.txt relative to this module's
-    location. Returns an empty string if not found (graceful fallback).
-    """
-    from pathlib import Path
-
-    # Resolve path relative to THIS FILE so it works regardless of cwd
-    base_dir = Path(__file__).resolve().parent.parent  # tools/ -> repo root
-    path = base_dir / "agents" / "prompts" / "subagent_termination.txt"
-    if not path.is_file():
-        return ""  # graceful fallback; caller decides how to handle
-
-    content = path.read_text(encoding="utf-8")
-    separator_idx = content.find("---------------")
-    if separator_idx == -1:
-        return content.strip()
-    return content[:separator_idx].strip()
+* Ensure that all data requested by the `submit_results` schema (such as file paths, line numbers, and verbatim snippets) is exhaustively populated.
+* Do not wrap the tool arguments in markdown backticks (like ```json) or add conversational text outside of the tool call."""
 
 
 def run_subagent(sub_agent: str, task: str) -> tuple:
@@ -68,7 +56,7 @@ def run_subagent(sub_agent: str, task: str) -> tuple:
     try:
         from agent import Agent, RESPONSE, TOOL_CALL  # noqa: F401 (explicit guards)
 
-        termination_prompt = _load_termination_prompt()
+        termination_prompt = TERMINATION_PROMPT
 
         # No explicit parent needed — spawn_subagent falls back to the current
         # contextvar bound by handle_prompt().

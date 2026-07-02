@@ -13,30 +13,26 @@ class AgentType:
     
     name: str = ""
     model_name: str = ""
-    system_prompt_path: str = "system_prompt.txt"  # Path to the base system prompt file
     system_prompt: str = ""
     agent_tools: List[str] = field(default_factory=list)
 
     @staticmethod
-    def _build_system_prompt(system_prompt_path: str) -> str:
-        """Build an augmented system prompt from a base file.
+    def _build_system_prompt(system_prompt: str) -> str:
+        """Augment an inline base prompt with the current working directory name.
 
-        Loads the base system prompt at *system_prompt_path* and augments it by
-        appending a listing of the current working directory plus the contents
-        of ``AGENTS.md`` (if present). This centralises that logic so callers
-        don't need to invoke :func:`build_system_prompt` themselves.
+        This is intentionally minimal compared to :func:`agent.utils.build_system_prompt`
+        because the system prompt now lives inside the YAML itself — there's no
+        external base file to read. We only append a short cwd hint so the agent
+        knows which project it's operating in.
 
         Args:
-            system_prompt_path: Path to the base prompt text file.
+            system_prompt: The base prompt text sourced from the agent's YAML.
 
         Returns:
-            The augmented prompt string.
-
-        Raises:
-            FileNotFoundError: If the base prompt file does not exist.
+            The augmented prompt string with cwd name appended.
         """
-        from agent.utils import build_system_prompt
-        return build_system_prompt(system_prompt_path)
+        injection = f"\n\nCurrent working directory name:\n{Path.cwd().name}"
+        return system_prompt + injection
     
     @classmethod
     def from_file(cls, path: str) -> "AgentType":
@@ -46,11 +42,11 @@ class AgentType:
         
             name: "my_agent"                              # optional display name
             model_name: "model/identifier"
-            system_prompt_path: "system_prompt.txt"       # base system prompt file
+            system_prompt: "You are an autonomous coding assistant..."
             agent_tools: [execute_bash, write_file]       # or ["*"] for all
         
-        The ``system_prompt_path`` is resolved into a full augmented prompt by
-        loading the referenced base file and appending cwd listing + AGENTS.md.
+        The ``system_prompt`` is read directly from the YAML and augmented by
+        appending the current working directory name.
 
         Args:
             path: Path to the YAML file.
@@ -59,8 +55,9 @@ class AgentType:
             An AgentType instance with its system prompt fully built.
             
         Raises:
-            FileNotFoundError: If the YAML or its ``system_prompt_path`` is missing.
-            ValueError: If required fields are absent or malformed.
+            FileNotFoundError: If the YAML file does not exist.
+            ValueError: If required fields are absent or malformed, or if 
+                        ``system_prompt`` is missing from the YAML.
         """
         yaml_path = Path(path)
         if not yaml_path.is_file():
@@ -78,22 +75,20 @@ class AgentType:
         if not isinstance(agent_tools, list):
             raise ValueError("'agent_tools' must be a list of strings")
 
-        # Build the augmented system prompt from the base file referenced in YAML.
-        system_prompt_path = config.get("system_prompt_path", "system_prompt.txt")
-        
-        try:
-            system_prompt = cls._build_system_prompt(system_prompt_path)
-        except FileNotFoundError:
-            if config.get("system_prompt"):
-                # Fall back to inline system prompt if provided.
-                system_prompt = config["system_prompt"]
-            else:
-                raise
-        
+        system_prompt_raw = config.get("system_prompt")
+        if not system_prompt_raw:
+            raise ValueError(
+                f"YAML '{path}' is missing required 'system_prompt' field. "
+                f"The system prompt must now be defined inline in the YAML, "
+                f"not referenced via a separate file."
+            )
+
+        # Augment the inline system prompt with cwd name.
+        system_prompt = cls._build_system_prompt(system_prompt_raw)
+
         return cls(
             name=name,
             model_name=model_name,
-            system_prompt_path=system_prompt_path,
             system_prompt=system_prompt,
             agent_tools=agent_tools,
         )
@@ -102,7 +97,7 @@ class AgentType:
         """Append additional text to the existing system prompt.
 
         This is useful for injecting context-specific instructions without
-        rebuilding the entire augmented prompt (which includes cwd listing + AGENTS.md).
+        rebuilding the entire augmented prompt (which includes cwd name).
 
         Args:
             text: The string to append. Leading/trailing whitespace should be
