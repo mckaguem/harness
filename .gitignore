@@ -1,4 +1,6 @@
 __pycache__
-venv
+*.pyc
+.venv/
+__pypackages__/
 .pytest_cache
 session.txt

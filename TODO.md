@@ -1,6 +1,5 @@
 # Harness.py things to work on
 
-- Set up for use with UV
 - Paths for configuration information etc
 - Display task list after agent returns or something.
 - Context compression

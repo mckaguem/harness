@@ -1,0 +1,26 @@
+[project]
+name = "harness"
+version = "0.1.0"
+description = "An LLM agent harness for terminal-driven multi-agent workflows."
+requires-python = ">=3.10"
+dependencies = [
+    "ollama",
+    "prompt-toolkit",
+    "pyyaml",
+    "rich",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = [
+    "agent",
+    "commands",
+    "terminal_io",
+    "tools",
+]
