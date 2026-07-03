@@ -6,6 +6,7 @@ from terminal_io import (
     display_agent_response,
 )
 from commands import COMMANDS
+from skills_interceptor import intercept_message, InterceptorKind
 
 
 def user_loop(agent: "Agent", ollama_client: "ollama.Client", on_exit=None) -> None:
@@ -42,8 +43,24 @@ def user_loop(agent: "Agent", ollama_client: "ollama.Client", on_exit=None) -> N
                 elif result is True:
                     break
                 continue
+            
+            # No built-in handler — run the skill-activation interceptor.
+            outcome = intercept_message(user_input)
+            if outcome.kind == InterceptorKind.ACTIVATED:
+                # Inject the skill context block into the next user message so
+                # it is prepended to the user's request before being sent to the LLM.
+                agent.inject_text(outcome.payload)
+                effective_input = outcome.stripped_message if outcome.stripped_message else user_input
+            elif outcome.kind == InterceptorKind.RESTRICTED:
+                display_error(outcome.payload)
+                effective_input = outcome.stripped_message if outcome.stripped_message else user_input
+            else:
+                # UNKNOWN or SKIP: treat as regular text and send to LLM.
+                effective_input = user_input
+        else:
+            effective_input = user_input
 
-        for output in agent.handle_prompt(user_input):
+        for output in agent.handle_prompt(effective_input):
             kind = output[0]
             if kind == "response":
                 _, content, ollama_response = output

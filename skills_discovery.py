@@ -52,6 +52,9 @@ def parse_skill_metadata(skill_dir: Path) -> Tuple[Dict, List[str]]:
     except Exception as e:
         return {}, [f"Error parsing SKILL.md: {e}"]
     
+    # Store the body in metadata so callers (e.g. skills_interceptor) can find it.
+    metadata['body'] = body
+    
     # Validate name field
     if 'name' not in metadata:
         errors.append("Missing required 'name' field")
