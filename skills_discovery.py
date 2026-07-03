@@ -2,7 +2,7 @@
 
 import re
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 import yaml
 
 
@@ -156,6 +156,34 @@ def format_skill_catalog(skills: List[Tuple[str, Dict]]) -> str:
         lines.append(f"- **{name}**: {desc}")
     
     return "\n".join(lines)
+
+
+def get_skill_by_name(skill_name: str, skills_dir: Path = None) -> Tuple[Dict[str, object], str]:
+    """Look up a skill by name and return its parsed metadata.
+
+    Args:
+        skill_name: Name of the skill to look up.
+        skills_dir: Path to skills directory. Defaults to 'skills/' relative to CWD.
+        
+    Returns:
+        A tuple of (metadata_dict, error_message). If *error_message* is non-empty,
+        no matching skill was found or validation failed.
+    """
+    if skills_dir is None:
+        skills_dir = Path.cwd() / "skills"
+
+    skill_path = skills_dir / skill_name
+
+    if not skill_path.is_dir():
+        return {}, f"Skill directory '{skill_name}' not found at {skill_path}"
+
+    metadata, errors = parse_skill_metadata(skill_path)
+
+    if errors:
+        error_msg = "; ".join(errors)
+        return {}, f"Failed to validate skill '{skill_name}': {error_msg}"
+
+    return metadata, ""
 
 
 def get_skill_body(skill_name: str, skills_dir: Path = None) -> Tuple[str, str]:
