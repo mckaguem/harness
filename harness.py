@@ -12,6 +12,7 @@ from terminal_io import (
 from commands import COMMANDS
 from agent import Agent, AgentType, user_loop
 from tools import AGENT_TOOLS
+from skills_discovery import discover_skills, format_skill_catalog
 
 
 def main():
@@ -28,6 +29,12 @@ def main():
 
     # Build the agent definition from YAML.
     agent_type = AgentType.from_file("agents/main.yaml")
+    
+    # Phase 1: Discover skills and inject their catalog into the system prompt.
+    discovered = discover_skills()
+    if discovered:
+        catalog = format_skill_catalog(discovered)
+        agent_type.inject_extra_system_prompt(catalog)
     
     agent = Agent(
         agent_type=agent_type,
