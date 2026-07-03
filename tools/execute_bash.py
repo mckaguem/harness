@@ -1,14 +1,15 @@
 """execute_bash — run a shell command in the terminal."""
 
 from tools.utils import _strip_ansi
+from tools.tool_result import ToolResult
 
 
-def execute_bash(command: str) -> tuple:
+def execute_bash(command: str) -> ToolResult:
     """Execute bash command.
 
     Returns:
-        A ``(type, text)`` tuple.  ``type`` is ``"bash"`` for successful output or
-        ``"_error_"`` to signal a distinct error rendering in the display layer.
+        A ``ToolResult`` with the output text for both LLM and display,
+        or an error result for failures.
     """
     try:
         import subprocess
@@ -22,11 +23,14 @@ def execute_bash(command: str) -> tuple:
         output = result.stdout
         if result.stderr:
             output += f"\nSTDERR:\n{result.stderr}"
-        return ("bash", _strip_ansi(output)) if output.strip() else ("bash", "Command executed successfully with no output.")
+        msg = _strip_ansi(output) if output.strip() else "Command executed successfully with no output."
+        return ToolResult(llm_text=msg, display_text=msg, type_tag="bash", title="🐛 Execute Bash")
     except subprocess.TimeoutExpired:
-        return ("_error_", _strip_ansi("Error: Command timed out after 30 seconds."))
+        msg = _strip_ansi("Error: Command timed out after 30 seconds.")
+        return ToolResult(llm_text=msg, display_text=msg, type_tag="text", title="🚫 Error", theme="error")
     except Exception as e:
-        return ("_error_", f"Execution Error: {e}")
+        msg = f"Execution Error: {e}"
+        return ToolResult(llm_text=msg, display_text=msg, type_tag="text", title="🚫 Error", theme="error")
 
 
 function_def = {

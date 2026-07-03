@@ -2,32 +2,29 @@
 
 import json
 from tools.utils import is_safe_path, _strip_ansi
+from tools.tool_result import ToolResult
 
 
-def write_file(filename: str, content: str) -> tuple:
+def write_file(filename: str, content: str) -> ToolResult:
     """Write to a file if it is within the current working directory.
 
     Returns:
-        A ``(type, text)`` tuple.  ``type`` is one of Rich's recognised
-        syntax-highlighting formats (here always ``"text"`` for status messages)
-        or ``"_error_"`` to signal a distinct error rendering in the display layer.
+        A ``ToolResult`` containing JSON-encoded status data and filename/bytes info,
+        or an error result for failures.
     """
     if not is_safe_path(filename):
-        return (
-            "_error_",
-            _strip_ansi("Error: Path traversal detected. You may only write to the current directory."),
-        )
+        msg = _strip_ansi("Error: Path traversal detected. You may only write to the current directory.")
+        return ToolResult(llm_text=msg, display_text=msg, type_tag="text", title="🚫 Error", theme="error")
 
     try:
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(content)
         size = len(content.encode('utf-8'))
-        return (
-            "json",
-            _strip_ansi(json.dumps({"status": "ok", "filename": filename, "bytes": size}))
-        )
+        result_str = json.dumps({"status": "ok", "filename": filename, "bytes": size})
+        return ToolResult(llm_text=result_str, display_text=result_str, type_tag="json", title="✅ Write File")
     except Exception as e:
-        return ("_error_", f"Error writing to file: {e}")
+        msg = f"Error writing to file: {e}"
+        return ToolResult(llm_text=msg, display_text=msg, type_tag="text", title="🚫 Error", theme="error")
 
 
 function_def = {
