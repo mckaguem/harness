@@ -13,7 +13,33 @@ from terminal_io import (
 from commands import COMMANDS
 from agent import Agent, AgentType, user_loop
 from tools import AGENT_TOOLS
-from skills_discovery import discover_skills, format_skill_catalog, check_command_skill_collision
+from skills_discovery import discover_skills, format_skill_catalog
+
+
+def check_command_skill_collision() -> list[str]:
+    """Check for name collisions between built-in commands and discovered skills.
+
+    Returns:
+        A list of human-readable collision messages (empty if there are none).
+    """
+    # Get all built-in command names
+    command_names = set(COMMANDS.keys())
+    
+    # Discover all valid skills
+    discovered_skills = discover_skills()
+    skill_names = {name for name, _ in discovered_skills}
+    
+    # Find intersection - names that exist in both sets
+    collisions = command_names & skill_names
+    
+    # Generate collision messages
+    messages: list[str] = []
+    for name in sorted(collisions):
+        messages.append(
+            f"Command '/{name}' and skill '{name}' both exist. "
+            f"Cannot reliably route — aborting startup."
+        )
+    return messages
 
 
 def main():
