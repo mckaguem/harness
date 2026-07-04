@@ -117,7 +117,8 @@ def edit_file(filename: str, edits: list[dict]) -> ToolResult:
             llm_text=_strip_ansi(f"No effective changes made to {filename}."),
             display_text=_strip_ansi(f"No effective changes made to {filename}."),
             type_tag="text",
-            title="📝 Edit File"
+            title="📝 Edit File",
+            theme="status"
         )
 
     try:
@@ -133,7 +134,7 @@ def edit_file(filename: str, edits: list[dict]) -> ToolResult:
         )
 
     result = "\n".join(changes_made)
-    return ToolResult(llm_text=result, display_text=result, type_tag="diff", title="✏️ Edit File")
+    return ToolResult(llm_text=result, display_text=result, type_tag="diff", title="✏️ Edit File", theme="write")
 
 
 function_def = {

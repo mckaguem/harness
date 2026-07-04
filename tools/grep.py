@@ -137,7 +137,7 @@ def grep(
         # Helpful message — tell the user we looked but found nothing to scan.
         filter_note = f" with file_filter=`{file_filter}`" if file_filter else ""
         msg = _strip_ansi(f"No files found under `{path}`{filter_note} to search.")
-        return ToolResult(llm_text=msg, display_text=msg, type_tag="text", title="🔍 Grep")
+        return ToolResult(llm_text=msg, display_text=msg, type_tag="text", title="🔍 Grep", theme="info")
 
     matches: list[dict] = []  # {"file": str, "line_no": int, "content": str}
 
@@ -170,7 +170,7 @@ def grep(
         msg = _strip_ansi(
             f"No matches found for pattern {'(regex) ' if use_regex else ''}`{pattern}` under `{path}`."
         )
-        return ToolResult(llm_text=msg, display_text=msg, type_tag="text", title="🔍 Grep")
+        return ToolResult(llm_text=msg, display_text=msg, type_tag="text", title="🔍 Grep", theme="info")
 
     lines_out = []
     for m in matches:
@@ -185,7 +185,7 @@ def grep(
     )
 
     result_str = _strip_ansi("\n".join([summary_line] + lines_out))
-    return ToolResult(llm_text=result_str, display_text=result_str, type_tag="text", title="🔍 Grep")
+    return ToolResult(llm_text=result_str, display_text=result_str, type_tag="text", title="🔍 Grep", theme="info")
 
 
 def _is_binary(path: Path) -> bool:

@@ -2,6 +2,7 @@
 
 from agent.core import CURRENT_AGENT
 from tools.tool_result import ToolResult
+from tools.utils import _strip_ansi
 
 
 def update_task_status(task_id: int, status: str) -> tuple | ToolResult:
@@ -25,7 +26,13 @@ def update_task_status(task_id: int, status: str) -> tuple | ToolResult:
     current_agent = CURRENT_AGENT.get()
 
     if not current_agent or not hasattr(current_agent, '_task_list'):
-        return ("_error_", "No active agent context found")
+        return ToolResult(
+            llm_text=_strip_ansi("No active agent context found"),
+            display_text=_strip_ansi("No active agent context found"),
+            type_tag="text",
+            title="🚫 Error",
+            theme="error",
+        )
 
     try:
         updated = current_agent._task_list.update_status(task_id, status)
@@ -38,9 +45,21 @@ def update_task_status(task_id: int, status: str) -> tuple | ToolResult:
                 theme="status",
             )
         else:
-            return ("_error_", f"Task with ID {task_id} not found in current task list")
+            return ToolResult(
+                llm_text=_strip_ansi(f"Task with ID {task_id} not found in current task list"),
+                display_text=_strip_ansi(f"Task with ID {task_id} not found in current task list"),
+                type_tag="text",
+                title="🚫 Error",
+                theme="error",
+            )
     except ValueError as e:
-        return ("_error_", str(e))
+        return ToolResult(
+            llm_text=_strip_ansi(str(e)),
+            display_text=_strip_ansi(str(e)),
+            type_tag="text",
+            title="🚫 Error",
+            theme="error",
+        )
 
 
 function_def = {

@@ -24,6 +24,9 @@ If the sub-agent never calls ``submit_results`` (i.e. it falls back to a plain
 text response), we fall through and return that response text as before.
 """
 
+from tools.tool_result import ToolResult
+from tools.utils import _strip_ansi
+
 TERMINATION_PROMPT = """\
 You are a specialized sub-agent execution thread. Your purpose is to execute the user's task with absolute technical precision using your permitted tools.
 
@@ -34,7 +37,7 @@ When you have completed your assigned task, you must NOT write a final conversat
 * Do not wrap the tool arguments in markdown backticks (like ```json) or add conversational text outside of the tool call."""
 
 
-def run_subagent(sub_agent: str, task: str) -> tuple:
+def run_subagent(sub_agent: str, task: str) -> ToolResult:
     """Spawn a named sub-agent and execute *task* on it.
 
     Args:
@@ -44,12 +47,9 @@ def run_subagent(sub_agent: str, task: str) -> tuple:
               sub-agent's :meth:`Agent.handle_prompt` loop.
 
     Returns:
-        On success, one of:
-        * If the sub-agent invokes :func:`submit_results <tools.submit_results>`,
-          the parsed-and-echoed JSON payload (the structured findings) is
-          returned to the parent agent — this is the normal/expected path.
-        * Otherwise, the final ``RESPONSE`` text produced by the sub-agent.
-        An error message if spawning or running failed.
+        A :class:`ToolResult`. On success this contains the parsed JSON payload
+        from ``submit_results`` (the structured findings) or the final RESPONSE
+        text. On failure it contains an error message with theme="error".
     """
     import json as _json
 
@@ -83,28 +83,52 @@ def run_subagent(sub_agent: str, task: str) -> tuple:
                     )
                     # Append this error to the sub's message log so it can self-correct,
                     # then break — we've already yielded an ERROR, which is enough signal.
-                    return ("_error_", description)
+                    return ToolResult(
+                        llm_text=_strip_ansi(description),
+                        display_text=_strip_ansi(description),
+                        type_tag="text",
+                        title="🚫 Error",
+                        theme="error",
+                    )
 
                 from tools.dispatcher import dispatch
 
                 result = dispatch(func_name, args_data)
-                if isinstance(result, tuple):
-                    type_, content = result
-                    return ("json", content)  # Always JSON for submit_results results
-                return ("json", str(result))
+                return ToolResult(
+                    llm_text=_strip_ansi(str(result)),
+                    display_text=_strip_ansi(str(result)),
+                    type_tag="json",
+                    title="ℹ️ Run Sub-Agent",
+                    theme="info",
+                )
 
             elif kind == RESPONSE:
                 result_text = args[0]
 
-        return (
-            "text",
-            result_text if result_text.strip() else "(sub-agent produced no output)",
+        return ToolResult(
+            llm_text=_strip_ansi(result_text if result_text.strip() else "(sub-agent produced no output)"),
+            display_text=_strip_ansi(result_text if result_text.strip() else "(sub-agent produced no output)"),
+            type_tag="text",
+            title="ℹ️ Run Sub-Agent",
+            theme="info",
         )
 
     except FileNotFoundError as exc:
-        return ("_error_", f"Error: {exc}")
+        return ToolResult(
+            llm_text=_strip_ansi(f"Error: {exc}"),
+            display_text=_strip_ansi(f"Error: {exc}"),
+            type_tag="text",
+            title="🚫 Error",
+            theme="error",
+        )
     except Exception as exc:
-        return ("_error_", f"Error running sub-agent '{sub_agent}': {exc}")
+        return ToolResult(
+            llm_text=_strip_ansi(f"Error running sub-agent '{sub_agent}': {exc}"),
+            display_text=_strip_ansi(f"Error running sub-agent '{sub_agent}': {exc}"),
+            type_tag="text",
+            title="🚫 Error",
+            theme="error",
+        )
 
 
 def _get_submit_results_def():

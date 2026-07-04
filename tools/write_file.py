@@ -21,7 +21,7 @@ def write_file(filename: str, content: str) -> ToolResult:
             f.write(content)
         size = len(content.encode('utf-8'))
         result_str = json.dumps({"status": "ok", "filename": filename, "bytes": size})
-        return ToolResult(llm_text=result_str, display_text=result_str, type_tag="json", title="✅ Write File")
+        return ToolResult(llm_text=result_str, display_text=result_str, type_tag="json", title="✅ Write File", theme="write")
     except Exception as e:
         msg = f"Error writing to file: {e}"
         return ToolResult(llm_text=msg, display_text=msg, type_tag="text", title="🚫 Error", theme="error")

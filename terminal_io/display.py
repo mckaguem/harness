@@ -39,10 +39,11 @@ def _theme_border(theme: str) -> str:
     """Return a Rich border style string for the given theme."""
     return {
         "error": "red",
-        "status": "green",
+        "status": "purple",
+        "info": "green",
         "read": "blue",
-        "write": "cyan",
-        "command": "yellow",
+        "write": "yellow",
+        "command": "cyan",
     }.get(theme, "white")
 
 

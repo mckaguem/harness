@@ -61,7 +61,7 @@ def read_file(filename: str) -> ToolResult:
         fmt = _detect_format(filename)
         console.print(f"[dim]Read {filename} ({len(content)} chars)[/dim]")
         result_str = f"{fmt} | {content}"
-        return ToolResult(llm_text=result_str, display_text=result_str, type_tag=fmt, title="📄 Read File")
+        return ToolResult(llm_text=result_str, display_text=result_str, type_tag=fmt, title="📄 Read File", theme="info")
     except FileNotFoundError:
         msg = _strip_ansi(f"Error: File {filename} not found.")
         return ToolResult(llm_text=msg, display_text=msg, type_tag="text", title="🚫 Error", theme="error")

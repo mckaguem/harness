@@ -24,7 +24,7 @@ def execute_bash(command: str) -> ToolResult:
         if result.stderr:
             output += f"\nSTDERR:\n{result.stderr}"
         msg = _strip_ansi(output) if output.strip() else "Command executed successfully with no output."
-        return ToolResult(llm_text=msg, display_text=msg, type_tag="bash", title="🐛 Execute Bash")
+        return ToolResult(llm_text=msg, display_text=msg, type_tag="bash", title="🐛 Execute Bash", theme="write")
     except subprocess.TimeoutExpired:
         msg = _strip_ansi("Error: Command timed out after 30 seconds.")
         return ToolResult(llm_text=msg, display_text=msg, type_tag="text", title="🚫 Error", theme="error")
