@@ -1,10 +1,10 @@
 """activate_skill — tool to activate a discovered skill during agent execution."""
 
 from pathlib import Path
-import sys
+from tools.tool_result import ToolResult
 
 
-def activate_skill(skill_name: str) -> tuple:
+def activate_skill(skill_name: str) -> ToolResult:
     """Activate a skill by reading its SKILL.md body and returning instructions.
     
     This is Phase 2 of the Progressive Disclosure pattern. The agent uses this 
@@ -16,33 +16,53 @@ def activate_skill(skill_name: str) -> tuple:
         skill_name: The name of the skill to activate (must match directory name)
         
     Returns:
-        A tuple of (type_tag, result_text). On success, type_tag is "text" and 
-        result_text contains the formatted skill instructions. On failure, 
-        type_tag is "_error_" with an error message.
+        A ``ToolResult`` with the formatted skill instructions, or an error result
+        on failure.
     """
     try:
-        from skills_discovery import get_skill_body
+        from skills_discovery import get_skill_by_name
         
         # Get absolute path to skills directory
         skills_dir = Path.cwd() / "skills"
         
-        # Retrieve the skill body
-        body, error = get_skill_body(skill_name, skills_dir)
+        # Look up the full metadata (name, description, body)
+        metadata, error = get_skill_by_name(skill_name, skills_dir)
         
         if error:
-            return (
-                "_error_",
-                f"Failed to activate skill '{skill_name}': {error}\n\n"
-                "Check that:\n"
-                "1. The skill directory exists in skills/\n"
-                "2. SKILL.md is present and valid\n"
-                "3. The name matches the directory name exactly"
+            return ToolResult(
+                llm_text=(
+                    f"Failed to activate skill '{skill_name}': {error}\n\n"
+                    "Check that:\n"
+                    "1. The skill directory exists in skills/\n"
+                    "2. SKILL.md is present and valid\n"
+                    "3. The name matches the directory name exactly"
+                ),
+                display_text=(
+                    f"Failed to activate skill '{skill_name}': {error}\n\n"
+                    "Check that:\n"
+                    "1. The skill directory exists in skills/\n"
+                    "2. SKILL.md is present and valid\n"
+                    "3. The name matches the directory name exactly"
+                ),
+                type_tag="text",
+                title="🚫 Error",
+                theme="error"
             )
         
+        body = metadata.get('body', '')
+        skill_name_field = metadata.get('name', skill_name)
+        skill_desc = metadata.get('description', 'No description provided')
+        
         if not body:
-            return (
-                "_error_",
-                f"Skill '{skill_name}' has no instructions in SKILL.md body."
+            return ToolResult(
+                llm_text=f"Skill '{skill_name}' has no instructions in SKILL.md body.",
+                display_text=(
+                    f"**{skill_name_field}**: {skill_desc}\n\n"
+                    f"This skill has no instructions in its SKILL.md file."
+                ),
+                type_tag="text",
+                title="🚫 Error",
+                theme="error"
             )
         
         # Prepend absolute path for Phase 3 execution context
@@ -58,12 +78,26 @@ def activate_skill(skill_name: str) -> tuple:
             f"For example: `scripts/run.sh` or `references/README.md`\n"
         )
         
-        return ("text", formatted_body)
+        display_text = (
+            f"**{skill_name_field}**: {skill_desc}\n\n"
+            f"Skill root directory: `{abs_path}`"
+        )
+        
+        return ToolResult(
+            llm_text=formatted_body,
+            display_text=display_text,
+            type_tag="markdown",
+            title=f"📖 Skill Activated: {skill_name}",
+            theme="status"
+        )
     
     except Exception as e:
-        return (
-            "_error_",
-            f"Unexpected error activating skill '{skill_name}': {e}"
+        return ToolResult(
+            llm_text=f"Unexpected error activating skill '{skill_name}': {e}",
+            display_text=f"Unexpected error activating skill '{skill_name}': {e}",
+            type_tag="text",
+            title="🚫 Error",
+            theme="error"
         )
 
 
