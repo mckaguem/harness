@@ -10,10 +10,8 @@ from tools.edit_file import edit_file
 
 
 def _unwrap(result):
-    """Unpack a (type, content) tuple into its string payload."""
-    if isinstance(result, tuple) and len(result) == 2:
-        return result[1]
-    return str(result)
+    """Extract text content from an edit result (ToolResult object)."""
+    return getattr(result, 'llm_text', '') + getattr(result, 'display_text', '')
 
 
 class TestEditFileSafety:

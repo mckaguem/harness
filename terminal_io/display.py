@@ -55,37 +55,23 @@ def _panel_title(func_name: str, title_override: str | None) -> str:
     return f"✅ {func_name} Result"
 
 
-def display_tool_result(func_name: str, result_type: str, content) -> None:
+def display_tool_result(func_name: str, result) -> None:
     """Print a truncated tool-result panel with syntax highlighting.
 
     Args:
         func_name: Name of the tool that produced the result.
-        result_type: Rich-recognized format type (e.g., ``"python"``, ``"json"``).
-                     Use ``"_error_"`` to render a distinct error panel.
-        content: The plain text content without ANSI codes, OR a :class:`ToolResult`
-                 object from tools that opt into the new structured return format.
+        result: A :class:`ToolResult` object from tools that opt into the new structured return format.
 
     Behavior
     --------
     If the result is longer than 5 lines, only the first 5 are shown followed by
     an ellipsis line indicating how many lines were truncated (e.g. ``... [8 lines truncated]``).
     """
-    # Unwrap ToolResult if present; otherwise treat content as a legacy string.
-    if isinstance(content, object) and hasattr(content, 'llm_text'):
-        display_content = str(content.display_text)
-        result_type = content.type_tag or result_type
-        title_override = content.title or func_name
-        theme = content.theme
-    else:
-        display_content = str(content)
-        title_override = None
-        # Derive a default theme from the legacy type_tag.
-        if result_type == "_error_":
-            theme = "error"
-        elif result_type in ("read", "write", "command"):
-            theme = result_type
-        else:
-            theme = "read"  # default for unknown types
+    # Unwrap ToolResult; content must be a ToolResult object.
+    display_content = str(result.display_text)
+    result_type = result.type_tag or "text"
+    title_override = result.title or func_name
+    theme = result.theme
     
     # Truncate if longer than 5 lines.
     lines = display_content.splitlines()

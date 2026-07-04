@@ -10,31 +10,27 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 class TestLoadTerminationPrompt:
-    """Test that _load_termination_prompt loads the correct file."""
+    """Test that TERMINATION_PROMPT is properly defined."""
     
-    def test_loads_from_correct_path(self):
-        """Verify it reads from agents/prompts/subagent_termination.txt"""
+    def test_termination_prompt_exists_and_is_non_empty(self):
+        """Verify TERMINATION_PROMPT constant exists and has content."""
         # Force fresh import to pick up our fix
         if 'tools.run_subagent' in sys.modules:
             del sys.modules['tools.run_subagent']
         
-        from tools.run_subagent import _load_termination_prompt
+        from tools.run_subagent import TERMINATION_PROMPT
         
-        prompt = _load_termination_prompt()
-        
-        assert len(prompt) > 100, "Prompt should not be empty"
-        assert 'submit_results' in prompt.lower(), "Should mention submit_results tool"
+        assert len(TERMINATION_PROMPT) > 100, "Prompt should not be empty"
+        assert 'submit_results' in TERMINATION_PROMPT.lower(), "Should mention submit_results tool"
     
-    def test_returns_empty_string_when_file_missing(self):
-        """Verify graceful fallback when file doesn't exist."""
-        with patch('pathlib.Path.is_file', return_value=False):
-            if 'tools.run_subagent' in sys.modules:
-                del sys.modules['tools.run_subagent']
-            
-            from tools.run_subagent import _load_termination_prompt
-            
-            prompt = _load_termination_prompt()
-            assert prompt == ""
+    def test_termination_prompt_mentions_protocol(self):
+        """Verify the termination prompt includes protocol instructions."""
+        if 'tools.run_subagent' in sys.modules:
+            del sys.modules['tools.run_subagent']
+        
+        from tools.run_subagent import TERMINATION_PROMPT
+        
+        assert 'TERMINATION PROTOCOL' in TERMINATION_PROMPT or 'Termination Protocol' in TERMINATION_PROMPT
 
 
 class TestRunSubagent:

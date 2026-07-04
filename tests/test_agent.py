@@ -410,10 +410,12 @@ class TestAgentHandlePrompt:
         assert func_name == "execute_bash"
         assert "ls" in args_str
         
-        # Second: TOOL_RESULT (from dispatch)
-        kind, func_name, result_type, result = outputs[1]
+        # Second: TOOL_RESULT (from dispatch) — now yields 3-tuple with ToolResult
+        kind, func_name, result = outputs[1]
         assert kind == TOOL_RESULT
         assert func_name == "execute_bash"
+        from tools.tool_result import ToolResult
+        assert isinstance(result, ToolResult)
         
         # Third: RESPONSE
         kind, content, response = outputs[2]

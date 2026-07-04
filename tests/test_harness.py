@@ -232,14 +232,22 @@ class TestRunLoop:
     def test_run_loop_displays_tool_results(self):
         """run_loop should display tool results."""
         from agent.loop import user_loop
+        from tools.tool_result import ToolResult
         
         mock_agent = MagicMock()
         mock_agent._agent_type.model_name = "test-model"
         mock_client = MagicMock()
         
-        # Mock handle_prompt to yield a tool_result output
+        # Mock handle_prompt to yield a tool_result output (3-tuple with ToolResult)
+        result_obj = ToolResult(
+            llm_text="file1.txt\nfile2.txt",
+            display_text="file1.txt\nfile2.txt",
+            type_tag="text",
+            title="execute_bash",
+            theme="status"
+        )
         mock_agent.handle_prompt.return_value = [
-            ("tool_result", "execute_bash", "bash", "file1.txt\nfile2.txt")
+            ("tool_result", "execute_bash", result_obj)
         ]
         
         with patch("agent.loop.print_system"):
@@ -296,16 +304,24 @@ class TestRunLoop:
     def test_run_loop_handles_multiple_outputs(self):
         """run_loop should handle multiple outputs from a single prompt."""
         from agent.loop import user_loop
+        from tools.tool_result import ToolResult
         
         mock_agent = MagicMock()
         mock_agent._agent_type.model_name = "test-model"
         mock_client = MagicMock()
         
         # Mock handle_prompt to yield mixed outputs: response + tool_call + result
+        result_obj = ToolResult(
+            llm_text="file1.txt",
+            display_text="file1.txt",
+            type_tag="text",
+            title="execute_bash",
+            theme="status"
+        )
         mock_agent.handle_prompt.return_value = [
             ("response", "Thinking...", {"eval_count": 5}),
             ("tool_call", "execute_bash", '{"command": "ls"}'),
-            ("tool_result", "execute_bash", "bash", "file1.txt"),
+            ("tool_result", "execute_bash", result_obj),
         ]
         
         with patch("agent.loop.print_system"):

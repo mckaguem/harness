@@ -132,21 +132,23 @@ Step 2: Run the script in scripts/"""
         """Test activating a valid skill."""
         from tools.activate_skill import activate_skill
         
-        result_type, result_text = activate_skill("test-activation")
+        result = activate_skill("test-activation")
         
-        assert result_type == "text", f"Expected 'text', got '{result_type}'"
-        assert "SKILL ACTIVATED: test-activation" in result_text
-        assert "Step 1:" in result_text
-        assert "scripts/" in result_text
+        assert result.type_tag == "markdown", f"Expected 'markdown', got '{result.type_tag}'"
+        combined_text = result.display_text + result.llm_text
+        assert "SKILL ACTIVATED: test-activation" in combined_text
+        assert "Step 1:" in combined_text
+        assert "scripts/" in combined_text
     
     def test_activate_nonexistent_skill(self):
         """Test activating a skill that doesn't exist."""
         from tools.activate_skill import activate_skill
         
-        result_type, result_text = activate_skill("nonexistent")
+        result = activate_skill("nonexistent")
         
-        assert result_type == "_error_"
-        assert "not found" in result_text.lower()
+        assert result.theme == "error"
+        combined_text = result.display_text + result.llm_text
+        assert "not found" in combined_text.lower()
 
 
 class TestIntegration:
@@ -203,13 +205,14 @@ description: Full integration test skill with scripts and references.
         assert "**integration-test**" in catalog
         
         # Phase 2: Activation
-        result_type, result_text = activate_skill("integration-test")
-        assert result_type == "text"
-        assert "SKILL ACTIVATED: integration-test" in result_text
-        assert str(Path.cwd() / "skills" / "integration-test") in result_text
+        result = activate_skill("integration-test")
+        assert result.type_tag == "markdown"
+        combined_text = result.display_text + result.llm_text
+        assert "SKILL ACTIVATED: integration-test" in combined_text
+        assert str(Path.cwd() / "skills" / "integration-test") in combined_text
         
         # Phase 3: Execution context (simulated)
-        assert "scripts/run.sh" in result_text or "references/README.md" in result_text
+        assert "scripts/run.sh" in combined_text or "references/README.md" in combined_text
 
 
 if __name__ == "__main__":

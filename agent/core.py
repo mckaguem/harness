@@ -241,8 +241,14 @@ Execute the next logical step based on this state.
                             )
                         }
                         self.messages.append(blocked_message)
-                        yield (TOOL_RESULT, func_name, "_error_", 
-                               blocked_message["content"])
+                        return_result = ToolResult(
+                            llm_text=blocked_message["content"],
+                            display_text=blocked_message["content"],
+                            type_tag="text",
+                            title=f"Error: {func_name}",
+                            theme="error"
+                        )
+                        yield (TOOL_RESULT, func_name, return_result)
                         loop_count += 1
                         continue
                 
@@ -253,38 +259,41 @@ Execute the next logical step based on this state.
                 
                 yield (TOOL_CALL, func_name, args_str)
 
-                # `result` will hold the raw return from dispatch — initialized to None so it's always defined.
-                result = None
+                # Execute the tool and handle its result.
+                from tools.tool_result import ToolResult
                 try:
                     result = dispatch(func_name, args)
                 except KeyError as exc:
                     description = f"Unknown function '{func_name}'."
-                    result_type = "_error_"
+                    return_result = ToolResult(
+                        llm_text=description,
+                        display_text=description,
+                        type_tag="text",
+                        title=f"Error: {func_name}",
+                        theme="error"
+                    )
                     yield (ERROR, description)
-                    result_text = description
                 except Exception as exc:
                     # Handle unexpected errors (e.g., wrong args to tool)
                     description = f"Error calling {func_name}: {exc}"
-                    result_type = "_error_"
+                    return_result = ToolResult(
+                        llm_text=description,
+                        display_text=description,
+                        type_tag="text",
+                        title=f"Error: {func_name}",
+                        theme="error"
+                    )
                     yield (ERROR, description)
-                    result_text = description
                 else:
-                    # Unpack tool result — handle both new-style ToolResult and legacy tuple returns.
-                    from tools.tool_result import ToolResult
-                    if isinstance(result, ToolResult):
-                        result_type = result.type_tag or "text"
-                        result_text = result.llm_text  # what LLM receives as message history
-                    elif isinstance(result, tuple) and len(result) == 2:
-                        result_type, result_text = result
-                    else:
-                        result_type, result_text = "text", str(result)
+                    # result is a ToolResult object from the tool
+                    return_result = result
                 
                 self.messages.append({
                     "role": "tool",
-                    "content": result_text,
+                    "content": return_result.llm_text,
                     "name": func_name,
                 })
-                yield (TOOL_RESULT, func_name, result_type, result)
+                yield (TOOL_RESULT, func_name, return_result)
 
     @classmethod
     def spawn_subagent(cls, sub_name: str, parent_agent: Optional["Agent"] = None,

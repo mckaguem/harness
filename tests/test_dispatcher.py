@@ -12,11 +12,9 @@ class TestDispatch:
 
         # Call execute_bash with a simple command
         result = dispatch("execute_bash", {"command": "echo hello"})
-        if isinstance(result, tuple) and len(result) == 2:
-            _, result_content = result
-        else:
-            result_content = str(result)
-        assert "hello" in result_content
+        assert hasattr(result, 'llm_text') or hasattr(result, 'display_text')
+        content = getattr(result, 'llm_text', str(result)) + getattr(result, 'display_text', '')
+        assert "hello" in content
 
     def test_dispatch_raises_keyerror_for_unknown_tool(self):
         """dispatch should raise KeyError when tool name is not registered."""
@@ -26,10 +24,10 @@ class TestDispatch:
             dispatch("nonexistent_tool", {})
 
     def test_dispatch_returns_string_from_tool(self):
-        """dispatch should return the string result from the called tool."""
+        """dispatch should return a ToolResult from the called tool."""
         from tools.dispatcher import dispatch
 
-        # write_file returns a success message string
+        # write_file returns a ToolResult with JSON status
         with open("test_dispatcher.txt", "w") as f:
             pass  # ensure file exists but is empty
 
@@ -38,12 +36,10 @@ class TestDispatch:
                 "filename": "test_dispatcher.txt",
                 "content": "test content"
             })
-            if isinstance(result, tuple) and len(result) == 2:
-                _, result_content = result
-            else:
-                result_content = str(result)
-            assert isinstance(result_content, str)
-            assert "Success" in result_content or "Wrote to" in result_content
+            assert hasattr(result, 'llm_text') or hasattr(result, 'display_text')
+            text = getattr(result, 'llm_text', str(result)) + getattr(result, 'display_text', '')
+            assert isinstance(text, str)
+            assert '"status": "ok"' in text
         finally:
             import os
             if os.path.exists("test_dispatcher.txt"):
@@ -62,11 +58,9 @@ class TestDispatch:
                 "filename": "test_kwargs.txt",
                 "content": "keyword args test"
             })
-            if isinstance(result, tuple) and len(result) == 2:
-                _, result_content = result
-            else:
-                result_content = str(result)
-            assert isinstance(result_content, str)
+            assert hasattr(result, 'llm_text') or hasattr(result, 'display_text')
+            text = getattr(result, 'llm_text', str(result)) + getattr(result, 'display_text', '')
+            assert isinstance(text, str)
         finally:
             import os
             if os.path.exists("test_kwargs.txt"):

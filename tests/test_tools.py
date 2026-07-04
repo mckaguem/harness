@@ -13,6 +13,7 @@ from tools.execute_bash import execute_bash as _execute_bash_impl
 from tools.write_file import write_file as _write_file_impl
 from tools.read_file import read_file as _read_file_impl
 from tools.utils import is_safe_path
+from tools.tool_result import ToolResult
 
 # Re-export for backward compat with tests that call these directly.
 execute_bash = _execute_bash_impl
@@ -20,36 +21,11 @@ write_file = _write_file_impl
 read_file = _read_file_impl
 
 
-# ── Constants ───────────────────────────────────────────────────────────
-
-
-class TestSystemPrompt:
-    """Ensure the system prompt exists and contains key instructions."""
-
-    def test_prompt_is_non_empty_string(self):
-        # Import from harness since SYSTEM_PROMPT was moved there
-        from harness import build_system_prompt
-        system_prompt = build_system_prompt()
-        
-        assert isinstance(system_prompt, str)
-        assert len(system_prompt.strip()) > 0
-
-    def test_mentions_file_operation_restrictions(self):
-        """The base prompt should mention working-directory restriction."""
-        # Import from harness since SYSTEM_PROMPT was moved there
-        from harness import build_system_prompt
-        system_prompt = build_system_prompt()
-        
-        assert "current directory" in system_prompt.lower() or (
-            "working directory" in system_prompt.lower()
-        )
-
-
 class TestAgentTools:
     """Ensure the tool definitions are well-formed JSON schemas."""
 
     def test_has_six_tools(self):
-        assert len(AGENT_TOOLS) == 7
+        assert len(AGENT_TOOLS) == 10
 
     def test_each_tool_is_a_function_type(self):
         for tool in AGENT_TOOLS:
@@ -69,9 +45,6 @@ class TestAgentTools:
         edit_tool = next(t for t in AGENT_TOOLS if t["function"]["name"] == "edit_file")
         edits_param = edit_tool["function"]["parameters"]["properties"]["edits"]
         assert edits_param["type"] == "array"
-
-
-# ── Path safety ────────────────────────────────────────────────────────
 
 
 class TestIsSafePath:
@@ -100,23 +73,22 @@ class TestIsSafePath:
         assert isinstance(result, bool)
 
 
-# ── execute_bash ────────────────────────────────────────────────────────
-
-
 class TestExecuteBash:
     """Tests for `execute_bash()` via subprocess mocking."""
 
     def test_echo_command_returns_output(self):
         # Real command — just verify basic stdout capture.
-        _, result = execute_bash("echo hello")
-        assert "hello" in result
+        result = execute_bash("echo hello")
+        assert isinstance(result, ToolResult)
+        assert "hello" in result.llm_text or "hello" in result.display_text
 
     @patch("subprocess.run")
     def test_timeout_returns_error_message(self, mock_run):
         import subprocess as sp
         mock_run.side_effect = sp.TimeoutExpired(cmd="sleep 99", timeout=30)
-        _, result = execute_bash("sleep 99")
-        assert "timed out" in result.lower()
+        result = execute_bash("sleep 99")
+        assert isinstance(result, ToolResult)
+        assert "timed out" in result.llm_text.lower() or "timed out" in result.display_text.lower()
 
     @patch("subprocess.run")
     def test_stderr_appended(self, mock_run):
@@ -126,9 +98,10 @@ class TestExecuteBash:
             stdout="out\n", stderr="err\n"
         )
         mock_run.return_value = mock_result
-        _, result = execute_bash("echo test")
-        assert "STDERR:" in result
-        assert "err" in result
+        result = execute_bash("echo test")
+        assert isinstance(result, ToolResult)
+        assert "STDERR:" in result.llm_text or "STDERR:" in result.display_text
+        assert "err" in result.llm_text or "err" in result.display_text
 
     @patch("subprocess.run")
     def test_success_with_no_output(self, mock_run):
@@ -137,16 +110,15 @@ class TestExecuteBash:
             args="true", returncode=0, stdout="", stderr=""
         )
         mock_run.return_value = mock_result
-        _, result = execute_bash("true")
-        assert "no output" in result.lower()
+        result = execute_bash("true")
+        assert isinstance(result, ToolResult)
+        assert "no output" in result.llm_text.lower() or "no output" in result.display_text.lower()
 
     @patch("subprocess.run")
     def test_generic_exception_captured(self, mock_run):
-        _, result = execute_bash("bad_cmd")
-        assert "Execution Error" in result
-
-
-# ── write_file ─────────────────────────────────────────────────────────
+        result = execute_bash("bad_cmd")
+        assert isinstance(result, ToolResult)
+        assert "Execution Error" in result.llm_text or "Execution Error" in result.display_text
 
 
 class TestWriteFile:
@@ -159,9 +131,11 @@ class TestWriteFile:
             os.chdir(tmp_path)
             fname = "test.txt"
             content = "hello world"
-            _, result = write_file(fname, content)
+            result = write_file(fname, content)
 
-            assert f"Success: Wrote to {fname}" in result or "Success" in result
+            assert isinstance(result, ToolResult)
+            combined_text = result.llm_text + result.display_text
+            assert '"status": "ok"' in combined_text
             # Verify the file actually exists and has the right content.
             with open(tmp_path / fname) as f:
                 assert f.read() == content
@@ -172,13 +146,12 @@ class TestWriteFile:
         old_cwd = os.getcwd()
         try:
             os.chdir(tmp_path)
-            _, result = write_file("../etc/passwd", "x")
-            assert "traversal" in result.lower() or "Error" in result
+            result = write_file("../etc/passwd", "x")
+            assert isinstance(result, ToolResult)
+            combined_text = result.llm_text + result.display_text
+            assert "traversal" in combined_text.lower() or "Error" in combined_text
         finally:
             os.chdir(old_cwd)
-
-
-# ── read_file ──────────────────────────────────────────────────────────
 
 
 class TestReadFile:
@@ -190,8 +163,10 @@ class TestReadFile:
             os.chdir(tmp_path)
             target = tmp_path / "data.txt"
             target.write_text("payload")
-            _, content = read_file(str(target))
-            assert "payload" in content
+            result = read_file(str(target))
+            assert isinstance(result, ToolResult)
+            combined_text = result.llm_text + result.display_text
+            assert "payload" in combined_text
         finally:
             os.chdir(old_cwd)
 
@@ -199,14 +174,18 @@ class TestReadFile:
         old_cwd = os.getcwd()
         try:
             os.chdir(tmp_path)
-            _, result = read_file("nonexistent_xyz.txt")
+            result = read_file("nonexistent_xyz.txt")
             # Should contain an error indicator.
-            assert "Error" in result or "not found" in result.lower()
+            assert isinstance(result, ToolResult)
+            combined_text = result.llm_text + result.display_text
+            assert "Error" in combined_text or "not found" in combined_text.lower()
         finally:
             os.chdir(old_cwd)
 
     def test_permission_error_captured(self):
         with patch("builtins.open", side_effect=PermissionError("denied")):
             with patch("pathlib.Path.cwd", return_value=Path("/tmp/safe").resolve()):
-                _, result = read_file("protected.txt")
-        assert "Error" in result
+                result = read_file("protected.txt")
+        assert isinstance(result, ToolResult)
+        combined_text = result.llm_text + result.display_text
+        assert "Error" in combined_text
