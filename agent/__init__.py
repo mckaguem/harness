@@ -9,8 +9,9 @@ from agent.core import (
     TOOL_RESULT,
     ERROR,
 )
-from agent.utils import filter_tool_schemas, build_system_prompt
+from agent.utils import filter_tool_schemas
 from agent.loop import user_loop
+from agent.discovery import discover_agents, get_agent_yaml, get_agent_yaml_paths
 
 
 __all__ = [
@@ -22,6 +23,8 @@ __all__ = [
     "TOOL_RESULT",
     "ERROR",
     "filter_tool_schemas",
-    "build_system_prompt",
     "user_loop",
+    "discover_agents",
+    "get_agent_yaml",
+    "get_agent_yaml_paths",
 ]

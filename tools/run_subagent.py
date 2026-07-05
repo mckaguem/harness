@@ -50,7 +50,7 @@ When you have completed your assigned task, you must NOT write a final conversat
 def _get_agents_dir_paths() -> List[str]:
     """Return absolute paths to all agents/ directories from config that actually exist."""
     try:
-        from agents_discovery import get_agent_yaml_paths
+        from agent.discovery import get_agent_yaml_paths
         return [str(p) for p in get_agent_yaml_paths() if p.exists()]
     except Exception:
         # Fallback: check both potential paths and only include ones that exist

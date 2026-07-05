@@ -20,8 +20,7 @@ class AgentType:
     def _build_system_prompt(system_prompt: str) -> str:
         """Augment an inline base prompt with the current working directory name.
 
-        This is intentionally minimal compared to :func:`agent.utils.build_system_prompt`
-        because the system prompt now lives inside the YAML itself — there's no
+        The system prompt now lives inside the YAML itself — there's no
         external base file to read. We only append a short cwd hint so the agent
         knows which project it's operating in.
 

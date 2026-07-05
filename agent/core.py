@@ -73,6 +73,10 @@ class Agent:
         if extra_tools:
             self._tools.extend(extra_tools)
 
+        # Tool execution pipeline — handles dispatch, error wrapping, and termination blocking.
+        from agent.executor import ToolExecutor
+        self._executor = ToolExecutor(agent_type.name)
+
         self.messages: list[dict] = [{"role": "system", "content": agent_type.system_prompt}]
         self._injected_text: Optional[str] = None
         
@@ -188,8 +192,6 @@ Execute the next logical step based on this state.
             (TOOL_RESULT,      func_name, result)
             (ERROR,            description)
         """
-        from tools.dispatcher import dispatch
-
         # Prepend any injected text to the user input, then clear the queue.
         effective_input = user_input
         if self._injected_text is not None:
@@ -227,28 +229,12 @@ Execute the next logical step based on this state.
                 func_name = tool_call["function"]["name"]
                 args = tool_call["function"]["arguments"]
                 
-                # Termination circuit breaker (Component 4)
-                if func_name == "submit_results":
-                    if self._task_list and self._task_list.has_incomplete_tasks():
-                        # Block termination - append error instruction to history
-                        blocked_message = {
-                            "role": "user",
-                            "content": (
-                                "[SYSTEM ERROR] Execution termination blocked. "
-                                "You still have incomplete tasks in your state machine. "
-                                "You must finish them or update their status to 'failed' "
-                                "before you can invoke submit_results."
-                            )
-                        }
-                        self.messages.append(blocked_message)
-                        return_result = ToolResult(
-                            llm_text=blocked_message["content"],
-                            display_text=blocked_message["content"],
-                            type_tag="text",
-                            title=f"Error: {func_name}",
-                            theme="error"
-                        )
-                        yield (TOOL_RESULT, func_name, return_result)
+                # Termination circuit breaker (Component 4): block submit_results if tasks remain.
+                if func_name == "submit_results" and self._task_list and self._task_list.has_incomplete_tasks():
+                    block_info = self._executor.make_submit_results_block(True)
+                    if block_info:
+                        self.messages.append({"role": block_info["role"], "content": block_info["content"]})
+                        yield (TOOL_RESULT, func_name, block_info["result"])
                         loop_count += 1
                         continue
                 
@@ -259,34 +245,18 @@ Execute the next logical step based on this state.
                 
                 yield (TOOL_CALL, func_name, args_str)
 
-                # Execute the tool and handle its result.
-                from tools.tool_result import ToolResult
+                # Execute the tool via the executor and handle its result.
                 try:
-                    result = dispatch(func_name, args)
-                except KeyError as exc:
+                    return_result = self._executor.execute(func_name, args)
+                except KeyError:
                     description = f"Unknown function '{func_name}'."
-                    return_result = ToolResult(
-                        llm_text=description,
-                        display_text=description,
-                        type_tag="text",
-                        title=f"Error: {func_name}",
-                        theme="error"
-                    )
+                    return_result = self._executor.make_error_result(func_name, description)
                     yield (ERROR, description)
                 except Exception as exc:
                     # Handle unexpected errors (e.g., wrong args to tool)
                     description = f"Error calling {func_name}: {exc}"
-                    return_result = ToolResult(
-                        llm_text=description,
-                        display_text=description,
-                        type_tag="text",
-                        title=f"Error: {func_name}",
-                        theme="error"
-                    )
+                    return_result = self._executor.make_error_result(func_name, description)
                     yield (ERROR, description)
-                else:
-                    # result is a ToolResult object from the tool
-                    return_result = result
                 
                 self.messages.append({
                     "role": "tool",

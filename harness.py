@@ -14,7 +14,7 @@ from commands import COMMANDS
 from agent import Agent, AgentType, user_loop
 from tools import AGENT_TOOLS
 from skills_discovery import discover_skills, format_skill_catalog
-from agents_discovery import discover_agents
+from agent.discovery import discover_agents
 
 
 def check_command_skill_collision() -> list[str]:
