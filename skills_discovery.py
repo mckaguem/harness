@@ -1,4 +1,11 @@
-"""Skills discovery module — scans for and validates agent skills."""
+"""Skills discovery module — scans for and validates agent skills.
+
+Supports two config paths:
+- **Project path**: ``cwd/.harness_py/skills/``
+- **Global path**: ``~/.harness_py/skills/`` (overridable via ``HARNESS_PY_HOME``)
+
+When a skill name exists in both paths, the project version wins.
+"""
 
 import re
 from pathlib import Path
@@ -8,53 +15,53 @@ import yaml
 
 def parse_skill_metadata(skill_dir: Path) -> Tuple[Dict, List[str]]:
     """Parse a skill directory's SKILL.md file and validate metadata.
-    
+
     Args:
         skill_dir: Path to the skill directory containing SKILL.md
-        
+
     Returns:
-        A tuple of (metadata_dict, errors_list). If errors is non-empty, 
+        A tuple of (metadata_dict, errors_list). If errors is non-empty,
         the skill should be skipped.
     """
     errors = []
     metadata = {}
-    
+
     skill_md_path = skill_dir / "SKILL.md"
-    
+
     if not skill_md_path.is_file():
         return {}, [f"Missing SKILL.md in {skill_dir}"]
-    
+
     try:
         with open(skill_md_path, 'r', encoding='utf-8') as f:
             content = f.read()
     except Exception as e:
         return {}, [f"Failed to read SKILL.md: {e}"]
-    
+
     # Extract YAML frontmatter
     if not content.startswith('---'):
         return {}, ["SKILL.md missing YAML frontmatter delimiter (---)"]
-    
+
     try:
         # Find the end of frontmatter
         end_idx = content.find('---', 3)
         if end_idx == -1:
             return {}, ["SKILL.md missing closing frontmatter delimiter (---)"]
-        
+
         yaml_content = content[3:end_idx].strip()
         body = content[end_idx + 3:].strip()
-        
+
         # Parse YAML
         try:
             metadata = yaml.safe_load(yaml_content) or {}
         except yaml.YAMLError as e:
             return {}, [f"Invalid YAML in frontmatter: {e}"]
-        
+
     except Exception as e:
         return {}, [f"Error parsing SKILL.md: {e}"]
-    
+
     # Store the body in metadata so callers (e.g. skills_interceptor) can find it.
     metadata['body'] = body
-    
+
     # Validate name field
     if 'name' not in metadata:
         errors.append("Missing required 'name' field")
@@ -71,7 +78,7 @@ def parse_skill_metadata(skill_dir: Path) -> Tuple[Dict, List[str]]:
             dir_name = skill_dir.name
             if name != dir_name:
                 errors.append(f"'name' ({name!r}) does not match parent directory name ({dir_name!r})")
-    
+
     # Validate description field
     if 'description' not in metadata:
         errors.append("Missing required 'description' field")
@@ -81,135 +88,170 @@ def parse_skill_metadata(skill_dir: Path) -> Tuple[Dict, List[str]]:
             errors.append("'description' must be a string")
         elif len(desc) < 1 or len(desc) > 1024:
             errors.append(f"'description' must be 1-1024 characters (got {len(desc)})")
-    
-    # Store the body for later use by activate_skill
-    if metadata.get('body') is None and 'body' not in str(metadata):
-        try:
-            end_idx = content.find('---', 3)
-            if end_idx != -1:
-                body_start = end_idx + 3
-                # Skip the delimiter line itself
-                while body_start < len(content) and content[body_start] in '\n\r':
-                    body_start += 1
-                metadata['body'] = content[body_start:].strip()
-        except Exception:
-            pass
-    
+
     return metadata, errors
 
 
-def discover_skills(skills_dir: Path = None) -> List[Tuple[str, Dict]]:
-    """Discover and validate all skills in the specified directory.
-    
-    Args:
-        skills_dir: Path to skills directory. Defaults to 'skills/' relative to CWD.
-        
+def _merge_skill_discoveries(
+    discoveries: list[tuple[Path, List[Tuple[str, Dict]]]],
+) -> list[Tuple[str, Dict]]:
+    """Merge multiple skill discovery results with precedence.
+
+    Discoveries are processed in order — the first source that provides a
+    given name wins. This means earlier entries in *discoveries* have higher
+    priority than later ones. The caller is responsible for ordering sources
+    from highest to lowest precedence (e.g. project before global).
+
     Returns:
-        A list of (skill_name, metadata) tuples for valid skills. Invalid skills 
-        are skipped with warnings printed to stderr.
+        A deduplicated list of ``(skill_name, metadata)`` tuples.
     """
-    if skills_dir is None:
-        skills_dir = Path.cwd() / "skills"
-    
-    if not skills_dir.is_dir():
-        print(f"[skills] Warning: Skills directory not found: {skills_dir}")
-        return []
-    
-    valid_skills = []
-    
-    for skill_path in sorted(skills_dir.iterdir()):
-        if not skill_path.is_dir() or skill_path.name.startswith('.'):
+    seen: dict[str, Tuple[str, Dict]] = {}
+    for _source_dir, skills in discoveries:
+        for name, meta in skills:
+            if name not in seen:
+                seen[name] = (name, meta)
+    return list(seen.values())
+
+
+def discover_skills(
+    skills_dirs: Optional[List[Path]] = None,
+) -> List[Tuple[str, Dict]]:
+    """Discover and validate all skills across the specified directories.
+
+    Args:
+        skills_dirs: Ordered list of skill directory paths to scan. The first
+            entry has highest precedence — if a skill name exists in multiple
+            directories, its metadata from the earlier directory wins.
+            Defaults to ``[cwd/.harness_py/skills, ~/.harness_py/skills]``
+            (project first).
+
+    Returns:
+        A list of ``(skill_name, metadata)`` tuples for valid skills. Invalid
+        skills are skipped with warnings printed to stderr.
+    """
+    if skills_dirs is None:
+        from config import get_harness_py_dir as _get_dirs
+        project_dir, global_dir = _get_dirs()
+        skills_dirs = [
+            project_dir / "skills",
+            global_dir / "skills",
+        ]
+
+    all_discoveries: list[tuple[Path, List[Tuple[str, Dict]]]] = []
+
+    for skills_path in skills_dirs:
+        if not skills_path.is_dir():
+            print(f"[skills] Warning: Skills directory not found: {skills_path}")
+            all_discoveries.append([skills_path, []])  # empty list for missing dir
             continue
-        
-        metadata, errors = parse_skill_metadata(skill_path)
-        
-        if errors:
-            print(f"[skills] Skipping invalid skill '{skill_path.name}':")
-            for error in errors:
-                print(f"  - {error}")
-            continue
-        
-        valid_skills.append((metadata['name'], metadata))
-    
-    return valid_skills
+
+        valid_skills = []
+        for skill_path in sorted(skills_path.iterdir()):
+            if not skill_path.is_dir() or skill_path.name.startswith("."):
+                continue
+
+            metadata, errors = parse_skill_metadata(skill_path)
+
+            if errors:
+                print(f"[skills] Skipping invalid skill '{skill_path.name}':")
+                for error in errors:
+                    print(f"  - {error}")
+                continue
+
+            valid_skills.append((metadata["name"], metadata))
+
+        all_discoveries.append([skills_path, valid_skills])
+
+    return _merge_skill_discoveries(all_discoveries)
 
 
 def format_skill_catalog(skills: List[Tuple[str, Dict]]) -> str:
     """Format a list of skills into a concise catalog for system prompt injection.
-    
+
     Args:
         skills: List of (skill_name, metadata) tuples from discover_skills()
-        
+
     Returns:
         A formatted string suitable for inclusion in the agent's system prompt.
     """
     if not skills:
         return ""
-    
+
     lines = ["\n## Available Skills\n"]
-    
+
     for name, meta in skills:
         desc = meta.get('description', 'No description provided')
         # Truncate very long descriptions
         if len(desc) > 200:
             desc = desc[:197] + "..."
         lines.append(f"- **{name}**: {desc}")
-    
+
     return "\n".join(lines)
 
 
-def get_skill_by_name(skill_name: str, skills_dir: Path = None) -> Tuple[Dict[str, object], str]:
+def get_skill_by_name(skill_name: str, skills_dirs: Optional[List[Path]] = None) -> Tuple[Dict[str, object], str]:
     """Look up a skill by name and return its parsed metadata.
+
+    Searches the directories in order — the first match wins (project before
+    global when using defaults).
 
     Args:
         skill_name: Name of the skill to look up.
-        skills_dir: Path to skills directory. Defaults to 'skills/' relative to CWD.
-        
+        skills_dirs: Ordered list of skill directory paths to search. Defaults
+            to ``[cwd/.harness_py/skills, ~/.harness_py/skills]``.
+
     Returns:
         A tuple of (metadata_dict, error_message). If *error_message* is non-empty,
         no matching skill was found or validation failed.
     """
-    if skills_dir is None:
-        skills_dir = Path.cwd() / "skills"
+    if skills_dirs is None:
+        from config import get_harness_py_dir as _get_dirs
+        project_dir, global_dir = _get_dirs()
+        skills_dirs = [
+            project_dir / "skills",
+            global_dir / "skills",
+        ]
 
-    skill_path = skills_dir / skill_name
+    for skills_path in skills_dirs:
+        skill_path = skills_path / skill_name
+        if not skill_path.is_dir():
+            continue
 
-    if not skill_path.is_dir():
-        return {}, f"Skill directory '{skill_name}' not found at {skill_path}"
+        metadata, errors = parse_skill_metadata(skill_path)
+        if not errors:
+            return metadata, ""
 
-    metadata, errors = parse_skill_metadata(skill_path)
-
-    if errors:
-        error_msg = "; ".join(errors)
-        return {}, f"Failed to validate skill '{skill_name}': {error_msg}"
-
-    return metadata, ""
+    return {}, f"Skill '{skill_name}' not found in any configured path"
 
 
-def get_skill_body(skill_name: str, skills_dir: Path = None) -> Tuple[str, str]:
+def get_skill_body(skill_name: str, skills_dirs: Optional[List[Path]] = None) -> Tuple[str, str]:
     """Get the body content of a specific skill's SKILL.md file.
-    
+
     Args:
-        skill_name: Name of the skill to activate
-        skills_dir: Path to skills directory. Defaults to 'skills/' relative to CWD.
-        
+        skill_name: Name of the skill to activate.
+        skills_dirs: Ordered list of skill directory paths to search. Defaults
+            to ``[cwd/.harness_py/skills, ~/.harness_py/skills]``.
+
     Returns:
-        A tuple of (body_content, error_message). If error_message is non-empty, 
+        A tuple of (body_content, error_message). If *error_message* is non-empty,
         activation failed.
     """
-    if skills_dir is None:
-        skills_dir = Path.cwd() / "skills"
-    
-    skill_path = skills_dir / skill_name
-    
-    if not skill_path.is_dir():
-        return "", f"Skill directory '{skill_name}' not found at {skill_path}"
-    
-    metadata, errors = parse_skill_metadata(skill_path)
-    
-    if errors:
-        error_msg = "; ".join(errors)
-        return "", f"Failed to validate skill '{skill_name}': {error_msg}"
-    
-    body = metadata.get('body', '')
-    return body, ""
+    if skills_dirs is None:
+        from config import get_harness_py_dir as _get_dirs
+        project_dir, global_dir = _get_dirs()
+        skills_dirs = [
+            project_dir / "skills",
+            global_dir / "skills",
+        ]
+
+    for skills_path in skills_dirs:
+        skill_path = skills_path / skill_name
+        if not skill_path.is_dir():
+            continue
+
+        metadata, errors = parse_skill_metadata(skill_path)
+        if not errors:
+            body = metadata.get('body', '')
+            return body, ""
+
+    return "", f"Skill '{skill_name}' not found in any configured path"

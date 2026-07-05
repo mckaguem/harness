@@ -20,27 +20,25 @@ def activate_skill(skill_name: str) -> ToolResult:
         on failure.
     """
     try:
-        from skills_discovery import get_skill_by_name
-        
-        # Get absolute path to skills directory
-        skills_dir = Path.cwd() / "skills"
-        
-        # Look up the full metadata (name, description, body)
-        metadata, error = get_skill_by_name(skill_name, skills_dir)
+        from skills_discovery import get_skill_body
+
+        # Look up and read the body directly using dual-path discovery.
+        # This automatically searches project then global config paths.
+        body, error = get_skill_body(skill_name)
         
         if error:
             return ToolResult(
                 llm_text=(
                     f"Failed to activate skill '{skill_name}': {error}\n\n"
                     "Check that:\n"
-                    "1. The skill directory exists in skills/\n"
+                    "1. The skill exists in .harness_py/skills/ (project or global)\n"
                     "2. SKILL.md is present and valid\n"
                     "3. The name matches the directory name exactly"
                 ),
                 display_text=(
                     f"Failed to activate skill '{skill_name}': {error}\n\n"
                     "Check that:\n"
-                    "1. The skill directory exists in skills/\n"
+                    "1. The skill exists in .harness_py/skills/ (project or global)\n"
                     "2. SKILL.md is present and valid\n"
                     "3. The name matches the directory name exactly"
                 ),
@@ -49,15 +47,11 @@ def activate_skill(skill_name: str) -> ToolResult:
                 theme="error"
             )
         
-        body = metadata.get('body', '')
-        skill_name_field = metadata.get('name', skill_name)
-        skill_desc = metadata.get('description', 'No description provided')
-        
         if not body:
             return ToolResult(
                 llm_text=f"Skill '{skill_name}' has no instructions in SKILL.md body.",
                 display_text=(
-                    f"**{skill_name_field}**: {skill_desc}\n\n"
+                    f"**{skill_name}**: No description provided\n\n"
                     f"This skill has no instructions in its SKILL.md file."
                 ),
                 type_tag="text",
@@ -65,9 +59,18 @@ def activate_skill(skill_name: str) -> ToolResult:
                 theme="error"
             )
         
-        # Prepend absolute path for Phase 3 execution context
-        skill_root = skills_dir / skill_name
-        abs_path = str(skill_root.resolve())
+        # Determine absolute path from config
+        abs_path = None
+        for base in [
+            (Path.cwd() / ".harness_py" / "skills"),
+            (Path.home() / ".harness_py" / "skills"),
+        ]:
+            if (base / skill_name).is_dir():
+                abs_path = str((base / skill_name).resolve())
+                break
+        if not abs_path:
+            # last-resort: relative to cwd
+            abs_path = str((Path.cwd() / "skills" / skill_name).resolve())
         
         formatted_body = (
             f"=== SKILL ACTIVATED: {skill_name} ===\n\n"
@@ -79,7 +82,7 @@ def activate_skill(skill_name: str) -> ToolResult:
         )
         
         display_text = (
-            f"**{skill_name_field}**: {skill_desc}\n\n"
+            f"**{skill_name}**: Skill activated\n\n"
             f"Skill root directory: `{abs_path}`"
         )
         

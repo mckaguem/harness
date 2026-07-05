@@ -20,12 +20,22 @@ that it must invoke exactly once when done.
    string (the parsed JSON payload), and return it immediately to the parent —
    bypassing any further RESPONSE yields.
 
-If the sub-agent never calls ``submit_results`` (i.e. it falls back to a plain
-text response), we fall through and return that response text as before.
+## Configuration Paths
+
+Sub-agents are discovered from two config paths (see :mod:`agents_discovery`):
+- **Project**: ``cwd/.harness_py/agents/``
+- **Global**: ``~/.harness_py/agents/`` (overridable via ``HARNESS_PY_HOME``)
+
+When an agent name exists in both, the project version wins.
 """
+
+import json
+from pathlib import Path
+from typing import List, Dict
 
 from tools.tool_result import ToolResult
 from tools.utils import _strip_ansi
+
 
 TERMINATION_PROMPT = """\
 You are a specialized sub-agent execution thread. Your purpose is to execute the user's task with absolute technical precision using your permitted tools.
@@ -35,6 +45,59 @@ When you have completed your assigned task, you must NOT write a final conversat
 
 * Ensure that all data requested by the `submit_results` schema (such as file paths, line numbers, and verbatim snippets) is exhaustively populated.
 * Do not wrap the tool arguments in markdown backticks (like ```json) or add conversational text outside of the tool call."""
+
+
+def _get_agents_dir_paths() -> List[str]:
+    """Return absolute paths to all agents/ directories from config that actually exist."""
+    try:
+        from agents_discovery import get_agent_yaml_paths
+        return [str(p) for p in get_agent_yaml_paths() if p.exists()]
+    except Exception:
+        # Fallback: check both potential paths and only include ones that exist
+        project_agents = Path.cwd() / ".harness_py" / "agents"
+        global_agents = Path.home() / ".harness_py" / "agents"
+        return [str(p) for p in (project_agents, global_agents) if p.exists()]
+
+
+def _build_function_def() -> dict:
+    """Build the function definition with injected agent directory paths."""
+    agent_dirs = _get_agents_dir_paths()
+
+    agents_desc = "\n- ".join(agent_dirs)
+
+    return {
+        "type": "function",
+        "function": {
+            "name": "run_subagent",
+            "description": (
+                "Spawn a specialized sub-agent, run a task on it to completion, "
+                "and return the result text.  Sub-agents are defined in agent YAML files located at:\n"
+                f"- {agents_desc}\n"
+                "Each call creates an isolated agent with no shared history."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sub_agent": {
+                        "type": "string",
+                        "description": (
+                            f"Name of the sub-agent YAML file (without extension) from one of:\n- {agents_desc}\n"
+                            "(e.g. 'analyst', 'coder', 'sysadmin', 'writer')."
+                        ),
+                    },
+                    "task": {
+                        "type": "string",
+                        "description": "The task description — what to have the sub-agent do.",
+                    },
+                },
+                "required": ["sub_agent", "task"],
+            },
+        },
+    }
+
+
+# Build function_def at import time with current config paths.
+function_def = _build_function_def()
 
 
 def run_subagent(sub_agent: str, task: str) -> ToolResult:
@@ -51,8 +114,6 @@ def run_subagent(sub_agent: str, task: str) -> ToolResult:
         from ``submit_results`` (the structured findings) or the final RESPONSE
         text. On failure it contains an error message with theme="error".
     """
-    import json as _json
-
     try:
         from agent import Agent, RESPONSE, TOOL_CALL  # noqa: F401 (explicit guards)
 
@@ -68,14 +129,13 @@ def run_subagent(sub_agent: str, task: str) -> ToolResult:
         # Append termination protocol to sub-agent's existing system prompt.
         sub._agent_type.inject_extra_system_prompt(termination_prompt)
 
-
         result_text = ""
         for kind, *args in sub.handle_prompt(task):
             if kind == TOOL_CALL and args[0] == "submit_results":
                 # Dispatch the submit_results call directly and capture its return value.
                 func_name = args[0]
                 try:
-                    args_data = _json.loads(args[1])
+                    args_data = json.loads(args[1])
                 except Exception as exc:
                     description = (
                         f"Error parsing submit_results arguments ({exc}). "
@@ -131,40 +191,9 @@ def run_subagent(sub_agent: str, task: str) -> ToolResult:
         )
 
 
-def _get_submit_results_def():
+def _get_submit_results_def() -> Dict:
     """Lazily import and return the ``submit_results`` function_def dict."""
     from tools.submit_results import function_def
-    
+
     # Return a copy to avoid mutating the original module-level definition
     return dict(function_def)
-
-
-function_def = {
-    "type": "function",
-    "function": {
-        "name": "run_subagent",
-        "description": (
-            "Spawn a specialized sub-agent, run a task on it to completion, "
-            "and return the result text.  Sub-agents are defined in agents/*.yaml "
-            "(e.g. analyst, coder, sysadmin, writer).  Each call creates an "
-            "isolated agent with no shared history."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "sub_agent": {
-                    "type": "string",
-                    "description": (
-                        "Name of the sub-agent YAML in agents/ "
-                        "(e.g. 'analyst', 'coder', 'sysadmin', 'writer')."
-                    ),
-                },
-                "task": {
-                    "type": "string",
-                    "description": "The task description — what to have the sub-agent do.",
-                },
-            },
-            "required": ["sub_agent", "task"],
-        },
-    },
-}

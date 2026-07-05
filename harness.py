@@ -14,6 +14,7 @@ from commands import COMMANDS
 from agent import Agent, AgentType, user_loop
 from tools import AGENT_TOOLS
 from skills_discovery import discover_skills, format_skill_catalog
+from agents_discovery import discover_agents
 
 
 def check_command_skill_collision() -> list[str]:
@@ -68,8 +69,32 @@ def main():
             sys.stderr.write(f"  - {msg}\n")
         sys.exit(1)
 
+    # ------------------------------------------------------------------
+    # Discover and load the main agent from config paths.
+    # The "main" agent YAML is looked up in both project and global agents/
+    # directories (project takes precedence).
+    # ------------------------------------------------------------------
+    discovered_agents = discover_agents()
+    
+    if not discovered_agents:
+        sys.stderr.write("\n[agents] FATAL: No agents found in config paths. Aborting startup.\n")
+        sys.exit(1)
+
+    # Look for the "main" agent specifically
+    main_agent_path = None
+    for name, path in discovered_agents:
+        if name == "main":
+            main_agent_path = path
+            break
+
+    if main_agent_path is None:
+        sys.stderr.write("\n[agents] FATAL: No 'main' agent found in config paths. Aborting startup.\n")
+        available_names = ", ".join(name for name, _ in discovered_agents)
+        sys.stderr.write(f"Available agents: {available_names}\n")
+        sys.exit(1)
+
     # Build the agent definition from YAML.
-    agent_type = AgentType.from_file("agents/main.yaml")
+    agent_type = AgentType.from_file(main_agent_path)
     
     # Phase 1: Discover skills and inject their catalog into the system prompt.
     discovered = discover_skills()

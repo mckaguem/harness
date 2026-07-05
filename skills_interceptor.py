@@ -146,9 +146,13 @@ def intercept_message(
     # user-invocable?
     # ------------------------------------------------------------------
     if skills_dir is None:
-        skills_dir = Path.cwd() / "skills"
+        from config import get_harness_py_dir
+        project_dir, global_dir = get_harness_py_dir()
+        skills_dirs = [project_dir / "skills", global_dir / "skills"]
+    else:
+        skills_dirs = [skills_dir]
 
-    metadata, lookup_error = get_skill_by_name(candidate_name, skills_dir)
+    metadata, lookup_error = get_skill_by_name(candidate_name, skills_dirs)
 
     if lookup_error or not metadata.get("name"):
         # No matching skill directory — fall through to regular LLM handling.
@@ -179,7 +183,18 @@ def intercept_message(
             ),
         )
 
-    skill_root = (skills_dir / candidate_name).resolve()
+    # Find which skills_dir actually contained the matched skill so we can
+    # construct a correct absolute path for the injected context block.
+    skill_root = None
+    for sdir in skills_dirs:
+        candidate = sdir / candidate_name
+        if candidate.is_dir():
+            skill_root = candidate.resolve()
+            break
+    if skill_root is None:
+        # Should not happen — we already validated the name above.
+        return InterceptorOutcome(kind=InterceptorKind.UNKNOWN)
+
     abs_path_marker = str(skill_root)
 
     context_block = (
