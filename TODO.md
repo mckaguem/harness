@@ -26,7 +26,6 @@
 
 ## UI
 
-- Nicer tool call formatting (currently just the JSON)
 - Streaming responses (including thinking)
 - Textual TUI
 
