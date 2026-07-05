@@ -65,6 +65,6 @@ def cmd_sub(rest: str, parent_agent) -> bool | None:
             print_system("Error", f"Failed to summarize sub-agent conversation: {exc}")
 
     # Drive the interactive loop — reuses ``user_loop`` for display & prompt handling.
-    user_loop(sub_agent, sub_agent._client, on_exit=_on_exit)
+    user_loop(sub_agent, sub_agent.client, on_exit=_on_exit)
 
     return False

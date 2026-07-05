@@ -1,4 +1,4 @@
-"""Tests for harness.py — build_system_prompt() and run_loop()."""
+"""Tests for harness.py — user_loop interactive REPL."""
 
 import os
 from unittest.mock import patch, MagicMock

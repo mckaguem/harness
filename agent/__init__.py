@@ -3,15 +3,22 @@
 from agent.types import AgentType
 from agent.core import (
     Agent,
-    CURRENT_AGENT,
+)
+from agent.constants import (
     RESPONSE,
     TOOL_CALL,
     TOOL_RESULT,
     ERROR,
 )
+from agent.context import CURRENT_AGENT
 from agent.utils import filter_tool_schemas
 from agent.loop import user_loop
 from agent.discovery import discover_agents, get_agent_yaml, get_agent_yaml_paths
+
+try:
+    from agent.task_list import TaskList
+except ImportError:
+    pass
 
 
 __all__ = [
@@ -27,4 +34,5 @@ __all__ = [
     "discover_agents",
     "get_agent_yaml",
     "get_agent_yaml_paths",
+    "TaskList",
 ]

@@ -9,15 +9,19 @@ def cmd_tasks(rest: str, agent=None) -> bool | None:
 
     Args:
         rest: Unused (kept for API consistency with other commands).
-        agent: The calling agent whose ``_task_list`` holds the current TaskList.
+        agent: Optional pre-resolved Agent instance for testing. If ``None``,
+               the active agent is read from :data:`CURRENT_AGENT`.
 
     Returns:
         False to continue the parent loop (this is a display-only command).
     """
     # Use CURRENT_AGENT context variable like update_task_status does
-    current_agent = CURRENT_AGENT.get()
+    if agent is not None:
+        current_agent = agent
+    else:
+        current_agent = CURRENT_AGENT.get()
     
-    if not current_agent or not hasattr(current_agent, '_task_list'):
+    if not current_agent:
         display_message_panel(
             "No active task list.",
             theme="error",
@@ -25,7 +29,7 @@ def cmd_tasks(rest: str, agent=None) -> bool | None:
         )
         return False
 
-    tasks = getattr(current_agent._task_list, 'tasks', [])
+    tasks = current_agent.task_list.tasks
     if not tasks:
         display_message_panel(
             "No tasks have been initialized yet.\nUse /initialize_task_list to add some.",

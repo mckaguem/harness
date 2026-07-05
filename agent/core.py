@@ -1,29 +1,17 @@
 """Agent class — owns the conversation and processes one user prompt to completion."""
 
-import contextvars
 import json
 import os
-from typing import Dict, Generator, List, Optional
+from typing import Dict, Generator, List, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agent.task_list import TaskList
 
 import ollama
 
+from agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
+from agent.context import CURRENT_AGENT
 
-# Current agent in the running conversation (set by handle_prompt).
-CURRENT_AGENT: contextvars.ContextVar = contextvars.ContextVar("current_agent", default=None)
-
-# ---------------------------------------------------------------------------
-# Output kinds yielded by ``handle_prompt``.
-# ---------------------------------------------------------------------------
-
-RESPONSE = "response"        # Final text from the LLM (no more tool calls).
-TOOL_CALL = "tool_call"      # A function call request from the LLM.
-TOOL_RESULT = "tool_result"  # The result of executing a tool.
-ERROR = "error"              # An error that is not tied to a specific tool result.
-
-
-# ---------------------------------------------------------------------------
-# Agent — owns the conversation and processes one user prompt to completion.
-# ---------------------------------------------------------------------------
 
 class Agent:
     """Owns the conversation state and handles a single user turn."""
@@ -89,6 +77,28 @@ class Agent:
         # Bind this instance as the current agent in the thread context so tools
         # can spawn sub-agents without an explicit parent reference.
         CURRENT_AGENT.set(self)
+
+    # -- task list access --------------------------------------------------
+
+    @property
+    def task_list(self) -> "TaskList":
+        """Public accessor for the agent's task list."""
+        return self._task_list
+
+    @property
+    def ollama_host(self) -> str:
+        """Public accessor for the resolved Ollama host."""
+        return self._ollama_host
+
+    @property
+    def client(self):
+        """Public accessor for the Ollama client instance."""
+        return self._client
+
+    @property
+    def context_length(self) -> int:
+        """Public accessor for the model's context window size."""
+        return self._context_length
     
     # -- injection API -------------------------------------------------------
 
@@ -307,7 +317,7 @@ Execute the next logical step based on this state.
 
         # Reuse the parent's Ollama client host and context window.
         if parent_agent is None:
-            from agent.core import CURRENT_AGENT
+            from agent.context import CURRENT_AGENT
             parent_agent = CURRENT_AGENT.get()
         if parent_agent is None:
             raise RuntimeError(

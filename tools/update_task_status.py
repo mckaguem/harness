@@ -25,7 +25,7 @@ def update_task_status(task_id: int, status: str) -> tuple | ToolResult:
     """
     current_agent = CURRENT_AGENT.get()
 
-    if not current_agent or not hasattr(current_agent, '_task_list'):
+    if not current_agent:
         return ToolResult(
             llm_text=_strip_ansi("No active agent context found"),
             display_text=_strip_ansi("No active agent context found"),
@@ -35,11 +35,11 @@ def update_task_status(task_id: int, status: str) -> tuple | ToolResult:
         )
 
     try:
-        updated = current_agent._task_list.update_status(task_id, status)
+        updated = current_agent.task_list.update_status(task_id, status)
         if updated:
             return ToolResult(
                 llm_text=f"Task {task_id} updated to '{status}' successfully.",
-                display_text=current_agent._task_list.to_markdown(),
+                display_text=current_agent.task_list.to_markdown(),
                 type_tag="markdown",
                 title="📋 Task List",
                 theme="status",

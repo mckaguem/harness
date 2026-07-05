@@ -52,7 +52,7 @@ description: This should fail validation.
         """Test that valid skills are discovered correctly."""
         from skills_discovery import discover_skills
         
-        skills = discover_skills(Path(self.temp_dir))
+        skills = discover_skills([Path(self.temp_dir)])
         
         assert len(skills) == 1, f"Expected 1 skill, got {len(skills)}"
         name, metadata = skills[0]
@@ -65,7 +65,7 @@ description: This should fail validation.
         """Test that skills with mismatched names are skipped."""
         from skills_discovery import discover_skills
         
-        skills = discover_skills(Path(self.temp_dir))
+        skills = discover_skills([Path(self.temp_dir)])
         
         # Invalid skill should be skipped
         invalid_names = [name for name, _ in skills if name == "different-name"]
@@ -75,7 +75,7 @@ description: This should fail validation.
         """Test catalog formatting for system prompt injection."""
         from skills_discovery import discover_skills, format_skill_catalog
         
-        skills = discover_skills(Path(self.temp_dir))
+        skills = discover_skills([Path(self.temp_dir)])
         catalog = format_skill_catalog(skills)
         
         assert "## Available Skills" in catalog
@@ -101,11 +101,12 @@ class TestActivateSkill:
     def setup_method(self):
         """Create a temporary skill structure."""
         self.temp_dir = tempfile.mkdtemp()
-        self.skills_root = Path(self.temp_dir) / "skills"
-        self.skills_root.mkdir(parents=True, exist_ok=True)
         
-        # Create a test skill
-        skill_dir = self.skills_root / "test-activation"
+        # Restructure: create .harness_py/skills/<skill_name>/SKILL.md
+        skills_root = Path(self.temp_dir) / ".harness_py" / "skills"
+        skills_root.mkdir(parents=True, exist_ok=True)
+        
+        skill_dir = skills_root / "test-activation"
         skill_dir.mkdir(parents=True, exist_ok=True)
         
         skil_md_content = """---
@@ -122,6 +123,8 @@ Step 2: Run the script in scripts/"""
         
         # Change to temp directory so Path.cwd() works correctly
         self.original_cwd = os.getcwd()
+        # Ensure harness root is on sys.path BEFORE changing cwd (otherwise skills_discovery won't be importable)
+        sys.path.insert(0, self.original_cwd)
         os.chdir(self.temp_dir)
     
     def teardown_method(self):
@@ -157,10 +160,9 @@ class TestIntegration:
     def setup_method(self):
         """Create complete skill structure."""
         self.temp_dir = tempfile.mkdtemp()
-        os.chdir(self.temp_dir)
         
-        # Create skills directory
-        skills_root = Path.cwd() / "skills"
+        # Create skills in .harness_py/skills/ (the path discover_skills searches)
+        skills_root = Path(self.temp_dir) / ".harness_py" / "skills"
         skills_root.mkdir(parents=True, exist_ok=True)
         
         # Create a complete skill with scripts and references
@@ -187,6 +189,14 @@ description: Full integration test skill with scripts and references.
         (skill_dir / "scripts" / "run_test.py").write_text(
             "#!/usr/bin/env python3\nprint('Test passed!')\n"
         )
+        
+        self.original_cwd = os.getcwd()
+        sys.path.insert(0, self.original_cwd)
+        os.chdir(self.temp_dir)
+    
+    def teardown_method(self):
+        """Restore original working directory."""
+        os.chdir(self.original_cwd)
     
     def test_full_workflow(self):
         """Test complete discovery → activation workflow."""
@@ -194,7 +204,7 @@ description: Full integration test skill with scripts and references.
         from tools.activate_skill import activate_skill
         
         # Phase 1: Discovery
-        discovered = discover_skills()
+        discovered = discover_skills([Path.cwd() / ".harness_py" / "skills"])
         assert len(discovered) == 1, f"Expected 1 skill, found {len(discovered)}"
         
         name, metadata = discovered[0]
@@ -209,7 +219,7 @@ description: Full integration test skill with scripts and references.
         assert result.type_tag == "markdown"
         combined_text = result.display_text + result.llm_text
         assert "SKILL ACTIVATED: integration-test" in combined_text
-        assert str(Path.cwd() / "skills" / "integration-test") in combined_text
+        assert str(Path.cwd() / ".harness_py" / "skills" / "integration-test") in combined_text
         
         # Phase 3: Execution context (simulated)
         assert "scripts/run.sh" in combined_text or "references/README.md" in combined_text

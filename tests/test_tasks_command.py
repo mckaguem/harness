@@ -8,33 +8,23 @@ from commands.tasks import cmd_tasks
 def test_tasks_command_with_agent():
     """Test that /tasks displays tasks when agent has a task list."""
     # Create mock tasks
-    mock_task1 = Mock()
-    mock_task1.id = 1
-    mock_task1.description = "Write documentation"
-    mock_task1.status = "completed"
-    
-    mock_task2 = Mock()
-    mock_task2.id = 2
-    mock_task2.description = "Fix bug"
-    mock_task2.status = "in_progress"
-    
-    # Use TaskList directly for realistic behavior
+    mock_agent = Mock()
+    # Set task_list to a TaskList instance (not _task_list, since we now use the public property)
     from agent.task_list import TaskList
+    
+    # Test 1: with tasks
     task_list = TaskList()
     task_list.initialize_tasks(["Write documentation", "Fix bug"])
+    # Set statuses to match test expectations
+    for t in task_list.tasks:
+        if t.description == "Write documentation":
+            t.status = "completed"
+        elif t.description == "Fix bug":
+            t.status = "in_progress"
+    mock_agent.task_list = task_list
     
-    # Manually set statuses to match test expectations
-    for task in task_list.tasks:
-        if task.description == "Write documentation":
-            task.status = "completed"
-        elif task.description == "Fix bug":
-            task.status = "in_progress"
-    
-    mock_agent = Mock()
-    mock_agent._task_list = task_list
-    
-    # Capture the display output by patching display_message_panel
-    with patch("terminal_io.display.display_message_panel") as mock_display:
+    # Capture the display output by patching display_message_panel at the usage site
+    with patch("commands.tasks.display_message_panel") as mock_display:
         cmd_tasks("", mock_agent)
         
         # Verify display was called
@@ -50,7 +40,9 @@ def test_tasks_command_with_agent():
 
 def test_tasks_command_without_agent():
     """Test that /tasks handles missing agent gracefully."""
-    with patch("terminal_io.display.display_message_panel") as mock_display:
+    from agent.context import CURRENT_AGENT
+    CURRENT_AGENT.set(None)  # Reset context to simulate no running agent
+    with patch("commands.tasks.display_message_panel") as mock_display:
         cmd_tasks("", None)
         
         assert mock_display.called
@@ -64,10 +56,10 @@ def test_tasks_command_empty_list():
     
     mock_agent = Mock()
     # Create a TaskList but don't initialize any tasks in it
-    # The default TaskList has no tasks, so len(tasks) == 0
-    mock_agent._task_list = TaskList()
+    from agent.task_list import TaskList
+    mock_agent.task_list = TaskList()
     
-    with patch("terminal_io.display.display_message_panel") as mock_display:
+    with patch("commands.tasks.display_message_panel") as mock_display:
         cmd_tasks("", mock_agent)
         
         assert mock_display.called

@@ -25,7 +25,7 @@ def initialize_task_list(tasks: list[str]) -> tuple | ToolResult:
     """
     current_agent = CURRENT_AGENT.get()
     
-    if not current_agent or not hasattr(current_agent, '_task_list'):
+    if not current_agent:
         return ToolResult(
             llm_text=_strip_ansi("No active agent context found"),
             display_text=_strip_ansi("No active agent context found"),
@@ -35,10 +35,10 @@ def initialize_task_list(tasks: list[str]) -> tuple | ToolResult:
         )
 
     try:
-        current_agent._task_list.initialize_tasks(tasks)
+        current_agent.task_list.initialize_tasks(tasks)
         return ToolResult(
             llm_text=f"Initialized {len(tasks)} tasks successfully.",
-            display_text=current_agent._task_list.to_markdown(),
+            display_text=current_agent.task_list.to_markdown(),
             type_tag="markdown",
             title="📋 Task List",
             theme="status",
