@@ -55,6 +55,44 @@ def _panel_title(func_name: str, title_override: str | None) -> str:
     return f"✅ {func_name} Result"
 
 
+def display_message_panel(text: str, theme: str = "status", title: str = "",
+                          result_type: str = "text") -> None:
+    """Display a Rich panel with the given text, styled by theme.
+
+    Shared rendering logic for tool-result panels and ad-hoc command output.
+
+    Args:
+        text: The content to display inside the panel. Truncated after 5 lines
+              unless ``theme == "status"`` (e.g. task lists).
+        theme: One of ``"error"``, ``"status"``, ``"info"``, ``"read"``,
+               ``"write"``, ``"command"`` — selects the panel border color.
+        title: Custom panel title. Falls back to a default if empty.
+        result_type: The syntax-highlighting language tag (e.g. ``"markdown"``,
+                     ``"json"``, ``"text"``).
+    """
+    # Truncate if longer than 5 lines (skip truncation for 'status' theme, e.g. task lists).
+    display_content = str(text)
+    lines = display_content.splitlines()
+    if len(lines) > 5 and theme != "status":
+        truncated_count = len(lines) - 5
+        display_content = '\n'.join(lines[:5]) + f'\n... [{truncated_count} line{"s" if truncated_count != 1 else ""} truncated]'
+
+    border_style = _theme_border(theme)
+    panel_title = title if title else "✅ Result"
+
+    if theme == "error":
+        # Render errors distinctly — red border, red text, no syntax highlight.
+        console.print(Panel(
+            f"[red]{display_content}[/red]",
+            title=panel_title,
+            border_style=border_style
+        ))
+    else:
+        # Apply Rich Syntax highlighting for the appropriate format.
+        syntax = Syntax(display_content, result_type, theme="monokai")
+        console.print(Panel(syntax, title=panel_title, border_style=border_style))
+
+
 def display_tool_result(func_name: str, result) -> None:
     """Print a truncated tool-result panel with syntax highlighting.
 
@@ -68,31 +106,13 @@ def display_tool_result(func_name: str, result) -> None:
     an ellipsis line indicating how many lines were truncated (e.g. ``... [8 lines truncated]``).
     """
     # Unwrap ToolResult; content must be a ToolResult object.
-    display_content = str(result.display_text)
-    result_type = result.type_tag or "text"
     title_override = result.title or func_name
-    theme = result.theme
-    
-    # Truncate if longer than 5 lines (skip truncation for 'status' theme, e.g. task lists).
-    lines = display_content.splitlines()
-    if len(lines) > 5 and theme != "status":
-        truncated_count = len(lines) - 5
-        display_content = '\n'.join(lines[:5]) + f'\n... [{truncated_count} line{"s" if truncated_count != 1 else ""} truncated]'
-    
-    border_style = _theme_border(theme)
-    title = _panel_title(func_name, title_override)
-
-    if theme == "error":
-        # Render errors distinctly — red border, red text, no syntax highlight.
-        console.print(Panel(
-            f"[red]{display_content}[/red]",
-            title=title,
-            border_style=border_style
-        ))
-    else:
-        # Apply Rich Syntax highlighting for the appropriate format.
-        syntax = Syntax(display_content, result_type, theme="monokai")
-        console.print(Panel(syntax, title=title, border_style=border_style))
+    display_message_panel(
+        text=result.display_text,
+        theme=result.theme,
+        title=title_override,
+        result_type=result.type_tag or "text",
+    )
 
 
 def display_tool_call_with_result(func_name: str, args_str: str, result: str) -> None:
