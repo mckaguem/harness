@@ -32,8 +32,15 @@ def cmd_sub(rest: str, agent=None) -> bool | None:
     return _cmd_sub(rest, agent)
 
 
+def cmd_tasks(rest: str, agent=None) -> bool | None:
+    """Handle the /tasks command."""
+    from commands.tasks import cmd_tasks as _cmd_tasks
+    return _cmd_tasks(rest, agent)
+
+
 COMMANDS = {
     'exit': cmd_exit,
     'quit': cmd_quit,
     'sub': cmd_sub,
+    'tasks': cmd_tasks,
 }
