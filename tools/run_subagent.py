@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import List, Dict
 
 from tools.tool_result import ToolResult
-from tools.utils import _strip_ansi
+from tools.utils import _strip_ansi, make_error_result
 
 
 TERMINATION_PROMPT = """\
@@ -53,10 +53,9 @@ def _get_agents_dir_paths() -> List[str]:
         from agent.discovery import get_agent_yaml_paths
         return [str(p) for p in get_agent_yaml_paths() if p.exists()]
     except Exception:
-        # Fallback: check both potential paths and only include ones that exist
-        project_agents = Path.cwd() / ".harness_py" / "agents"
-        global_agents = Path.home() / ".harness_py" / "agents"
-        return [str(p) for p in (project_agents, global_agents) if p.exists()]
+        # Fallback: use centralized discovery helper
+        from config import get_discovery_dirs
+        return [str(p) for p in get_discovery_dirs("agents") if p.exists()]
 
 
 def _build_function_def() -> dict:
@@ -141,15 +140,7 @@ def run_subagent(sub_agent: str, task: str) -> ToolResult:
                         f"Error parsing submit_results arguments ({exc}). "
                         "The sub-agent produced malformed JSON."
                     )
-                    # Append this error to the sub's message log so it can self-correct,
-                    # then break — we've already yielded an ERROR, which is enough signal.
-                    return ToolResult(
-                        llm_text=_strip_ansi(description),
-                        display_text=_strip_ansi(description),
-                        type_tag="text",
-                        title="🚫 Error",
-                        theme="error",
-                    )
+                    return make_error_result(description)
 
                 from tools.dispatcher import dispatch
 
@@ -174,21 +165,9 @@ def run_subagent(sub_agent: str, task: str) -> ToolResult:
         )
 
     except FileNotFoundError as exc:
-        return ToolResult(
-            llm_text=_strip_ansi(f"Error: {exc}"),
-            display_text=_strip_ansi(f"Error: {exc}"),
-            type_tag="text",
-            title="🚫 Error",
-            theme="error",
-        )
+        return make_error_result(f"Error: {exc}")
     except Exception as exc:
-        return ToolResult(
-            llm_text=_strip_ansi(f"Error running sub-agent '{sub_agent}': {exc}"),
-            display_text=_strip_ansi(f"Error running sub-agent '{sub_agent}': {exc}"),
-            type_tag="text",
-            title="🚫 Error",
-            theme="error",
-        )
+        return make_error_result(f"Error running sub-agent '{sub_agent}': {exc}")
 
 
 def _get_submit_results_def() -> Dict:

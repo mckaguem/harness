@@ -1,6 +1,6 @@
 """edit_file — apply ordered search-and-replace edits to a file."""
 
-from tools.utils import is_safe_path, _strip_ansi
+from tools.utils import is_safe_path, _strip_ansi, make_error_result
 from tools.tool_result import ToolResult
 
 
@@ -21,44 +21,20 @@ def edit_file(filename: str, edits: list[dict]) -> ToolResult:
     """
 
     if not isinstance(edits, list) or len(edits) == 0:
-        return ToolResult(
-            llm_text=_strip_ansi("Error: `edits` must be a non-empty list."),
-            display_text=_strip_ansi("Error: `edits` must be a non-empty list."),
-            type_tag="text",
-            title="🚫 Error",
-            theme="error"
-        )
+        return make_error_result("`edits` must be a non-empty list.")
 
     # Path safety check once up front.
     if not is_safe_path(filename):
-        return ToolResult(
-            llm_text=_strip_ansi("Error: Path traversal detected. You may only edit files in the current directory."),
-            display_text=_strip_ansi("Error: Path traversal detected. You may only edit files in the current directory."),
-            type_tag="text",
-            title="🚫 Error",
-            theme="error"
-        )
+        return make_error_result("Path traversal detected. You may only edit files in the current directory.")
 
     # Read existing content first — we want a clean error if it doesn't exist.
     try:
         with open(filename, 'r', encoding='utf-8') as f:
             content = f.read()
     except FileNotFoundError:
-        return ToolResult(
-            llm_text=_strip_ansi(f"Error: File {filename} not found."),
-            display_text=_strip_ansi(f"Error: File {filename} not found."),
-            type_tag="text",
-            title="🚫 Error",
-            theme="error"
-        )
+        return make_error_result(f"File {filename} not found.")
     except Exception as e:
-        return ToolResult(
-            llm_text=f"Error reading file for editing: {e}",
-            display_text=f"Error reading file for editing: {e}",
-            type_tag="text",
-            title="🚫 Error",
-            theme="error"
-        )
+        return make_error_result(f"Error reading file for editing: {e}")
 
     original_content = content
     changes_made: list[str] = []
@@ -68,42 +44,19 @@ def edit_file(filename: str, edits: list[dict]) -> ToolResult:
         new_text = edit.get("new_text")
 
         if not old_text or not isinstance(old_text, str):
-            return ToolResult(
-                llm_text=_strip_ansi(f"Error: Edit #{i+1} has invalid or missing `old_text`."),
-                display_text=_strip_ansi(f"Error: Edit #{i+1} has invalid or missing `old_text`."),
-                type_tag="text",
-                title="🚫 Error",
-                theme="error"
-            )
+            return make_error_result(f"Edit #{i+1} has invalid or missing `old_text`.")
         if new_text is None or not isinstance(new_text, str):
-            return ToolResult(
-                llm_text=_strip_ansi(f"Error: Edit #{i+1} has invalid or missing `new_text`."),
-                display_text=_strip_ansi(f"Error: Edit #{i+1} has invalid or missing `new_text`."),
-                type_tag="text",
-                title="🚫 Error",
-                theme="error"
-            )
+            return make_error_result(f"Edit #{i+1} has invalid or missing `new_text`.")
 
         idx = content.find(old_text)
         if idx == -1:
-            # Report the first few lines of what we expected so the caller can fix it.
             snippet_lines = old_text.splitlines()[:3]
             snippet_preview = "\n".join(snippet_lines)
             preview = (snippet_preview + "...") if len(snippet_lines) > 3 else snippet_preview
-            return ToolResult(
-                llm_text=_strip_ansi(
-                    f"Edit #{i+1} failed — `old_text` not found in {filename}. "
-                    f"Searched for:\n    {preview}\n\n"
-                    f"Adjust the old_text (include surrounding context if needed) and retry."
-                ),
-                display_text=_strip_ansi(
-                    f"Edit #{i+1} failed — `old_text` not found in {filename}. "
-                    f"Searched for:\n    {preview}\n\n"
-                    f"Adjust the old_text (include surrounding context if needed) and retry."
-                ),
-                type_tag="text",
-                title="🚫 Error",
-                theme="error"
+            return make_error_result(
+                f"Edit #{i+1} failed — `old_text` not found in {filename}. "
+                f"Searched for:\n    {preview}\n\n"
+                f"Adjust the old_text (include surrounding context if needed) and retry."
             )
 
         content = content[:idx] + new_text + content[idx + len(old_text):]
@@ -125,13 +78,7 @@ def edit_file(filename: str, edits: list[dict]) -> ToolResult:
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(content)
     except Exception as e:
-        return ToolResult(
-            llm_text=f"Error writing edited file: {e}",
-            display_text=f"Error writing edited file: {e}",
-            type_tag="text",
-            title="🚫 Error",
-            theme="error"
-        )
+        return make_error_result(f"Error writing edited file: {e}")
 
     result = "\n".join(changes_made)
     return ToolResult(llm_text=result, display_text=result, type_tag="diff", title="✏️ Edit File", theme="write")

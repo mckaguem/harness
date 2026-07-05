@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from tools.tool_result import ToolResult
+from tools.utils import make_error_result
 
 
 def activate_skill(skill_name: str) -> ToolResult:
@@ -27,36 +28,18 @@ def activate_skill(skill_name: str) -> ToolResult:
         body, error = get_skill_body(skill_name)
         
         if error:
-            return ToolResult(
-                llm_text=(
-                    f"Failed to activate skill '{skill_name}': {error}\n\n"
-                    "Check that:\n"
-                    "1. The skill exists in .harness_py/skills/ (project or global)\n"
-                    "2. SKILL.md is present and valid\n"
-                    "3. The name matches the directory name exactly"
-                ),
-                display_text=(
-                    f"Failed to activate skill '{skill_name}': {error}\n\n"
-                    "Check that:\n"
-                    "1. The skill exists in .harness_py/skills/ (project or global)\n"
-                    "2. SKILL.md is present and valid\n"
-                    "3. The name matches the directory name exactly"
-                ),
-                type_tag="text",
-                title="🚫 Error",
-                theme="error"
+            return make_error_result(
+                f"Failed to activate skill '{skill_name}': {error}\n\n"
+                "Check that:\n"
+                "1. The skill exists in .harness_py/skills/ (project or global)\n"
+                "2. SKILL.md is present and valid\n"
+                "3. The name matches the directory name exactly"
             )
         
         if not body:
-            return ToolResult(
-                llm_text=f"Skill '{skill_name}' has no instructions in SKILL.md body.",
-                display_text=(
-                    f"**{skill_name}**: No description provided\n\n"
-                    f"This skill has no instructions in its SKILL.md file."
-                ),
-                type_tag="text",
-                title="🚫 Error",
-                theme="error"
+            return make_error_result(
+                f"Skill '{skill_name}' has no instructions in SKILL.md body.",
+                "Activate Skill"
             )
         
         # Determine absolute path from config
@@ -95,13 +78,7 @@ def activate_skill(skill_name: str) -> ToolResult:
         )
     
     except Exception as e:
-        return ToolResult(
-            llm_text=f"Unexpected error activating skill '{skill_name}': {e}",
-            display_text=f"Unexpected error activating skill '{skill_name}': {e}",
-            type_tag="text",
-            title="🚫 Error",
-            theme="error"
-        )
+        return make_error_result(f"Unexpected error activating skill '{skill_name}': {e}")
 
 
 function_def = {

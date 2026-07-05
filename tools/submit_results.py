@@ -19,6 +19,7 @@ the parent agent can see it in its tool-result display before reading the JSON.
 """
 
 from tools.tool_result import ToolResult
+from tools.utils import make_error_result
 
 
 def submit_results(json_payload: str) -> ToolResult:
@@ -39,26 +40,16 @@ def submit_results(json_payload: str) -> ToolResult:
     try:
         data = _json.loads(json_payload)
     except Exception as exc:
-        return ToolResult(
-            llm_text=f"Error: 'submit_results' received invalid JSON payload ({exc}). "
-                     f"The calling agent must fix the payload and call submit_results again.",
-            display_text=str(exc),
-            type_tag="text",
-            title="🚫 Error",
-            theme="error"
+        return make_error_result(
+            f"'submit_results' received invalid JSON payload ({exc}). "
+            "The calling agent must fix the payload and call submit_results again."
         )
 
-    # Basic structural validation.
-    required_keys = ("summary_of_actions", "actionable_data", "unresolved_issues")
     missing = [k for k in required_keys if k not in data]
     if missing:
-        return ToolResult(
-            llm_text=(f"Error: 'submit_results' payload is missing required key(s): "
-                      f"{', '.join(missing)}."),
-            display_text=str(missing),
-            type_tag="text",
-            title="🚫 Error",
-            theme="error"
+        return make_error_result(
+            f"'submit_results' payload is missing required key(s): "
+            f"{', '.join(missing)}."
         )
 
     # Echo the structured data back so the parent agent can consume it.

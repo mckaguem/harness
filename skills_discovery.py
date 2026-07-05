@@ -105,12 +105,14 @@ def _merge_skill_discoveries(
     Returns:
         A deduplicated list of ``(skill_name, metadata)`` tuples.
     """
-    seen: dict[str, Tuple[str, Dict]] = {}
+    seen: set[str] = set()
+    result: list[Tuple[str, Dict]] = []
     for _source_dir, skills in discoveries:
         for name, meta in skills:
             if name not in seen:
-                seen[name] = (name, meta)
-    return list(seen.values())
+                seen.add(name)
+                result.append((name, meta))
+    return result
 
 
 def discover_skills(
@@ -130,12 +132,8 @@ def discover_skills(
         skills are skipped with warnings printed to stderr.
     """
     if skills_dirs is None:
-        from config import get_harness_py_dir as _get_dirs
-        project_dir, global_dir = _get_dirs()
-        skills_dirs = [
-            project_dir / "skills",
-            global_dir / "skills",
-        ]
+        from config import get_discovery_dirs
+        skills_dirs = get_discovery_dirs("skills")
 
     all_discoveries: list[tuple[Path, List[Tuple[str, Dict]]]] = []
 
@@ -205,12 +203,8 @@ def get_skill_by_name(skill_name: str, skills_dirs: Optional[List[Path]] = None)
         no matching skill was found or validation failed.
     """
     if skills_dirs is None:
-        from config import get_harness_py_dir as _get_dirs
-        project_dir, global_dir = _get_dirs()
-        skills_dirs = [
-            project_dir / "skills",
-            global_dir / "skills",
-        ]
+        from config import get_discovery_dirs
+        skills_dirs = get_discovery_dirs("skills")
 
     for skills_path in skills_dirs:
         skill_path = skills_path / skill_name
@@ -237,12 +231,8 @@ def get_skill_body(skill_name: str, skills_dirs: Optional[List[Path]] = None) ->
         activation failed.
     """
     if skills_dirs is None:
-        from config import get_harness_py_dir as _get_dirs
-        project_dir, global_dir = _get_dirs()
-        skills_dirs = [
-            project_dir / "skills",
-            global_dir / "skills",
-        ]
+        from config import get_discovery_dirs
+        skills_dirs = get_discovery_dirs("skills")
 
     for skills_path in skills_dirs:
         skill_path = skills_path / skill_name

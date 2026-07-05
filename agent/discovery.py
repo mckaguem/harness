@@ -23,12 +23,14 @@ def _merge_agent_discoveries(
     Returns:
         A deduplicated list of ``(agent_name, yaml_path)`` tuples.
     """
-    seen: dict[str, Tuple[str, Path]] = {}
+    seen: set[str] = set()
+    result: list[Tuple[str, Path]] = []
     for _source_dir, agents in discoveries:
         for name, path in agents:
             if name not in seen:
-                seen[name] = (name, path)
-    return list(seen.values())
+                seen.add(name)
+                result.append((name, path))
+    return result
 
 
 def discover_agents(
@@ -49,12 +51,8 @@ def discover_agents(
         to stderr.
     """
     if agents_dirs is None:
-        from config import get_harness_py_dir as _get_dirs
-        project_dir, global_dir = _get_dirs()
-        agents_dirs = [
-            project_dir / "agents",
-            global_dir / "agents",
-        ]
+        from config import get_discovery_dirs
+        agents_dirs = get_discovery_dirs("agents")
 
     all_discoveries: list[tuple[Path, List[Tuple[str, Path]]]] = []
 
@@ -95,12 +93,8 @@ def get_agent_yaml(agent_name: str, agents_dirs: Optional[List[Path]] = None) ->
         ``yaml_path`` is the resolved Path; otherwise no matching agent was found.
     """
     if agents_dirs is None:
-        from config import get_harness_py_dir as _get_dirs
-        project_dir, global_dir = _get_dirs()
-        agents_dirs = [
-            project_dir / "agents",
-            global_dir / "agents",
-        ]
+        from config import get_discovery_dirs
+        agents_dirs = get_discovery_dirs("agents")
 
     for agents_path in agents_dirs:
         yaml_file = agents_path / f"{agent_name}.yaml"
@@ -118,9 +112,5 @@ def get_agent_yaml_paths() -> List[Path]:
     Useful for injecting into tool descriptions or system prompts so models
     know where to look for agent definitions.
     """
-    from config import get_harness_py_dir as _get_dirs
-    project_dir, global_dir = _get_dirs()
-    return [
-        project_dir / "agents",
-        global_dir / "agents",
-    ]
+    from config import get_discovery_dirs
+    return get_discovery_dirs("agents")

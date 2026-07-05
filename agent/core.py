@@ -165,25 +165,27 @@ Execute the next logical step based on this state.
         
         return modified_messages
 
-    def _chat(self, messages: list[dict]) -> str:
-        """Send *messages* to the Ollama client and return the response content.
+    def _chat(self, messages: list[dict]) -> dict:
+        """Send *messages* to the Ollama client and return the full response.
 
         This is the single point for building the request payload (model,
-        tools, context length) so callers don't have to repeat it.
+        tools, context length) so callers don't have to repeat it. Returns
+        the complete response object so callers can access both ``content``
+        and any metadata (e.g., ``tool_calls``, token counts).
 
         Args:
             messages: The full conversation history to send.
 
         Returns:
-            The ``message.content`` string from the chat response.
+            The full chat response dictionary from Ollama, including the
+            ``message`` key with ``content`` and optional ``tool_calls``.
         """
-        response = self._client.chat(
+        return self._client.chat(
             model=self._agent_type.model_name,
             messages=messages,
             tools=self._tools if self._tools else None,
             options={"num_ctx": self._context_length},
         )
-        return response["message"].get("content", "")
     
     # -- public API ----------------------------------------------------------
     
@@ -220,20 +222,28 @@ Execute the next logical step based on this state.
             # Apply cache-friendly context injection before sending to Ollama (Component 3)
             messages_to_send = self._inject_task_state(self.messages)
             
-            response = self._client.chat(
-                model=self._agent_type.model_name,
-                messages=messages_to_send,
-                tools=self._tools if self._tools else None,
-                options={"num_ctx": self._context_length},
-            )
+            # Use the centralized chat method to avoid duplicate request construction
+            response = self._chat(messages_to_send)
             
             message = response["message"]
             self.messages.append(message)
             
             if not message.get("tool_calls"):
-                content = message.get("content", "")
-                yield (RESPONSE, content, response)
-                break
+                if self._task_list and self._task_list.has_incomplete_tasks():
+                    self.messages.append({"role": "user", "content": """
+[SYSTEM ERROR] Execution termination blocked.
+You still have incomplete tasks in your tasks list.
+You must finish them and update their status to 'complete',
+or update their status to 'failed' before stopping.
+"""})
+                    print("incomplete tasks!")
+                                     
+                    continue
+                    
+                else:
+                    content = message.get("content", "")
+                    yield (RESPONSE, content, response)
+                    break
             
             for tool_call in message["tool_calls"]:
                 func_name = tool_call["function"]["name"]

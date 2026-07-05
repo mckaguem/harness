@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 import yaml
 
 # Built-in variable names recognised in system prompt templates.
-_VARIABULARS = {"CWD", "SKILLS", "AGENTS", "TOOLS"}
+_SYSTEM_VARIABLES = {"CWD", "SKILLS", "AGENTS", "TOOLS"}
 
 
 
@@ -71,7 +71,7 @@ class AgentType:
             var_name = match.group(1) or match.group(2)
             if not var_name:
                 return match.group(0)
-            if var_name not in _VARIABULARS:
+            if var_name not in _SYSTEM_VARIABLES:
                 # Leave unknown placeholders untouched so typos are visible.
                 return match.group(0)
 
@@ -150,6 +150,10 @@ class AgentType:
         prompt = AgentType._substitute_variables(
             raw_prompt, cwd=cwd, skills=skills, agents=agents, tools=tools,
         )
+
+        # Append backwards-compatible "current working directory name" footer.
+        if not had_template_vars:
+            prompt += f"\nCurrent working directory name: {cwd.name}"
 
         return prompt
     

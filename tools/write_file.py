@@ -1,7 +1,7 @@
 """write_file — write or overwrite a file in the current working directory."""
 
 import json
-from tools.utils import is_safe_path, _strip_ansi
+from tools.utils import is_safe_path, _strip_ansi, make_error_result
 from tools.tool_result import ToolResult
 
 
@@ -13,18 +13,16 @@ def write_file(filename: str, content: str) -> ToolResult:
         or an error result for failures.
     """
     if not is_safe_path(filename):
-        msg = _strip_ansi("Error: Path traversal detected. You may only write to the current directory.")
-        return ToolResult(llm_text=msg, display_text=msg, type_tag="text", title="🚫 Error", theme="error")
+        return make_error_result("Path traversal detected. You may only write to the current directory.")
 
     try:
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(content)
         size = len(content.encode('utf-8'))
         result_str = json.dumps({"status": "ok", "filename": filename, "bytes": size})
-        return ToolResult(llm_text=result_str, display_text=result_str, type_tag="json", title="✅ Write File", theme="write")
+        return ToolResult(llm_text=result_str, display_text=result_str, type_tag="json", title="Write File", theme="write")
     except Exception as e:
-        msg = f"Error writing to file: {e}"
-        return ToolResult(llm_text=msg, display_text=msg, type_tag="text", title="🚫 Error", theme="error")
+        return make_error_result(f"Error writing to file: {e}")
 
 
 function_def = {

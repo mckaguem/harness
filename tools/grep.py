@@ -3,7 +3,7 @@
 import os
 import re
 from pathlib import Path
-from tools.utils import _strip_ansi
+from tools.utils import _strip_ansi, make_error_result
 from tools.tool_result import ToolResult
 
 
@@ -41,50 +41,22 @@ def grep(
     """
 
     if not pattern:
-        return ToolResult(
-            llm_text=_strip_ansi("Error: `pattern` must be non-empty."),
-            display_text=_strip_ansi("Error: `pattern` must be non-empty."),
-            type_tag="text",
-            title="🚫 Error",
-            theme="error"
-        )
+        return make_error_result(f"`pattern` must be non-empty.")
 
     if max_matches < 1:
-        return ToolResult(
-            llm_text=_strip_ansi("Error: `max_matches` must be >= 1."),
-            display_text=_strip_ansi("Error: `max_matches` must be >= 1."),
-            type_tag="text",
-            title="🚫 Error",
-            theme="error"
-        )
+        return make_error_result(f"`max_matches` must be >= 1.")
 
     cwd = Path.cwd().resolve()
     target = (Path.cwd() / path).resolve()
 
     # Safety — every candidate path must stay inside cwd.
     if not target.is_relative_to(cwd):
-        return ToolResult(
-            llm_text=_strip_ansi(
-                "Error: Path traversal detected. `path` must be within the current directory."
-            ),
-            display_text=_strip_ansi(
-                "Error: Path traversal detected. `path` must be within the current directory."
-            ),
-            type_tag="text",
-            title="🚫 Error",
-            theme="error"
-        )
+        return make_error_result(f"Path traversal detected. `path` must be within the current directory.")
 
     try:
         compiled = re.compile(pattern) if use_regex else None
     except re.error as e:
-        return ToolResult(
-            llm_text=_strip_ansi(f"Error: Invalid regex pattern — {e}"),
-            display_text=_strip_ansi(f"Error: Invalid regex pattern — {e}"),
-            type_tag="text",
-            title="🚫 Error",
-            theme="error"
-        )
+        return make_error_result(f"Invalid regex pattern — {e}")
 
     files_to_search: list[Path] = []
 
@@ -113,25 +85,9 @@ def grep(
         elif target.is_file():
             files_to_search.append(target.relative_to(cwd))
         else:
-            return ToolResult(
-                llm_text=_strip_ansi(
-                    f"Error: `{path}` is not a file or directory in the current workspace."
-                ),
-                display_text=_strip_ansi(
-                    f"Error: `{path}` is not a file or directory in the current workspace."
-                ),
-                type_tag="text",
-                title="🚫 Error",
-                theme="error"
-            )
+            return make_error_result(f"`{path}` is not a file or directory in the current workspace.")
     except Exception as e:
-        return ToolResult(
-            llm_text=f"Error scanning path `{path}`: {e}",
-            display_text=f"Error scanning path `{path}`: {e}",
-            type_tag="text",
-            title="🚫 Error",
-            theme="error"
-        )
+        return make_error_result(f"Error scanning path `{path}`: {e}")
 
     if not files_to_search:
         # Helpful message — tell the user we looked but found nothing to scan.
@@ -155,13 +111,7 @@ def grep(
                             "content": line.strip(),
                         })
         except PermissionError as e:
-            return ToolResult(
-                llm_text=_strip_ansi(f"Permission denied reading `{abs_path}`: {e}"),
-                display_text=_strip_ansi(f"Permission denied reading `{abs_path}`: {e}"),
-                type_tag="text",
-                title="🚫 Error",
-                theme="error"
-            )
+            return make_error_result(f"Permission denied reading `{abs_path}`: {e}")
         except Exception as e:
             # Skip unreadable files gracefully — don't abort the whole search.
             continue

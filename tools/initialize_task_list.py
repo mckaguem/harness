@@ -2,7 +2,7 @@
 
 from agent.core import CURRENT_AGENT
 from tools.tool_result import ToolResult
-from tools.utils import _strip_ansi
+from tools.utils import _strip_ansi, make_error_result
 
 
 def initialize_task_list(tasks: list[str]) -> tuple | ToolResult:
@@ -26,13 +26,7 @@ def initialize_task_list(tasks: list[str]) -> tuple | ToolResult:
     current_agent = CURRENT_AGENT.get()
     
     if not current_agent:
-        return ToolResult(
-            llm_text=_strip_ansi("No active agent context found"),
-            display_text=_strip_ansi("No active agent context found"),
-            type_tag="text",
-            title="🚫 Error",
-            theme="error",
-        )
+        return make_error_result("No active agent context found")
 
     try:
         current_agent.task_list.initialize_tasks(tasks)
@@ -44,13 +38,7 @@ def initialize_task_list(tasks: list[str]) -> tuple | ToolResult:
             theme="status",
         )
     except ValueError as e:
-        return ToolResult(
-            llm_text=_strip_ansi(f"Failed to initialize task list: {e}"),
-            display_text=_strip_ansi(f"Failed to initialize task list: {e}"),
-            type_tag="text",
-            title="🚫 Error",
-            theme="error",
-        )
+        return make_error_result(f"Failed to initialize task list: {e}")
 
 
 function_def = {
