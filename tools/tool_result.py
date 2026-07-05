@@ -30,15 +30,16 @@ class ToolResult:
             ``"📋 Task List"``.  If empty the display layer falls back to a
             function-name-derived default.
         theme:
-            One of ``"error"``, ``"status"``, ``"read"``, ``"write"``,
+            One of ``"error"``, ``"status"``, ``"info"``, ``"read"``, ``"write"``,
             ``"command"`` — selects the panel border color and overall style.
+            The six themes are defined in :func:`terminal_io.display._theme_border`.
     """
 
     llm_text: str
     display_text: str
     type_tag: str = "text"
     title: str = ""
-    theme: str = "status"
+    theme: str = "info"
 
 
 __all__ = ["ToolResult"]

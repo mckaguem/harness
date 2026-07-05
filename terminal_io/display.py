@@ -73,9 +73,9 @@ def display_tool_result(func_name: str, result) -> None:
     title_override = result.title or func_name
     theme = result.theme
     
-    # Truncate if longer than 5 lines.
+    # Truncate if longer than 5 lines (skip truncation for 'status' theme, e.g. task lists).
     lines = display_content.splitlines()
-    if len(lines) > 5:
+    if len(lines) > 5 and theme != "status":
         truncated_count = len(lines) - 5
         display_content = '\n'.join(lines[:5]) + f'\n... [{truncated_count} line{"s" if truncated_count != 1 else ""} truncated]'
     
