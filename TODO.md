@@ -26,8 +26,6 @@
 
 ## UI
 
-- /tasks list command
-- Task list gets truncated currently.  Do truncation in the tool instead.
 - Nicer tool call formatting (currently just the JSON)
 - Streaming responses (including thinking)
 - Textual TUI

@@ -25,14 +25,41 @@ def display_user_prompt(user_input: str) -> None:
 
 
 def display_tool_call(func_name: str, args_str: str) -> None:
-    """Print a tool-call panel showing the function name and its arguments."""
-    # Try to format args as JSON if possible, otherwise plain text
+    """Print a tool-call panel showing the function name and its arguments.
+
+    Renders the call using ``display_message_panel`` with theme="info" and
+    result_type="markdown".  Arguments are displayed as key/value parameters
+    (the function name itself appears only in the title).
+    """
+    # First pass: attempt raw JSON parse (do NOT pre-decode newlines, or we'll corrupt the string).
+    parsed = None  # default in case parsing fails below.
+
     try:
         parsed = json.loads(args_str)
-        syntax = Syntax(json.dumps(parsed, indent=2), "json", theme="monokai")
-        console.print(Panel(syntax, title=f"🔧 {func_name}", border_style="blue"))
-    except (json.JSONDecodeError, TypeError):
-        console.print(Panel(args_str, title=f"🔧 {func_name}", border_style="blue"))
+        if isinstance(parsed, dict):
+            # Render each key/value as a bold label + code-formatted value.
+            lines: list[str] = []
+            for key, value in parsed.items():
+                val_str = "\n".join(value) if isinstance(value, list) else str(value)
+                # Decode any escaped newlines inside values after parsing.
+                val_str = val_str.replace("\\n", "\n").replace("\\r", "\r")
+                lines.append(f"**{key}**: `{val_str}`")
+            display_content = "\n\n".join(lines)
+        else:
+            # List or scalar: render as normal JSON, then decode escaped newlines.
+            display_content = json.dumps(parsed, indent=2)
+            display_content = display_content.replace("\\n", "\n").replace("\\r", "\r")
+    except (json.JSONDecodeError, TypeError, ValueError):
+        # Fallback: render raw string with decoded newlines.
+        display_content = args_str.replace("\\n", "\n").replace("\\r", "\r")
+
+    title = f"Tool: {func_name}"
+    display_message_panel(
+        text=display_content,
+        theme="info",
+        title=title,
+        result_type="markdown",
+    )
 
 
 def _theme_border(theme: str) -> str:
@@ -80,6 +107,7 @@ def display_message_panel(text: str, theme: str = "status", title: str = "",
     border_style = _theme_border(theme)
     panel_title = title if title else "✅ Result"
 
+    # Choose between Markdown rendering and Syntax highlighting based on result_type.
     if theme == "error":
         # Render errors distinctly — red border, red text, no syntax highlight.
         console.print(Panel(
@@ -87,6 +115,10 @@ def display_message_panel(text: str, theme: str = "status", title: str = "",
             title=panel_title,
             border_style=border_style
         ))
+    elif result_type == "markdown":
+        # Render as actual Markdown (supports bold, code blocks, etc.) for user-friendly display.
+        md_obj = Markdown(display_content)
+        console.print(Panel(md_obj, title=panel_title, border_style=border_style))
     else:
         # Apply Rich Syntax highlighting for the appropriate format.
         syntax = Syntax(display_content, result_type, theme="monokai")
