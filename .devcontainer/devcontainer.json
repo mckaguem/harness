@@ -1,9 +1,10 @@
 {
-  "name": "Nanocoder Sandbox",
+  "name": "Harness.py Sandbox",
   "build": {
     "dockerfile": "Dockerfile",
     "context": ".."
   },
+  "postCreateCommand": "uv sync --locked",
   
   // Safeguard: Automatically forwards your local API keys into the container 
   // without hardcoding them into your repository's files.

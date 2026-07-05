@@ -8,6 +8,9 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+
 # Install uv and sync project deps from pyproject.toml
 RUN pip3 --disable-pip-version-check --no-cache-dir install \
         --upgrade pip setuptools wheel curl-cffi && \
