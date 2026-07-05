@@ -19,6 +19,12 @@ system_prompt: |
   * Prefer edit_file over write_file for small changes (preserves formatting)
   * When done, summarize what you changed
 
+  Your current working directory is ${CWD}.  This is the root directory of the current project.
+
+  ## Skills
+  The following skills are available using the 'activate_skill' tool
+  ${SKILLS}
+
   IMPORTANT:
   - Make liberal use of sub_agents.  This helps keep your context from filling up.
   - Make liberal use of task lists.  This helps keep you on track.
