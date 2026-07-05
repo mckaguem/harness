@@ -18,8 +18,10 @@ The function itself just parses the payload and echoes a confirmation string so
 the parent agent can see it in its tool-result display before reading the JSON.
 """
 
+from tools.tool_result import ToolResult
 
-def submit_results(json_payload: str) -> str:
+
+def submit_results(json_payload: str) -> ToolResult:
     """Signal task completion and return structured findings to the parent agent.
 
     Args:
@@ -28,27 +30,45 @@ def submit_results(json_payload: str) -> str:
                       conform to the schema documented in this module docstring.
 
     Returns:
-        On success: a string containing the parsed payload for display and
+        On success: a :class:`ToolResult` containing the parsed payload for display and
                     downstream consumption.
-        On failure: an error message describing why parsing failed.
+        On failure: an error ToolResult describing why parsing failed.
     """
     import json as _json
 
     try:
         data = _json.loads(json_payload)
     except Exception as exc:
-        return f"Error: 'submit_results' received invalid JSON payload ({exc}). " \
-               f"The calling agent must fix the payload and call submit_results again."
+        return ToolResult(
+            llm_text=f"Error: 'submit_results' received invalid JSON payload ({exc}). "
+                     f"The calling agent must fix the payload and call submit_results again.",
+            display_text=str(exc),
+            type_tag="text",
+            title="🚫 Error",
+            theme="error"
+        )
 
     # Basic structural validation.
     required_keys = ("summary_of_actions", "actionable_data", "unresolved_issues")
     missing = [k for k in required_keys if k not in data]
     if missing:
-        return (f"Error: 'submit_results' payload is missing required key(s): "
-                f"{', '.join(missing)}.")
+        return ToolResult(
+            llm_text=(f"Error: 'submit_results' payload is missing required key(s): "
+                      f"{', '.join(missing)}."),
+            display_text=str(missing),
+            type_tag="text",
+            title="🚫 Error",
+            theme="error"
+        )
 
     # Echo the structured data back so the parent agent can consume it.
-    return _json.dumps(data, indent=2)
+    return ToolResult(
+        llm_text=_json.dumps(data, indent=2),
+        display_text=_json.dumps(data, indent=2),
+        type_tag="markdown",
+        title="ℹ️ Submit Results",
+        theme="info"
+    )
 
 
 function_def = {

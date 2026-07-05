@@ -80,7 +80,7 @@ class Agent:
         # at the tail end of messages, never touching messages[0].
         from agent.task_list import TaskList
         self._task_list: Optional[TaskList] = TaskList()
-        self._max_loops: int = 5  # Safety ceiling to prevent infinite loops
+        self._max_loops: int = 30  # Safety ceiling to prevent infinite loops
 
         # Bind this instance as the current agent in the thread context so tools
         # can spawn sub-agents without an explicit parent reference.
