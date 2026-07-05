@@ -1,37 +1,157 @@
 """Agent type definition — model, tools, and system prompt configuration."""
 
 from dataclasses import dataclass, field
+import re
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Optional
 
 import yaml
+
+# Built-in variable names recognised in system prompt templates.
+_VARIABULARS = {"CWD", "SKILLS", "AGENTS", "TOOLS"}
+
 
 
 @dataclass
 class AgentType:
     """Definition of an agent — its model, tools, and system prompt."""
-    
+
     name: str = ""
     model_name: str = ""
     system_prompt: str = ""
     agent_tools: List[str] = field(default_factory=list)
 
     @staticmethod
-    def _build_system_prompt(system_prompt: str) -> str:
-        """Augment an inline base prompt with the current working directory name.
+    def _substitute_variables(
+        system_prompt: str,
+        cwd: Path,
+        skills: Optional[List[tuple]] = None,
+        agents: Optional[List[Dict]] = None,
+        tools: Optional[List[dict]] = None,
+    ) -> str:
+        """Substitute template variables of the form ``${VAR_NAME}`` in *system_prompt*.
 
-        The system prompt now lives inside the YAML itself — there's no
-        external base file to read. We only append a short cwd hint so the agent
-        knows which project it's operating in.
+        The supported variable names are:
+
+        +-----------+-------------------------------------------------------+
+        | Variable  | Value                                                 |
+        +===========+=======================================================+
+        | ``CWD``   | Absolute path of the current working directory.       |
+        +-----------+-------------------------------------------------------+
+        | ``SKILLS``| One line per discovered skill (name: description),    |
+        |           | joined by newlines. Empty string if none discovered.  |
+        +-----------+-------------------------------------------------------+
+        | ``AGENTS``| One line per available agent (name: description),     |
+        |           | joined by newlines. Empty string if none discovered.  |
+        +-----------+-------------------------------------------------------+
+        | ``TOOLS`` | One line per available tool (tool name and short      |
+        |           | description from its function_def), joined by         |
+        |           | newlines. Empty string if none provided.              |
+        +-----------+-------------------------------------------------------+
+
+        Unsupported variable names are left intact so typos surface as literal
+        ``${UNLIKELY_NAME}`` placeholders rather than silently disappearing.
 
         Args:
-            system_prompt: The base prompt text sourced from the agent's YAML.
+            system_prompt: The raw prompt text sourced from the agent YAML.
+            cwd: The current working directory to insert for ``$CWD``.
+            skills: Optional list of ``(name, metadata)`` tuples (from
+                :func:`skills_discovery.discover_skills`).
+            agents: Optional list of dicts describing available agents,
+                each with at least ``name`` and ``description`` keys.
+            tools: Optional list of tool schema dicts. Each entry should have
+                a ``function.description`` key; if missing, the bare function
+                name is used.
 
         Returns:
-            The augmented prompt string with cwd name appended.
+            The prompt text with all recognised variables substituted.
         """
-        injection = f"\n\nCurrent working directory name:\n{Path.cwd().name}"
-        return system_prompt + injection
+
+        def _replace(match):
+            var_name = match.group(1) or match.group(2)
+            if not var_name:
+                return match.group(0)
+            if var_name not in _VARIABULARS:
+                # Leave unknown placeholders untouched so typos are visible.
+                return match.group(0)
+
+            if var_name == "CWD":
+                return str(cwd.resolve())
+
+            if var_name == "SKILLS":
+                if not skills:
+                    return ""
+                lines = []
+                for name, meta in skills:
+                    desc = (meta.get("description") or "No description provided").strip()
+                    # Truncate very long descriptions so the prompt stays compact.
+                    if len(desc) > 200:
+                        desc = desc[:197] + "..."
+                    lines.append(f"- {name}: {desc}")
+                return "\n".join(lines)
+
+            if var_name == "AGENTS":
+                if not agents:
+                    return ""
+                return "\n".join(
+                    f"- {a.get('name', '<unknown>')}: {a.get('description', 'No description provided').strip()}"
+                    for a in agents
+                )
+
+            # TOOLS
+            if not tools:
+                return ""
+            lines = []
+            for tool in tools:
+                func = tool.get("function", {}) if isinstance(tool, dict) else {}
+                name = func.get("name", "<unknown>")
+                desc = (func.get("description") or name).strip()
+                if len(desc) > 200:
+                    desc = desc[:197] + "..."
+                lines.append(f"- {name}: {desc}")
+            return "\n".join(lines)
+
+        # Match ${VAR} or $VAR syntax (where VAR is UPPERCASE_WORD).
+        pattern = r'\$\{([A-Z_][A-Z0-9_]*)\}|\$([A-Z_][A-Z0-9_]*)'
+        return re.sub(pattern, _replace, system_prompt)
+
+    @staticmethod
+    def _build_system_prompt(
+        raw_prompt: str,
+        cwd: Optional[Path] = None,
+        skills: Optional[List[tuple]] = None,
+        agents: Optional[List[Dict]] = None,
+        tools: Optional[List[dict]] = None,
+    ) -> str:
+        """Build the final system prompt for an agent.
+
+        The supplied *raw_prompt* is sourced from the agent's YAML file. Any
+        template variables (e.g. ``${CWD}``, ``${SKILLS}``, ``${AGENTS}``,
+        ``${TOOLS}``) are substituted with runtime data from discovery
+        mechanisms. If no template variables are present, a small backwards-
+        compatible "current working directory name" footer is still appended so
+        existing prompts continue to work unchanged.
+
+        Args:
+            raw_prompt: The base prompt text sourced from the agent YAML.
+            cwd: Current working directory (defaults to ``pathlib.Path.cwd()``).
+            skills: Optional list of ``(name, metadata)`` tuples from skill discovery.
+            agents: Optional list of dicts describing available agents.
+            tools: Optional list of tool schema dicts from the tool registry.
+
+        Returns:
+            The fully-built system prompt with variables substituted.
+        """
+        cwd = Path.cwd() if cwd is None else (Path(cwd) if isinstance(cwd, str) else cwd)
+
+        # Detect whether the raw prompt originally contained any template variables.
+        had_template_vars = bool(re.search(r'\$\{?[A-Z_][A-Z0-9_]*\}?', raw_prompt))
+
+        prompt = AgentType._substitute_variables(
+            raw_prompt, cwd=cwd, skills=skills, agents=agents, tools=tools,
+        )
+
+        return prompt
     
     @classmethod
     def from_file(cls, path: str) -> "AgentType":
@@ -82,8 +202,45 @@ class AgentType:
                 f"not referenced via a separate file."
             )
 
-        # Augment the inline system prompt with cwd name.
-        system_prompt = cls._build_system_prompt(system_prompt_raw)
+        # Resolve skills, agents and tools via the existing discovery mechanisms.
+        from agent.discovery import discover_agents as _discover_agents
+        from tools import AGENT_TOOLS
+        import skills_discovery
+
+        try:
+            discovered_skills = list(skills_discovery.discover_skills())
+        except Exception:
+            discovered_skills = []
+
+        try:
+            discovered_agent_names = _discover_agents()
+        except Exception:
+            discovered_agent_names = []
+
+        agent_descriptions: List[Dict] = []
+        for agent_name, a_yaml_path in discovered_agent_names:
+            # Try to load the YAML and extract a description. Fall back to an
+            # empty string if the file is missing or malformed.
+            try:
+                with open(a_yaml_path, "r", encoding="utf-8") as fh:
+                    cfg = yaml.safe_load(fh) or {}
+                agent_descriptions.append({
+                    "name": str(cfg.get("name", agent_name)),
+                    "description": str(cfg.get("description", "")) or f"Agent '{agent_name}'",
+                })
+            except Exception:
+                agent_descriptions.append({
+                    "name": agent_name,
+                    "description": f"Agent '{agent_name}'",
+                })
+
+        # Build the augmented system prompt with discovered context.
+        system_prompt = cls._build_system_prompt(
+            raw_prompt=system_prompt_raw,
+            skills=discovered_skills if discovered_skills else None,
+            agents=agent_descriptions if agent_descriptions else None,
+            tools=AGENT_TOOLS if AGENT_TOOLS else None,
+        )
 
         return cls(
             name=name,

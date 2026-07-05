@@ -172,6 +172,126 @@ agent_tools: []
         finally:
             os.chdir("/workspaces/harness")
 
+    def test_builds_system_prompt_with_cwd_variable(self, tmp_path):
+        """Should substitute $CWD with the absolute cwd path."""
+        from agent import AgentType
+        
+        yaml_content = (
+            'model_name: "test"\n'
+            'system_prompt: "You are in $CWD. Be helpful."\n'
+            'agent_tools: []\n'
+        )
+        (tmp_path / "config.yaml").write_text(yaml_content)
+        
+        os.chdir(tmp_path)
+        try:
+            agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
+            # $CWD is replaced with the absolute path.
+            assert str(tmp_path.resolve()) in agent_type.system_prompt
+            # No legacy cwd-name footer because template variables were used.
+            assert "Current working directory name:" not in agent_type.system_prompt
+        finally:
+            os.chdir("/workspaces/harness")
+
+    def test_builds_system_prompt_with_skills_variable(self, tmp_path):
+        """Should substitute $SKILLS with one-line-per-skill catalog."""
+        from agent import AgentType
+        
+        yaml_content = (
+            'model_name: "test"\n'
+            'system_prompt: "Available skills:\n${SKILLS}"\n'
+            'agent_tools: []\n'
+        )
+        (tmp_path / "config.yaml").write_text(yaml_content)
+        
+        os.chdir(tmp_path)
+        try:
+            agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
+            # With no skills discovered, $SKILLS is replaced with an empty string.
+            assert "Available skills:" in agent_type.system_prompt
+            assert "Current working directory name:" not in agent_type.system_prompt
+        finally:
+            os.chdir("/workspaces/harness")
+
+    def test_builds_system_prompt_with_agents_variable(self, tmp_path):
+        """Should substitute $AGENTS with one-line-per-agent catalog."""
+        from agent import AgentType
+        
+        yaml_content = (
+            'model_name: "test"\n'
+            'system_prompt: "Sub-agents:\n${AGENTS}"\n'
+            'agent_tools: []\n'
+        )
+        (tmp_path / "config.yaml").write_text(yaml_content)
+        
+        os.chdir(tmp_path)
+        try:
+            agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
+            # $AGENTS is replaced; if no agents discovered, the section is empty.
+            assert "Sub-agents:" in agent_type.system_prompt
+        finally:
+            os.chdir("/workspaces/harness")
+
+    def test_builds_system_prompt_with_tools_variable(self, tmp_path):
+        """Should substitute $TOOLS with one-line-per-tool catalog."""
+        from agent import AgentType
+        
+        yaml_content = (
+            'model_name: "test"\n'
+            'system_prompt: "Tools:\n${TOOLS}"\n'
+            'agent_tools: []\n'
+        )
+        (tmp_path / "config.yaml").write_text(yaml_content)
+        
+        os.chdir(tmp_path)
+        try:
+            agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
+            # $TOOLS is replaced with the list of available tools.
+            assert "Tools:" in agent_type.system_prompt
+            # At least one tool description should appear (e.g., execute_bash).
+            assert "execute_bash" in agent_type.system_prompt or "Tool " in agent_type.system_prompt.lower()
+        finally:
+            os.chdir("/workspaces/harness")
+
+    def test_unknown_variable_left_intact(self, tmp_path):
+        """Should leave unknown $UNLIKELY_NAME placeholders untouched."""
+        from agent import AgentType
+        
+        yaml_content = (
+            'model_name: "test"\n'
+            'system_prompt: "Hello $UNKNOWN_PLACEHOLDER_42 world"\n'
+            'agent_tools: []\n'
+        )
+        (tmp_path / "config.yaml").write_text(yaml_content)
+        
+        os.chdir(tmp_path)
+        try:
+            agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
+            # Unknown placeholders are preserved literally so typos surface visibly.
+            assert "$UNKNOWN_PLACEHOLDER_42" in agent_type.system_prompt
+        finally:
+            os.chdir("/workspaces/harness")
+
+    def test_no_legacy_footer_when_template_used(self, tmp_path):
+        """When template variables are present, the legacy cwd-name footer is not appended."""
+        from agent import AgentType
+        
+        yaml_content = (
+            'model_name: "test"\n'
+            'system_prompt: "Working in $CWD with $TOOLS"\n'
+            'agent_tools: []\n'
+        )
+        (tmp_path / "config.yaml").write_text(yaml_content)
+        
+        os.chdir(tmp_path)
+        try:
+            agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
+            assert "Current working directory name:" not in agent_type.system_prompt
+            # But $CWD must have been substituted with the resolved path.
+            assert str(tmp_path.resolve()) in agent_type.system_prompt
+        finally:
+            os.chdir("/workspaces/harness")
+
 
 class TestFilterToolSchemas:
     """Tests for filter_tool_schemas() function."""
