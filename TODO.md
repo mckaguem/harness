@@ -26,7 +26,6 @@
 ## Infra
 
 - Separate agent specification from model specification.  Use a model profile type thing in between.
-- Providers other than Ollama (OpenAI compatible)
 - Async everything and multiple agents running concurrently
 
 ## UI

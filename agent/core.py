@@ -3,6 +3,7 @@
 import json
 import os
 from typing import Dict, Generator, List, Optional, TYPE_CHECKING
+from pprint import pprint
 
 if TYPE_CHECKING:
     from agent.task_list import TaskList
@@ -204,24 +205,17 @@ Execute the next logical step based on this state.
                 },
             }
 
-            # Translate tool_calls from OpenAI's ToolCall objects to dicts.
-            tc_list = message_obj.tool_calls
-            if tc_list:
-                resp_dict["message"]["tool_calls"] = []
-                for tc in tc_list:
-                    args_val = tc.function.arguments
-                    try:
-                        parsed_args = json.loads(args_val) if isinstance(args_val, str) else (args_val or {})
-                    except Exception:
-                        parsed_args = args_val or {}
-                    resp_dict["message"]["tool_calls"].append({
+            if message_obj.tool_calls:
+                resp_dict["message"]["tool_calls"] = [
+                    {
                         "id": tc.id,
                         "type": tc.type,
                         "function": {
                             "name": tc.function.name,
-                            "arguments": parsed_args,
-                        },
-                    })
+                            "arguments": tc.function.arguments
+                        }
+                    } for tc in message_obj.tool_calls 
+                ] 
 
             return resp_dict
         else:
@@ -290,7 +284,7 @@ or update their status to 'failed' before stopping.
             
             for tool_call in message["tool_calls"]:
                 func_name = tool_call["function"]["name"]
-                args = tool_call["function"]["arguments"]
+                args = json.loads(tool_call["function"]["arguments"])
                 
                 # Termination circuit breaker (Component 4): block submit_results if tasks remain.
                 if func_name == "submit_results" and self._task_list and self._task_list.has_incomplete_tasks():
