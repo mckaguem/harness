@@ -7,7 +7,7 @@ from typing import Dict, Generator, List, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from agent.task_list import TaskList
 
-import ollama
+from openai import OpenAI
 
 from agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from agent.context import CURRENT_AGENT
@@ -18,7 +18,7 @@ class Agent:
     
     def __init__(self, 
                  agent_type: "AgentType", 
-                 ollama_client: "ollama.Client", 
+                 openai_client: "OpenAI",
                  context_length: int,
                  tool_schemas: Optional[List[Dict]] = None,
                  extra_tools: Optional[List[Dict]] = None):
@@ -26,7 +26,7 @@ class Agent:
         
         Args:
             agent_type: The agent definition (model, system prompt, tools).
-            ollama_client: An initialized Ollama client.
+            openai_client: An initialized OpenAI client.
             context_length: Model's context window size.
             tool_schemas: All available tool schema dicts. If provided, the 
                          agent will only expose the schemas whose names are in 
@@ -37,18 +37,18 @@ class Agent:
                          in sub-agent sessions) without modifying agent YAML files.
         """
         self._agent_type = agent_type
-        self._client = ollama_client
+        self._client = openai_client
         self._context_length = context_length
         
-        # Resolve Ollama host, stripping trailing /v1 if present (OpenAI-compatible URLs).
-        raw_host = getattr(ollama_client, "host", None) or os.environ.get(
-            "OLLAMA_HOST",
-            os.environ.get("OPENAI_BASE_URL", "http://localhost:11435"),
+        # Resolve base URL, stripping trailing /v1 if present (OpenAI-compatible URLs).
+        raw_host = getattr(openai_client, "base_url", None) or os.environ.get(
+            "OPENAI_BASE_URL",
+            os.environ.get("OLLAMA_HOST", "http://qut-l1953034068.qut.edu.au:11434"),
         )
-        self._ollama_host = (
-            raw_host[:-len("/v1")]
-            if raw_host.rstrip("/").endswith("/v1")
-            else raw_host
+        self._base_url = (
+            raw_host.rstrip("/").rstrip("/v1")
+            if str(raw_host).rstrip("/").endswith("/v1")
+            else str(raw_host).rstrip("/")
         )
         # Filter tool schemas based on AgentType.
         from agent.utils import filter_tool_schemas
@@ -87,12 +87,12 @@ class Agent:
 
     @property
     def ollama_host(self) -> str:
-        """Public accessor for the resolved Ollama host."""
-        return self._ollama_host
+        """Public accessor for the resolved base URL (kept for backward compatibility)."""
+        return self._base_url
 
     @property
     def client(self):
-        """Public accessor for the Ollama client instance."""
+        """Public accessor for the OpenAI client instance (kept for backward compatibility)."""
         return self._client
 
     @property
@@ -119,7 +119,7 @@ class Agent:
     def _inject_task_state(self, messages: list[dict]) -> list[dict]:
         """Inject task state into the last user message without modifying system prompt.
         
-        This method preserves Ollama's prefix cache by keeping messages[0] (system)
+        This method preserves cache-friendly context injection by keeping messages[0] (system)
         completely static. It intercepts the very last message in the array (which
         should be the latest user turn) and wraps its content with formatted task
         state markdown using explicit structural delimiters.
@@ -164,28 +164,71 @@ Execute the next logical step based on this state.
         }
         
         return modified_messages
-
+    
     def _chat(self, messages: list[dict]) -> dict:
-        """Send *messages* to the Ollama client and return the full response.
+        """Send *messages* to the OpenAI client and return a normalized response dict.
 
-        This is the single point for building the request payload (model,
-        tools, context length) so callers don't have to repeat it. Returns
-        the complete response object so callers can access both ``content``
-        and any metadata (e.g., ``tool_calls``, token counts).
+        Normalizes both legacy Ollama-style dicts and OpenAI ChatCompletion objects so that
+        callers can consistently do::
 
-        Args:
-            messages: The full conversation history to send.
-
-        Returns:
-            The full chat response dictionary from Ollama, including the
-            ``message`` key with ``content`` and optional ``tool_calls``.
+            resp = self._chat(messages)
+            message = resp["message"]  # has .content, .tool_calls
+            usage = resp.get("usage")   # has prompt_tokens, etc.
         """
-        return self._client.chat(
-            model=self._agent_type.model_name,
-            messages=messages,
-            tools=self._tools if self._tools else None,
-            options={"num_ctx": self._context_length},
-        )
+        if isinstance(self._client, OpenAI):
+            kwargs: dict = {
+                "model": self._agent_type.model_name,
+                "messages": messages,
+                "tools": self._tools if self._tools else None,
+            }
+
+            try:
+                completion = self._client.chat.completions.create(**{k: v for k, v in kwargs.items() if v is not None})
+            except Exception as exc:
+                raise RuntimeError(f"OpenAI chat request failed: {exc}") from exc
+
+            choice = completion.choices[0]
+            message_obj = choice.message  # ChatCompletionMessage with .content and .tool_calls
+
+            # Build a dict that mirrors Ollama's shape so callers don't need changes.
+            resp_dict: dict = {
+                "message": {
+                    "role": message_obj.role or "assistant",
+                    "content": message_obj.content,
+                },
+                "model": completion.model,
+                "usage": {
+                    "prompt_tokens": (completion.usage.prompt_tokens if completion.usage else None),
+                    "completion_tokens": (completion.usage.completion_tokens if completion.usage else None),
+                    "total_tokens": (completion.usage.total_tokens if completion.usage else None),
+                },
+            }
+
+            # Translate tool_calls from OpenAI's ToolCall objects to dicts.
+            tc_list = message_obj.tool_calls
+            if tc_list:
+                resp_dict["message"]["tool_calls"] = []
+                for tc in tc_list:
+                    args_val = tc.function.arguments
+                    try:
+                        parsed_args = json.loads(args_val) if isinstance(args_val, str) else (args_val or {})
+                    except Exception:
+                        parsed_args = args_val or {}
+                    resp_dict["message"]["tool_calls"].append({
+                        "id": tc.id,
+                        "type": tc.type,
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": parsed_args,
+                        },
+                    })
+
+            return resp_dict
+        else:
+            # Legacy Ollama fallback.
+            raise NotImplementedError(
+                "Only OpenAI clients are supported in this build."
+            )
     
     # -- public API ----------------------------------------------------------
     
@@ -199,7 +242,7 @@ Execute the next logical step based on this state.
         
         Yields::
         
-            (RESPONSE,         content, ollama_response)
+            (RESPONSE,         content, openai_response)
             (TOOL_CALL,        func_name, args_str)
             (TOOL_RESULT,      func_name, result)
             (ERROR,            description)
@@ -219,7 +262,7 @@ Execute the next logical step based on this state.
                 yield (ERROR, f"Maximum loop count ({self._max_loops}) exceeded. Breaking out of handle_prompt.")
                 break
             
-            # Apply cache-friendly context injection before sending to Ollama (Component 3)
+            # Apply cache-friendly context injection before sending to the LLM
             messages_to_send = self._inject_task_state(self.messages)
             
             # Use the centralized chat method to avoid duplicate request construction
@@ -334,7 +377,7 @@ or update their status to 'failed' before stopping.
                 "No sub-agent name provided and no current agent in context. "
                 "Pass sub_name or call run_subagent from within a handle_prompt loop."
             )
-        client = ollama.Client(host=parent_agent._ollama_host)
+        client = OpenAI(base_url=parent_agent._base_url, api_key=os.environ.get("OPENAI_API_KEY", ""))
         context_length = parent_agent._context_length
 
         if tool_schemas is None:
@@ -343,7 +386,7 @@ or update their status to 'failed' before stopping.
 
         return cls(
             agent_type=agent_type,
-            ollama_client=client,
+            openai_client=client,
             context_length=context_length,
             tool_schemas=tool_schemas,
             extra_tools=extra_tools,

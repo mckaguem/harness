@@ -27,7 +27,7 @@ def submit_results(json_payload: str) -> ToolResult:
 
     Args:
         json_payload: A single, valid JSON object (stringified — as passed by
-                      Ollama's function-calling parser).  The object must
+                      function-calling parser).  The object must
                       conform to the schema documented in this module docstring.
 
     Returns:

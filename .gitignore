@@ -5,3 +5,4 @@ __pypackages__/
 .pytest_cache
 session.txt
 .harness_py
+.env

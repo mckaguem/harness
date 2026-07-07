@@ -3,7 +3,7 @@
 import os
 import sys
 from pathlib import Path
-import ollama
+from openai import OpenAI
 
 from terminal_io import (
     print_system, prompt_user,
@@ -44,15 +44,15 @@ def check_command_skill_collision() -> list[str]:
 
 
 def main():
-    ollama_host = os.environ.get(
-        "OLLAMA_HOST",
-        os.environ.get("OPENAI_BASE_URL", "http://localhost:11435"),
+    openai_base_url = os.environ.get(
+        "OPENAI_BASE_URL",
+        os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
     )
-    # strip trailing /v1 if the user passed an OpenAI-format URL — Ollama client needs bare base
-    if ollama_host.rstrip("/").endswith("/v1"):
-        ollama_host = ollama_host[: -len("/v1")]
+    # strip trailing /v1 if the user passed an OpenAI-format URL
+    base_url = openai_base_url.rstrip("/").rstrip("/v1")
+    api_key = os.environ.get("OPENAI_API_KEY", "")
 
-    ollama_client = ollama.Client(host=ollama_host)
+    client = OpenAI(base_url=base_url, api_key=api_key)
     context_length = 2**17
 
     # ------------------------------------------------------------------
@@ -110,12 +110,12 @@ def main():
     
     agent = Agent(
         agent_type=agent_type,
-        ollama_client=ollama_client,
+        openai_client=client,
         context_length=context_length,
         tool_schemas=AGENT_TOOLS,  # pass all schemas so filter_tool_schemas can work
     )
 
-    user_loop(agent, ollama_client)
+    user_loop(agent, client)
 
 
 if __name__ == "__main__":

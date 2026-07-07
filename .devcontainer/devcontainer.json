@@ -6,18 +6,13 @@
   },
   "postCreateCommand": "uv sync --locked",
   
-  // Safeguard: Automatically forwards your local API keys into the container 
-  // without hardcoding them into your repository's files.
-  "containerEnv": {
-    "OLLAMA_HOST": "http://qut-l1953034068.qut.edu.au:11434/v1"
-  },
-
   // Networking: Allows Nanocoder inside the container to talk to an Ollama 
   // instance running locally on your host machine via 'host.docker.internal'
   "runArgs": [
     "--add-host=host.docker.internal:host-gateway",
     "--network=host",
     "--dns=131.181.127.32",
+    "--env-file=.env"
   ],
 
   "customizations": {
@@ -25,6 +20,8 @@
       "extensions": ["ms-python.python"]
     }
   },
+  
+  "initializeCommand": "touch ${localWorkspaceFolder}/.env",
 
   // Run as the non-root 'node' user built into the base image for better safety
   "remoteUser": "vscode",

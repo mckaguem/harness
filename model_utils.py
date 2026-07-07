@@ -1,4 +1,4 @@
-"""Ollama model utilities — base URL resolution, tokenization, context length."""
+"""Model utilities — base URL resolution, tokenization, context length."""
 
 
 import os
@@ -7,26 +7,24 @@ import json
 import urllib.request
 
 
-def get_base_url(ollama_client) -> str:
-    """Return the Ollama base URL as a plain string, if we can find it.
+def get_base_url(openai_client) -> str:
+    """Return the OpenAI base URL as a plain string, if we can find it.
 
-    The ollama-python ``Client`` wraps an httpx client in ``._client`` whose
-    ``base_url`` attribute is a ``httpx.URL`` (or possibly a plain str). We
-    stringify whatever we get; if that fails entirely we fall back to the
-    conventional default.
+    The openai-python ``Client`` stores its `base_url` directly on the instance.
+    If that fails, fall back to environment variables or default endpoint.
     """
     try:
-        url = getattr(getattr(ollama_client, "_client", None), "base_url", None)
+        url = getattr(openai_client, "base_url", None)
         return str(url).rstrip("/")
     except Exception:
         pass
 
     # Last resort — read from env or use the well-known default.
-    return os.environ.get("OLLAMA_HOST", "http://localhost:11435").rstrip("/")
+    return os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 
 
-def tokenize_prompt(ollama_client, messages: list[dict], model_name: str) -> int | None:
-    """Ask Ollama to tokenize the accumulated *messages* and return the count.
+def tokenize_prompt(openai_client, messages: list[dict], model_name: str) -> int | None:
+    """Ask OpenAI-compatible API to tokenize the accumulated *messages* and return the count.
 
     Used as a client-side source of truth for prompt token count — useful when
     caching causes ``prompt_eval_count`` to be zero in chat responses.
@@ -34,7 +32,7 @@ def tokenize_prompt(ollama_client, messages: list[dict], model_name: str) -> int
     Returns ``None`` on any failure (network, model load, etc.) so callers can
     fall back gracefully.
     """
-    base_url = get_base_url(ollama_client)
+    base_url = get_base_url(openai_client)
     payload = {
         "model":  model_name,
         "prompt": "\n".join(m.get("content", "") for m in messages if m.get("content")),
@@ -55,7 +53,7 @@ def tokenize_prompt(ollama_client, messages: list[dict], model_name: str) -> int
 
 
 def get_context_length(client, model_name: str) -> int:
-    """Fetch the model's context length from Ollama's show endpoint.
+    """Fetch the model's context length from OpenAI-compatible show endpoint.
 
     Tries multiple sources in order of reliability:
     1. Direct ``context_length`` key in model_info (top-level)
@@ -65,7 +63,7 @@ def get_context_length(client, model_name: str) -> int:
     4. Fall back to 8192 if nothing found — most modern models support at least this
 
     The fallback ensures the context percentage is always displayed in the UI,
-    even when Ollama's show endpoint doesn't expose a clean value (common with
+    even when the OpenAI-compatible show endpoint doesn't expose a clean value (common with
     some GGUF repos or older model cards).
     """
     try:

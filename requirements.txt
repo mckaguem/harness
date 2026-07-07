@@ -1,4 +1,4 @@
-ollama
 prompt_toolkit
 pyyaml
 rich
+openai

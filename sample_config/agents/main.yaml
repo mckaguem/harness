@@ -1,6 +1,6 @@
 name: "main"
 description: "The Main Orchestrator Agent with full autonomy and sub-agent delegation."
-model_name: "hf.co/deepreinforce-ai/Ornith-1.0-35B-GGUF:Q8_0"
+model_name: "ollama_chat/hf.co/deepreinforce-ai/Ornith-1.0-35B-GGUF:Q8_0"
 agent_tools: ["*"]
 system_prompt: |
   You are the Main Orchestrator Agent. You have full autonomy to solve complex problems, but you are also equipped with a `run_subagent` tool to delegate specific, bounded tasks to specialized sub-agents. 

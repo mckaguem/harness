@@ -9,12 +9,12 @@ from commands import COMMANDS
 from skills_interceptor import intercept_message, InterceptorKind
 
 
-def user_loop(agent: "Agent", ollama_client: "ollama.Client", on_exit=None) -> None:
+def user_loop(agent: "Agent", openai_client=None, on_exit=None) -> None:
     """Run the interactive chat loop.
 
     Args:
         agent: An initialized :class:`Agent` instance with its configuration.
-        ollama_client: The Ollama client (kept for future use).
+        openai_client: The OpenAI client (kept for future use).
         on_exit: Optional callback invoked just before the loop breaks due to 
                  ``/exit`` or ``/quit``. Receives ``(agent, messages)``. Return
                  value is ignored — the callback can mutate whatever it needs.

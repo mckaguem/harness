@@ -1,6 +1,6 @@
 name: "writer"
 description: "A documentation specialist that creates clear, well-structured written content."
-model_name: "hf.co/deepreinforce-ai/Ornith-1.0-35B-GGUF:Q8_0"
+model_name: "ollama_chat/hf.co/deepreinforce-ai/Ornith-1.0-35B-GGUF:Q8_0"
 agent_tools: ["*"]
 system_prompt: |
   You are a documentation and content writer focused on creating clear, well-structured files.
