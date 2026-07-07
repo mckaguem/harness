@@ -112,7 +112,26 @@ def run_subagent(sub_agent: str, task: str) -> ToolResult:
         A :class:`ToolResult`. On success this contains the parsed JSON payload
         from ``submit_results`` (the structured findings) or the final RESPONSE
         text. On failure it contains an error message with theme="error".
+
+    NOTE on CURRENT_AGENT context isolation:
+
+    Each :class:`Agent.__init__` calls ``CURRENT_AGENT.set(self)``, which means
+    spawning a sub-agent temporarily overwrites the parent's entry in this
+    module-level ``contextvars.ContextVar``.  If we don't restore it before
+    returning, any subsequent tool call inside the *parent's* handle_prompt loop
+    (such as ``update_task_status`` or ``initialize_task_list``) would look at
+    the sub-agent's empty task list and report "Task with ID X not found" —
+    even though the parent clearly has a task with that ID.
+
+    To prevent this, we save the parent's CURRENT_AGENT value before spawning
+    and restore it via a ``finally`` block that covers **every** possible exit
+    path (early returns inside the loop, exceptions during spawn, etc.).
     """
+    from agent.context import CURRENT_AGENT as _CURRENT_AGENT
+
+    # Save the parent's CURRENT_AGENT so we can restore it after spawning.
+    saved_agent = _CURRENT_AGENT.get()
+
     try:
         from agent import Agent, RESPONSE, TOOL_CALL  # noqa: F401 (explicit guards)
 
@@ -168,6 +187,13 @@ def run_subagent(sub_agent: str, task: str) -> ToolResult:
         return make_error_result(f"Error: {exc}")
     except Exception as exc:
         return make_error_result(f"Error running sub-agent '{sub_agent}': {exc}")
+    finally:
+        # Always restore the parent's CURRENT_AGENT, even on early returns
+        # (submit_results dispatch, parse errors), exceptions during spawn, or
+        # normal exit.  This prevents the bug where subsequent tool calls in the
+        # parent loop operate on the empty task list of the sub-agent because
+        # CURRENT_AGENT still points at it.
+        _CURRENT_AGENT.set(saved_agent)
 
 
 def _get_submit_results_def() -> Dict:
