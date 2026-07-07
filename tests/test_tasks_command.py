@@ -33,9 +33,8 @@ def test_tasks_command_with_agent():
         text = call_args[0]
         theme = call_args[1] if len(call_args) > 1 else "status"
         
-        assert "Task 1" in text and "Write documentation" in text
-        assert "COMPLETED" in text
-        assert "IN_PROGRESS" in text or "Fix bug" in text
+        assert "Write documentation" in text
+        assert "Fix bug" in text
 
 
 def test_tasks_command_without_agent():

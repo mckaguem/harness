@@ -12,6 +12,7 @@ from openai import OpenAI
 
 from agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from agent.context import CURRENT_AGENT
+from agent.session import Session
 
 
 class Agent:
@@ -42,16 +43,9 @@ class Agent:
         self._context_length = context_length
         
         # Resolve base URL, stripping trailing /v1 if present (OpenAI-compatible URLs).
-        raw_host = getattr(openai_client, "base_url", None) or os.environ.get(
-            "OPENAI_BASE_URL",
-            os.environ.get("OLLAMA_HOST", "http://qut-l1953034068.qut.edu.au:11434"),
-        )
-        self._base_url = raw_host
-        # (
-        #     raw_host.rstrip("/").rstrip("/v1")
-        #     if str(raw_host).rstrip("/").endswith("/v1")
-        #     else str(raw_host).rstrip("/")
-        # )
+        raw_host = getattr(openai_client, "base_url", None) or os.environ.get("OPENAI_BASE_URL", "")
+        self._base_url = str(raw_host).rstrip("/") if raw_host else ""
+
         # Filter tool schemas based on AgentType.
         from agent.utils import filter_tool_schemas
         if tool_schemas:
@@ -67,13 +61,14 @@ class Agent:
         from agent.executor import ToolExecutor
         self._executor = ToolExecutor(agent_type.name)
 
-        self.messages: list[dict] = [{"role": "system", "content": agent_type.system_prompt}]
-        self._injected_text: Optional[str] = None
-        
         # Cache-friendly task state management — all dynamic state is injected
         # at the tail end of messages, never touching messages[0].
         from agent.task_list import TaskList
         self._task_list: Optional[TaskList] = TaskList()
+
+        # Conversation state is now owned by the Session object.
+        self._session = Session(agent_type.system_prompt, self._task_list)
+
         self._max_loops: int = 30  # Safety ceiling to prevent infinite loops
 
         # Bind this instance as the current agent in the thread context so tools
@@ -86,11 +81,6 @@ class Agent:
     def task_list(self) -> "TaskList":
         """Public accessor for the agent's task list."""
         return self._task_list
-
-    @property
-    def ollama_host(self) -> str:
-        """Public accessor for the resolved base URL (kept for backward compatibility)."""
-        return self._base_url
 
     @property
     def client(self):
@@ -114,59 +104,10 @@ class Agent:
         Args:
             s: The string to inject. Leading/trailing whitespace is preserved.
         """
-        self._injected_text = f"<<INJECTED>>\n{s}\n<<END_INJECTED>>"
+        self._session.inject_text(s)
 
     # -- internal helpers ----------------------------------------------------
 
-    def _inject_task_state(self, messages: list[dict]) -> list[dict]:
-        """Inject task state into the last user message without modifying system prompt.
-        
-        This method preserves cache-friendly context injection by keeping messages[0] (system)
-        completely static. It intercepts the very last message in the array (which
-        should be the latest user turn) and wraps its content with formatted task
-        state markdown using explicit structural delimiters.
-        
-        Args:
-            messages: The conversation history to modify.
-            
-        Returns:
-            A new list of messages with task state injected into the last user message.
-        """
-        if not self._task_list or len(messages) < 2:
-            return messages
-        
-        # Create a copy to avoid mutating the original
-        modified_messages = messages.copy()
-        
-        # Find the last user message (index -1 should be the latest user turn)
-        last_msg_idx = len(modified_messages) - 1
-        if modified_messages[last_msg_idx]["role"] != "user":
-            return messages  # Don't modify non-user messages
-        
-        # Get original content and task state markdown
-        original_content = modified_messages[last_msg_idx]["content"]
-        task_state_md = self._task_list.to_markdown()
-        
-        # Wrap with explicit structural delimiters
-        wrapped_content = f"""
-[SYSTEM STATE]
-The current state of your task execution list is:
-{task_state_md}
-
-Execute the next logical step based on this state.
-
-[USER NEW INSTRUCTION]
-{original_content}
-"""
-        
-        # Update only the content, preserving role and other metadata
-        modified_messages[last_msg_idx] = {
-            **modified_messages[last_msg_idx],
-            "content": wrapped_content
-        }
-        
-        return modified_messages
-    
     def _chat(self, messages: list[dict]) -> dict:
         """Send *messages* to the OpenAI client and return a normalized response dict.
 
@@ -177,7 +118,7 @@ Execute the next logical step based on this state.
             message = resp["message"]  # has .content, .tool_calls
             usage = resp.get("usage")   # has prompt_tokens, etc.
         """
-        if isinstance(self._client, OpenAI):
+        if hasattr(self._client, 'chat') and hasattr(self._client.chat, 'completions'):
             kwargs: dict = {
                 "model": self._agent_type.model_name,
                 "messages": messages,
@@ -242,38 +183,44 @@ Execute the next logical step based on this state.
             (TOOL_RESULT,      func_name, result)
             (ERROR,            description)
         """
-        # Prepend any injected text to the user input, then clear the queue.
+        # 1. Prepend any injected text to the user input, then clear queue
         effective_input = user_input
-        if self._injected_text is not None:
-            effective_input = f"{self._injected_text}\n\n{user_input}"
-            self._injected_text = None
+        if self._session._injected_text is not None:
+            effective_input = f"{self._session._injected_text}\n\n{user_input}"
+            self._session._injected_text = None
 
-        self.messages.append({"role": "user", "content": effective_input})
+        # 2. Build message dict and prepare it (inject task state BEFORE adding to list)
+        user_msg_dict = {"role": "user", "content": effective_input}
+        prepared = self._session.prepare_message_for_injection(user_msg_dict)
+        self._session.add_user_message(prepared["content"])
         
+        # 3. Loop as before, but use session methods instead of self.messages.append() etc.
         loop_count = 0
         while True:
-            # Safety ceiling to prevent infinite loops (Component 4)
             if loop_count >= self._max_loops:
                 yield (ERROR, f"Maximum loop count ({self._max_loops}) exceeded. Breaking out of handle_prompt.")
                 break
             
-            # Apply cache-friendly context injection before sending to the LLM
-            messages_to_send = self._inject_task_state(self.messages)
-            
-            # Use the centralized chat method to avoid duplicate request construction
+            messages_to_send = self._session.get_messages()
             response = self._chat(messages_to_send)
             
             message = response["message"]
-            self.messages.append(message)
+            self._session.add_assistant_message(message)
             
             if not message.get("tool_calls"):
                 if self._task_list and self._task_list.has_incomplete_tasks():
-                    self.messages.append({"role": "user", "content": """
+                    block_content = """
 [SYSTEM ERROR] Execution termination blocked.
 You still have incomplete tasks in your tasks list.
 You must finish them and update their status to 'complete',
 or update their status to 'failed' before stopping.
-"""})
+"""
+
+                    # Wrap with prepare_message_for_injection to match old behavior
+                    block_dict = {"role": "user", "content": block_content}
+                    prepared_block = self._session.prepare_message_for_injection(block_dict)
+                    self._session.add_user_message(prepared_block["content"])
+                    
                     print("incomplete tasks!")
                                      
                     continue
@@ -291,7 +238,10 @@ or update their status to 'failed' before stopping.
                 if func_name == "submit_results" and self._task_list and self._task_list.has_incomplete_tasks():
                     block_info = self._executor.make_submit_results_block(True)
                     if block_info:
-                        self.messages.append({"role": block_info["role"], "content": block_info["content"]})
+                        # This is a user-role message from the executor — also wrap with prepare_message_for_injection
+                        inner_block_dict = {"role": "user", "content": block_info["content"]}
+                        prepared_inner = self._session.prepare_message_for_injection(inner_block_dict)
+                        self._session.add_user_message(prepared_inner["content"])
                         yield (TOOL_RESULT, func_name, block_info["result"])
                         loop_count += 1
                         continue
@@ -319,11 +269,8 @@ or update their status to 'failed' before stopping.
                     return_result = self._executor.make_error_result(func_name, description)
                     yield (ERROR, description)
                 
-                self.messages.append({
-                    "role": "tool",
-                    "content": return_result.llm_text,
-                    "name": func_name,
-                })
+                # Use session.add_tool_result instead of self.messages.append({"role":"tool",...})
+                self._session.add_tool_result(func_name, return_result.llm_text)
                 yield (TOOL_RESULT, func_name, return_result)
 
     @classmethod
@@ -339,13 +286,13 @@ or update their status to 'failed' before stopping.
         The sub-agent is looked up via :func:`agent.discovery.get_agent_yaml`, which
         searches project and global config paths (``cwd/.harness_py/agents/`` then
         ``~/.harness_py/agents/``, with project taking precedence). It inherits the parent's
-        Ollama host and context length, gets an augmented system prompt (cwd listing +
+        base URL and context length, gets an augmented system prompt (cwd listing +
         AGENTS.md) from :meth:`AgentType._build_system_prompt`, and has its tool schemas
         filtered by its own ``agent_tools``.
 
         Args:
             sub_name: The YAML file stem (e.g. ``"analyst"`` from ``/sub analyst``).
-            parent_agent: The calling agent — used for the Ollama host and context length.
+            parent_agent: The calling agent — used for the base URL and context length.
             tool_schemas: All available tool schemas passed through to :meth:`filter_tool_schemas`.
                           If ``None``, defaults to all tools (equivalent to ``["*"]``).
             extra_tools: Additional function_def dicts added after filtering. Useful for
@@ -370,7 +317,7 @@ or update their status to 'failed' before stopping.
         # so no extra work is needed here.
         agent_type = AgentType.from_file(str(yaml_path_str))
 
-        # Reuse the parent's Ollama client host and context window.
+        # Reuse the parent's client host and context window.
         if parent_agent is None:
             from agent.context import CURRENT_AGENT
             parent_agent = CURRENT_AGENT.get()
@@ -412,7 +359,7 @@ or update their status to 'failed' before stopping.
         """
         
         transcript_lines = []
-        for msg in self.messages:
+        for msg in self._session.get_messages():
             if msg['role'] == 'system':
                 continue
             elif msg['role'] == 'tool':

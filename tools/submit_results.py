@@ -37,6 +37,8 @@ def submit_results(json_payload: str) -> ToolResult:
     """
     import json as _json
 
+    required_keys = ("summary_of_actions", "actionable_data", "unresolved_issues")
+
     try:
         data = _json.loads(json_payload)
     except Exception as exc:

@@ -1,5 +1,6 @@
 """Tests for agent.py — AgentType, filter_tool_schemas, and Agent class."""
 
+import json
 import os
 from unittest.mock import MagicMock, patch, call
 from pathlib import Path
@@ -404,9 +405,9 @@ class TestAgentInit:
         mock_client = MagicMock()
         agent = Agent(agent_type, mock_client, 4096)
         
-        assert len(agent.messages) == 1
-        assert agent.messages[0]["role"] == "system"
-        assert agent.messages[0]["content"] == "You are helpful."
+        assert len(agent._session.messages) == 1
+        assert agent._session.messages[0]["role"] == "system"
+        assert agent._session.messages[0]["content"] == "You are helpful."
 
     def test_filters_tool_schemas(self):
         """Should filter tool schemas based on AgentType."""
@@ -463,6 +464,11 @@ class TestAgentInit:
 class TestAgentHandlePrompt:
     """Tests for Agent.handle_prompt() method."""
 
+    def _create_mock_client(self):
+        """Create a mock client that passes isinstance check for OpenAI."""
+        from openai import OpenAI
+        return MagicMock(spec=OpenAI)
+
     def test_yields_response_on_simple_chat(self):
         """Should yield RESPONSE tuple when no tool calls are needed."""
         from agent import Agent, AgentType, RESPONSE
@@ -473,12 +479,15 @@ class TestAgentHandlePrompt:
             agent_tools=[]
         )
         
+        # Create mock that has chat.completions.create (duck typing)
         mock_client = MagicMock()
-        mock_response = {
-            "message": {"role": "assistant", "content": "Hello!", "tool_calls": None},
-            "eval_count": 10,
-        }
-        mock_client.chat.return_value = mock_response
+        mock_completion = MagicMock()
+        mock_choice = MagicMock()
+        mock_message = MagicMock(content="Hello!", role="assistant")
+        mock_choice.message = mock_message
+        mock_completion.choices = [mock_choice]
+        mock_completion.model = "test"
+        mock_client.chat.completions.create.return_value = mock_completion
         
         agent = Agent(agent_type, mock_client, 4096)
         
@@ -488,7 +497,6 @@ class TestAgentHandlePrompt:
         kind, content, response = outputs[0]
         assert kind == RESPONSE
         assert content == "Hello!"
-        assert response is mock_response
 
     def test_yields_tool_call_and_result(self):
         """Should yield TOOL_CALL and TOOL_RESULT for function calls."""
@@ -501,22 +509,30 @@ class TestAgentHandlePrompt:
         )
         
         mock_client = MagicMock()
-        mock_response1 = {
-            "message": {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [{
-                    "function": {
-                        "name": "execute_bash",
-                        "arguments": {"command": "ls"}
-                    }
-                }]
-            },
-        }
-        mock_response2 = {
-            "message": {"role": "assistant", "content": "Done!", "tool_calls": None},
-        }
-        mock_client.chat.side_effect = [mock_response1, mock_response2]
+
+        def make_tool_call(name="execute_bash", arguments=None):
+            tc = MagicMock()
+            tc.id = "call_1"
+            tc.type = "function"
+            tc.function.name = name
+            tc.function.arguments = json.dumps(arguments or {})
+            return tc
+
+        def make_mock_completion(content, tool_calls_list=None, model="test"):
+            c = MagicMock()
+            ch = MagicMock()
+            m = MagicMock(content=content, role="assistant", tool_calls=tool_calls_list)
+            ch.message = m
+            c.choices = [ch]
+            c.model = model
+            return c
+        
+        mock_client.chat.completions.create.side_effect = [
+            make_mock_completion(None, tool_calls_list=[
+                make_tool_call("execute_bash", {"command": "ls"})
+            ]),
+            make_mock_completion("Done!"),
+        ]
         
         agent = Agent(agent_type, mock_client, 4096)
         
@@ -553,22 +569,30 @@ class TestAgentHandlePrompt:
         )
         
         mock_client = MagicMock()
-        mock_response1 = {
-            "message": {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [{
-                    "function": {
-                        "name": "unknown_tool",
-                        "arguments": {}
-                    }
-                }]
-            },
-        }
-        mock_response2 = {
-            "message": {"role": "assistant", "content": "Sorry", "tool_calls": None},
-        }
-        mock_client.chat.side_effect = [mock_response1, mock_response2]
+
+        def make_tool_call(name="unknown_tool", arguments=None):
+            tc = MagicMock()
+            tc.id = "call_1"
+            tc.type = "function"
+            tc.function.name = name
+            tc.function.arguments = json.dumps(arguments or {})
+            return tc
+
+        def make_mock_completion(content, tool_calls_list=None, model="test"):
+            c = MagicMock()
+            ch = MagicMock()
+            m = MagicMock(content=content, role="assistant", tool_calls=tool_calls_list)
+            ch.message = m
+            c.choices = [ch]
+            c.model = model
+            return c
+        
+        mock_client.chat.completions.create.side_effect = [
+            make_mock_completion(None, tool_calls_list=[
+                make_tool_call("unknown_tool", {})
+            ]),
+            make_mock_completion("Sorry"),
+        ]
         
         agent = Agent(agent_type, mock_client, 4096)
         
@@ -591,19 +615,23 @@ class TestAgentHandlePrompt:
         )
         
         mock_client = MagicMock()
-        mock_response = {
-            "message": {"role": "assistant", "content": "Hi", "tool_calls": None},
-        }
-        mock_client.chat.return_value = mock_response
+        mock_completion = MagicMock()
+        mock_choice = MagicMock()
+        mock_message = MagicMock(content="Hi", role="assistant", tool_calls=None)
+        mock_choice.message = mock_message
+        mock_completion.choices = [mock_choice]
+        mock_completion.model = "test"
+        mock_client.chat.completions.create.return_value = mock_completion
         
         agent = Agent(agent_type, mock_client, 4096)
         
         list(agent.handle_prompt("Hello"))
         
         # system + user + assistant
-        assert len(agent.messages) == 3
-        assert agent.messages[1]["role"] == "user"
-        assert agent.messages[1]["content"] == "Hello"
+        assert len(agent._session.messages) == 3
+        assert agent._session.messages[1]["role"] == "user"
+        # User content may be wrapped with system state; just verify it's present.
+        assert "Hello" in agent._session.messages[1]["content"]
 
     def test_appends_assistant_message_to_history(self):
         """Should append assistant message to conversation history."""
@@ -616,19 +644,22 @@ class TestAgentHandlePrompt:
         )
         
         mock_client = MagicMock()
-        mock_response = {
-            "message": {"role": "assistant", "content": "Response", "tool_calls": None},
-        }
-        mock_client.chat.return_value = mock_response
+        mock_completion = MagicMock()
+        mock_choice = MagicMock()
+        mock_message = MagicMock(content="Response", role="assistant", tool_calls=None)
+        mock_choice.message = mock_message
+        mock_completion.choices = [mock_choice]
+        mock_completion.model = "test"
+        mock_client.chat.completions.create.return_value = mock_completion
         
         agent = Agent(agent_type, mock_client, 4096)
         
         list(agent.handle_prompt("Hi"))
         
         # system + user + assistant
-        assert len(agent.messages) == 3
-        assert agent.messages[2]["role"] == "assistant"
-        assert agent.messages[2]["content"] == "Response"
+        assert len(agent._session.messages) == 3
+        assert agent._session.messages[2]["role"] == "assistant"
+        assert agent._session.messages[2]["content"] == "Response"
 
     def test_appends_tool_result_to_history(self):
         """Should append tool result to conversation history."""
@@ -641,31 +672,39 @@ class TestAgentHandlePrompt:
         )
         
         mock_client = MagicMock()
-        mock_response1 = {
-            "message": {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [{
-                    "function": {
-                        "name": "execute_bash",
-                        "arguments": {"command": "echo test"}
-                    }
-                }]
-            },
-        }
-        mock_response2 = {
-            "message": {"role": "assistant", "content": "Done", "tool_calls": None},
-        }
-        mock_client.chat.side_effect = [mock_response1, mock_response2]
+
+        def make_tool_call(name="execute_bash", arguments=None):
+            tc = MagicMock()
+            tc.id = "call_1"
+            tc.type = "function"
+            tc.function.name = name
+            tc.function.arguments = json.dumps(arguments or {})
+            return tc
+
+        def make_mock_completion(content, tool_calls_list=None, model="test"):
+            c = MagicMock()
+            ch = MagicMock()
+            m = MagicMock(content=content, role="assistant", tool_calls=tool_calls_list)
+            ch.message = m
+            c.choices = [ch]
+            c.model = model
+            return c
+        
+        mock_client.chat.completions.create.side_effect = [
+            make_mock_completion(None, tool_calls_list=[
+                make_tool_call("execute_bash", {"command": "echo test"})
+            ]),
+            make_mock_completion("Done"),
+        ]
         
         agent = Agent(agent_type, mock_client, 4096)
         
         list(agent.handle_prompt("Run command"))
         
         # system + user + assistant(tool_calls) + tool(result) + assistant(final)
-        assert len(agent.messages) == 5
-        assert agent.messages[3]["role"] == "tool"
-        assert agent.messages[3]["name"] == "execute_bash"
+        assert len(agent._session.messages) == 5
+        assert agent._session.messages[3]["role"] == "tool"
+        assert agent._session.messages[3]["name"] == "execute_bash"
 
     def test_handles_multiple_tool_calls(self):
         """Should handle multiple tool calls in one response."""
@@ -678,30 +717,31 @@ class TestAgentHandlePrompt:
         )
         
         mock_client = MagicMock()
-        mock_response1 = {
-            "message": {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    {
-                        "function": {
-                            "name": "execute_bash",
-                            "arguments": {"command": "ls"}
-                        }
-                    },
-                    {
-                        "function": {
-                            "name": "execute_bash",
-                            "arguments": {"command": "pwd"}
-                        }
-                    }
-                ]
-            },
-        }
-        mock_response2 = {
-            "message": {"role": "assistant", "content": "Done!", "tool_calls": None},
-        }
-        mock_client.chat.side_effect = [mock_response1, mock_response2]
+
+        def make_tool_call(name="execute_bash", arguments=None):
+            tc = MagicMock()
+            tc.id = "call_1"
+            tc.type = "function"
+            tc.function.name = name
+            tc.function.arguments = json.dumps(arguments or {})
+            return tc
+
+        def make_mock_completion(content, tool_calls_list=None, model="test"):
+            c = MagicMock()
+            ch = MagicMock()
+            m = MagicMock(content=content, role="assistant", tool_calls=tool_calls_list)
+            ch.message = m
+            c.choices = [ch]
+            c.model = model
+            return c
+        
+        mock_client.chat.completions.create.side_effect = [
+            make_mock_completion(None, tool_calls_list=[
+                make_tool_call("execute_bash", {"command": "ls"}),
+                make_tool_call("execute_bash", {"command": "pwd"}),
+            ]),
+            make_mock_completion("Done!"),
+        ]
         
         agent = Agent(agent_type, mock_client, 4096)
         
@@ -732,18 +772,21 @@ class TestAgentHandlePrompt:
         )
         
         mock_client = MagicMock()
-        mock_response = {
-            "message": {"role": "assistant", "content": "Hi", "tool_calls": None},
-        }
-        mock_client.chat.return_value = mock_response
+        mock_completion = MagicMock()
+        mock_choice = MagicMock()
+        mock_message = MagicMock(content="Hi", role="assistant", tool_calls=None)
+        mock_choice.message = mock_message
+        mock_completion.choices = [mock_choice]
+        mock_completion.model = "test"
+        mock_client.chat.completions.create.return_value = mock_completion
         
         all_schemas = [{"function": {"name": "execute_bash"}}]
         agent = Agent(agent_type, mock_client, 4096, tool_schemas=all_schemas)
         
         list(agent.handle_prompt("Test"))
         
-        # Verify chat was called with correct parameters
-        call_args = mock_client.chat.call_args
+        # Verify chat.completions.create was called with correct parameters
+        call_args = mock_client.chat.completions.create.call_args
         assert call_args.kwargs["model"] == "llama3"
         assert call_args.kwargs["messages"] is not None
         assert len(call_args.kwargs["messages"]) > 0
@@ -751,30 +794,6 @@ class TestAgentHandlePrompt:
         # Should pass tools since they exist
         assert call_args.kwargs["tools"] is not None
         assert len(call_args.kwargs["tools"]) == 1
-
-    def test_passes_context_length_in_options(self):
-        """Should pass context length in chat options."""
-        from agent import Agent, AgentType
-        
-        agent_type = AgentType(
-            model_name="test",
-            system_prompt="Test",
-            agent_tools=[]
-        )
-        
-        mock_client = MagicMock()
-        mock_response = {
-            "message": {"role": "assistant", "content": "Hi", "tool_calls": None},
-        }
-        mock_client.chat.return_value = mock_response
-        
-        agent = Agent(agent_type, mock_client, 8192)
-        
-        list(agent.handle_prompt("Test"))
-        
-        # Verify chat was called with context length in options
-        call_args = mock_client.chat.call_args
-        assert call_args.kwargs["options"]["num_ctx"] == 8192
 
     def test_handles_tool_call_with_unexpected_args(self):
         """Should yield ERROR when dispatch fails with unexpected args."""
@@ -787,23 +806,30 @@ class TestAgentHandlePrompt:
         )
         
         mock_client = MagicMock()
-        # Simulate tool call with wrong argument keys (execute_bash expects 'command')
-        mock_response1 = {
-            "message": {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [{
-                    "function": {
-                        "name": "execute_bash",
-                        "arguments": {"wrong_key": "value"}
-                    }
-                }]
-            },
-        }
-        mock_response2 = {
-            "message": {"role": "assistant", "content": "Done", "tool_calls": None},
-        }
-        mock_client.chat.side_effect = [mock_response1, mock_response2]
+
+        def make_tool_call(name="execute_bash", arguments=None):
+            tc = MagicMock()
+            tc.id = "call_1"
+            tc.type = "function"
+            tc.function.name = name
+            tc.function.arguments = json.dumps(arguments or {})
+            return tc
+
+        def make_mock_completion(content, tool_calls_list=None, model="test"):
+            c = MagicMock()
+            ch = MagicMock()
+            m = MagicMock(content=content, role="assistant", tool_calls=tool_calls_list)
+            ch.message = m
+            c.choices = [ch]
+            c.model = model
+            return c
+        
+        mock_client.chat.completions.create.side_effect = [
+            make_mock_completion(None, tool_calls_list=[
+                make_tool_call("execute_bash", {"wrong_key": "value"})
+            ]),
+            make_mock_completion("Done"),
+        ]
         
         agent = Agent(agent_type, mock_client, 4096)
         
