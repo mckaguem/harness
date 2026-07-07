@@ -336,7 +336,9 @@ or update their status to 'failed' before stopping.
         The returned agent can be driven however the caller wants (interactive
         loop, single prompt via :meth:`handle_prompt`, tool-based invocation, etc.).
 
-        The sub-agent is built from ``agents/<sub_name>.yaml``, inherits the parent's
+        The sub-agent is looked up via :func:`agent.discovery.get_agent_yaml`, which
+        searches project and global config paths (``cwd/.harness_py/agents/`` then
+        ``~/.harness_py/agents/``, with project taking precedence). It inherits the parent's
         Ollama host and context length, gets an augmented system prompt (cwd listing +
         AGENTS.md) from :meth:`AgentType._build_system_prompt`, and has its tool schemas
         filtered by its own ``agent_tools``.
@@ -354,17 +356,19 @@ or update their status to 'failed' before stopping.
             A fully-constructed :class:`Agent` instance ready for prompting.
 
         Raises:
-            FileNotFoundError: If the YAML file or its base system prompt file is missing and no
-                               inline fallback was provided in the YAML.
-            ValueError: If required fields are absent or malformed in the YAML.
+            FileNotFoundError: If no matching agent YAML is found in any configured discovery path.
         """
         from pathlib import Path
         from agent.types import AgentType
+        from agent.discovery import get_agent_yaml
 
-        yaml_path = Path("agents") / f"{sub_name}.yaml"
+        yaml_path_str, error_msg = get_agent_yaml(sub_name)
+        if yaml_path_str is None:
+            raise FileNotFoundError(error_msg)
+        
         # ``AgentType.from_file`` now builds the augmented system prompt internally,
         # so no extra work is needed here.
-        agent_type = AgentType.from_file(str(yaml_path))
+        agent_type = AgentType.from_file(str(yaml_path_str))
 
         # Reuse the parent's Ollama client host and context window.
         if parent_agent is None:
