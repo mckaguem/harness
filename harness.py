@@ -49,7 +49,7 @@ def main():
         os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
     )
     # strip trailing /v1 if the user passed an OpenAI-format URL
-    base_url = openai_base_url.rstrip("/").rstrip("/v1")
+    base_url = openai_base_url.rstrip("/")   #.rstrip("/v1")
     api_key = os.environ.get("OPENAI_API_KEY", "")
 
     client = OpenAI(base_url=base_url, api_key=api_key)

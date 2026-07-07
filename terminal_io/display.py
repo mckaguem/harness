@@ -37,13 +37,18 @@ def display_tool_call(func_name: str, args_str: str) -> None:
     try:
         parsed = json.loads(args_str)
         if isinstance(parsed, dict):
-            # Render each key/value as a bold label + code-formatted value.
             lines: list[str] = []
             for key, value in parsed.items():
-                val_str = "\n".join(value) if isinstance(value, list) else str(value)
-                # Decode any escaped newlines inside values after parsing.
-                val_str = val_str.replace("\\n", "\n").replace("\\r", "\r")
-                lines.append(f"**{key}**: `{val_str}`")
+                if isinstance(value, list):
+                    # Label on its own line
+                    lines.append(f"**{key}**:")
+                    # Each item as a bullet on separate line
+                    for v in value:
+                        lines.append(f"- {v}")
+                else:
+                    val_str = str(value)
+                    val_str = val_str.replace("\\n", "\n").replace("\\r", "\r")
+                    lines.append(f"**{key}**: {val_str}")
             display_content = "\n\n".join(lines)
         else:
             # List or scalar: render as normal JSON, then decode escaped newlines.
@@ -56,7 +61,7 @@ def display_tool_call(func_name: str, args_str: str) -> None:
     title = f"Tool: {func_name}"
     display_message_panel(
         text=display_content,
-        theme="info",
+        theme="status",
         title=title,
         result_type="markdown",
     )

@@ -109,9 +109,9 @@ class TaskList:
         """Render the current task list state as a formatted markdown string.
         
         The output is designed to be injected directly into LLM message payloads
-        with clear visual delimiters and status indicators:
-        - [✓] for completed tasks
-        - [>] for in-progress tasks (with CURRENT marker)
+        with clear visual delimiters and status indicators using checkbox syntax:
+        - [x] for completed tasks (checkmark)
+        - [*] for in-progress tasks (with CURRENT marker)
         - [ ] for pending or failed tasks
         
         Returns:
@@ -121,14 +121,14 @@ class TaskList:
         
         for task in self.tasks:
             if task.status == "completed":
-                marker = "[✓]"
-                line = f"{marker} {task.id}. {task.description}"
+                marker = "[x]"
+                line = f"- {marker} {task.description}"
             elif task.status == "in_progress":
-                marker = "[>]"
-                line = f"{marker} {task.id}. {task.description} (CURRENT)"
+                marker = "[*]"
+                line = f"- {marker} {task.description} *(CURRENT)*"
             else:  # pending or failed
                 marker = "[ ]"
-                line = f"{marker} {task.id}. {task.description}"
+                line = f"- {marker} {task.description}"
             
             lines.append(line)
         

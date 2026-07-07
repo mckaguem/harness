@@ -46,11 +46,12 @@ class Agent:
             "OPENAI_BASE_URL",
             os.environ.get("OLLAMA_HOST", "http://qut-l1953034068.qut.edu.au:11434"),
         )
-        self._base_url = (
-            raw_host.rstrip("/").rstrip("/v1")
-            if str(raw_host).rstrip("/").endswith("/v1")
-            else str(raw_host).rstrip("/")
-        )
+        self._base_url = raw_host
+        # (
+        #     raw_host.rstrip("/").rstrip("/v1")
+        #     if str(raw_host).rstrip("/").endswith("/v1")
+        #     else str(raw_host).rstrip("/")
+        # )
         # Filter tool schemas based on AgentType.
         from agent.utils import filter_tool_schemas
         if tool_schemas:
@@ -296,7 +297,10 @@ or update their status to 'failed' before stopping.
                         continue
                 
                 try:
-                    args_str = json.dumps(args, indent=2)
+                    if func_name == "initialize_task_list":
+                        args_str = ""
+                    else:
+                        args_str = json.dumps(args, indent=2)
                 except Exception:
                     args_str = str(args)
                 

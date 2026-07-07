@@ -32,19 +32,14 @@ def cmd_tasks(rest: str, agent=None) -> bool | None:
     tasks = current_agent.task_list.tasks
     if not tasks:
         display_message_panel(
-            "No tasks have been initialized yet.\nUse /initialize_task_list to add some.",
+            "No tasks have been initialized yet.",
             theme="status",
             title="📋 Tasks",
         )
         return False
 
-    lines = []
-    for task in tasks:
-        status = task.status.upper()
-        lines.append(f"Task {task.id}) {task.description}   [{status}]")
-
     display_message_panel(
-        "\n".join(lines),
+        current_agent.task_list.to_markdown(),
         theme="status",
         title="📋 Tasks",
     )
