@@ -68,6 +68,7 @@ class Agent:
 
         # Conversation state is now owned by the Session object.
         self._session = Session(agent_type.system_prompt, self._task_list)
+        self._session._agent_type_name = agent_type.name
 
         self._max_loops: int = 30  # Safety ceiling to prevent infinite loops
 

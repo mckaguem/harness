@@ -7,3 +7,4 @@ session.txt
 .harness_py
 .env
 harness.egg-info/
+.sessions/
