@@ -542,14 +542,14 @@ class TestAgentHandlePrompt:
         
         assert len(outputs) == 3
         
-        # First: TOOL_CALL
-        kind, func_name, args_str = outputs[0]
+        # First: TOOL_CALL (now 4-tuple with response_data)
+        kind, func_name, args_str, _response_data = outputs[0]
         assert kind == TOOL_CALL
         assert func_name == "execute_bash"
         assert "ls" in args_str
         
-        # Second: TOOL_RESULT (from dispatch) — now yields 3-tuple with ToolResult
-        kind, func_name, result = outputs[1]
+        # Second: TOOL_RESULT (now 4-tuple with response_data)
+        kind, func_name, result, _response_data = outputs[1]
         assert kind == TOOL_RESULT
         assert func_name == "execute_bash"
         from tools.tool_result import ToolResult

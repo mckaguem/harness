@@ -1,41 +1,58 @@
-"""Token-speed formatting for Ollama chat responses."""
+"""Token-speed formatting for chat responses."""
 
 
-def format_speed(response: dict, context_length: int = 0,
-                  prompt_token_count: int | None = None) -> str:
-    """Extract and format tokens/sec and context usage from an Ollama chat response.
+def format_speed(response: dict, context_length: int = 0) -> str:
+    """Extract and format token usage from an OpenAI-style chat response.
 
-    When ``prompt_token_count`` is supplied it takes precedence over the
-    possibly-zero ``prompt_eval_count`` that Ollama returns after a cache hit.
+    Reads ``response['usage']`` which must contain ``prompt_tokens`` and
+    ``completion_tokens`` keys. If ``duration_ms`` is present in the response,
+    calculates tokens/sec speed.
 
-    Produces two stats joined by `` | ``::
+    Produces a stats string joined by `` | ``::
 
-        ⏱ 138 tok (5405.3 tok/s) | 6806 in (27.2% ctx)
+        ⏱ 50 tok (33.3 tok/s) | 1024 in (25.0% ctx)
     """
     parts = []
+    usage = response.get('usage') or {}
 
-    eval_count = response.get('eval_count', 0) or 0
-    eval_duration_ns = response.get('eval_duration', 0) or 0
-
-    if eval_count > 0:
-        if eval_duration_ns > 0:
-            tps = eval_count / (eval_duration_ns / 1_000_000_000)
-            parts.append(f"{eval_count} tok ({tps:.1f} tok/s)")
+    # ---- Completion tokens / speed ----------------------------------------
+    completion_tokens = usage.get('completion_tokens', 0) or 0
+    
+    if completion_tokens > 0:
+        duration_ms = response.get('duration_ms')
+        
+        if duration_ms and duration_ms > 0:
+            # Calculate tokens per second from wall-clock time
+            tps = completion_tokens / (duration_ms / 1000.0)
+            parts.append(f"{completion_tokens} tok ({tps:.1f} tok/s)")
         else:
-            parts.append(f"{eval_count} tok")
+            parts.append(f"{completion_tokens} tok")
 
-    # Use client-side tokenized count when available (more reliable under cache).
-    prompt_eval_count = response.get('prompt_eval_count', 0) or 0
-    if prompt_token_count is not None and prompt_token_count > 0:
-        prompt_eval_count = max(prompt_eval_count, prompt_token_count)
-
-    if prompt_eval_count > 0:
+    # ---- Input token count / context --------------------------------------
+    prompt_tokens = usage.get('prompt_tokens', 0) or 0
+    if prompt_tokens > 0:
         ctx_pct_str = ""
-        if context_length > 0 and prompt_eval_count > 0:
-            pct = (prompt_eval_count / context_length) * 100
+        if context_length > 0 and prompt_tokens > 0:
+            pct = (prompt_tokens / context_length) * 100
             ctx_pct_str = f" ({pct:.1f}% ctx)"
-        parts.append(f"{prompt_eval_count} in{ctx_pct_str}")
+        parts.append(f"{prompt_tokens} in{ctx_pct_str}")
 
     if parts:
         return f"[dim]⏱ {' | '.join(parts)}[/dim]"
     return ""
+
+
+def format_tool_elapsed(elapsed_seconds: float) -> str:
+    """Format elapsed time for a tool execution as a compact string.
+
+    Args:
+        elapsed_seconds: Time in seconds (float).
+
+    Returns:
+        A formatted string like ``⏱ 1.2s`` or ``⏱ 450ms``.
+    """
+    if elapsed_seconds >= 1.0:
+        return f"[dim]⏱ {elapsed_seconds:.1f}s[/dim]"
+    else:
+        ms = elapsed_seconds * 1000
+        return f"[dim]⏱ {ms:.0f}ms[/dim]"

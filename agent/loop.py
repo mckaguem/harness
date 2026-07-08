@@ -1,14 +1,19 @@
 """Interactive user loop for the agent harness."""
 
+import time as _time
+from rich.console import Console
+
 from agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from terminal_io import (
     print_system, prompt_user,
     display_tool_call, display_tool_result, display_error,
-    display_agent_response,
+    display_agent_response, format_speed,
 )
 from commands import COMMANDS
 from skills_interceptor import intercept_message, InterceptorKind
 
+
+_console = Console()
 
 def user_loop(agent: "Agent", openai_client=None, on_exit=None) -> None:
     """Run the interactive chat loop.
@@ -65,13 +70,15 @@ def user_loop(agent: "Agent", openai_client=None, on_exit=None) -> None:
             kind = output[0]
             if kind == RESPONSE:
                 _, content, ollama_response = output
-                display_agent_response(content, ollama_response, agent._context_length, None)
+                display_agent_response(content, ollama_response, agent._context_length)
             elif kind == TOOL_CALL:
-                _, func_name, args_str = output
+                _, func_name, args_str, response_data = output
                 display_tool_call(func_name, args_str)
             elif kind == TOOL_RESULT:
-                _, func_name, result = output
+                _, func_name, result, response_data = output
                 display_tool_result(func_name, result)
+                if response_data and 'usage' in response_data:
+                    _console.print(format_speed(response_data, agent._context_length))
             elif kind == ERROR:
                 _, description = output
                 display_error(description)

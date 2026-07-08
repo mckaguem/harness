@@ -111,13 +111,12 @@ class Agent:
     def _chat(self, messages: list[dict]) -> dict:
         """Send *messages* to the OpenAI client and return a normalized response dict.
 
-        Normalizes both legacy Ollama-style dicts and OpenAI ChatCompletion objects so that
-        callers can consistently do::
-
-            resp = self._chat(messages)
-            message = resp["message"]  # has .content, .tool_calls
-            usage = resp.get("usage")   # has prompt_tokens, etc.
+        Tracks timing data alongside token counts for performance metrics. Returns
+        both the message content and usage statistics in a single dict.
         """
+        import time
+        start_time = time.time()
+        
         if hasattr(self._client, 'chat') and hasattr(self._client.chat, 'completions'):
             kwargs: dict = {
                 "model": self._agent_type.model_name,
@@ -133,7 +132,7 @@ class Agent:
             choice = completion.choices[0]
             message_obj = choice.message  # ChatCompletionMessage with .content and .tool_calls
 
-            # Build a dict that mirrors Ollama's shape so callers don't need changes.
+            # Build a dict that contains both message content and usage data
             resp_dict: dict = {
                 "message": {
                     "role": message_obj.role or "assistant",
@@ -147,6 +146,10 @@ class Agent:
                 },
             }
 
+            # Track timing for performance metrics
+            end_time = time.time()
+            resp_dict["duration_ms"] = (end_time - start_time) * 1000
+
             if message_obj.tool_calls:
                 resp_dict["message"]["tool_calls"] = [
                     {
@@ -157,11 +160,10 @@ class Agent:
                             "arguments": tc.function.arguments
                         }
                     } for tc in message_obj.tool_calls 
-                ] 
+                ]
 
             return resp_dict
         else:
-            # Legacy Ollama fallback.
             raise NotImplementedError(
                 "Only OpenAI clients are supported in this build."
             )
@@ -179,8 +181,8 @@ class Agent:
         Yields::
         
             (RESPONSE,         content, openai_response)
-            (TOOL_CALL,        func_name, args_str)
-            (TOOL_RESULT,      func_name, result)
+            (TOOL_CALL,        func_name, args_str, response_data)
+            (TOOL_RESULT,      func_name, result, response_data)
             (ERROR,            description)
         """
         # 1. Prepend any injected text to the user input, then clear queue
@@ -240,7 +242,7 @@ or update their status to 'failed' before stopping.
                         inner_block_dict = {"role": "user", "content": block_info["content"]}
                         prepared_inner = self._session.prepare_message_for_injection(inner_block_dict)
                         self._session.add_user_message(prepared_inner["content"])
-                        yield (TOOL_RESULT, func_name, block_info["result"])
+                        yield (TOOL_RESULT, func_name, block_info["result"], response)
                         loop_count += 1
                         continue
                 
@@ -252,7 +254,7 @@ or update their status to 'failed' before stopping.
                 except Exception:
                     args_str = str(args)
                 
-                yield (TOOL_CALL, func_name, args_str)
+                yield (TOOL_CALL, func_name, args_str, response)
 
                 # Execute the tool via the executor and handle its result.
                 try:
@@ -266,10 +268,10 @@ or update their status to 'failed' before stopping.
                     description = f"Error calling {func_name}: {exc}"
                     return_result = self._executor.make_error_result(func_name, description)
                     yield (ERROR, description)
-                
+
                 # Use session.add_tool_result instead of self.messages.append({"role":"tool",...})
                 self._session.add_tool_result(func_name, return_result.llm_text)
-                yield (TOOL_RESULT, func_name, return_result)
+                yield (TOOL_RESULT, func_name, return_result, response)
 
     @classmethod
     def spawn_subagent(cls, sub_name: str, parent_agent: Optional["Agent"] = None,

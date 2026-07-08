@@ -8,7 +8,7 @@ from rich.markdown import Markdown
 from rich.syntax import Syntax
 import json
 
-from .speed import format_speed
+from .speed import format_speed, format_tool_elapsed
 
 console = Console()
 
@@ -148,6 +148,7 @@ def display_agent_response(content: str, response: dict = {}, context_length: in
     """Print the agent's text response along with token-speed stats."""
     markdown_obj = Markdown(content)
     console.print(Panel(markdown_obj, title="🤖 Agent Response", border_style="green"))
-    speed_info = format_speed(response, context_length, prompt_token_count)
+
+    speed_info = format_speed(response, context_length)
     if speed_info:
         console.print(speed_info)
