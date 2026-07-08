@@ -71,7 +71,7 @@ def edit_file(filename: str, edits: list[dict]) -> ToolResult:
             display_text=_strip_ansi(f"No effective changes made to {filename}."),
             type_tag="text",
             title="📝 Edit File",
-            theme="status"
+            theme="info"
         )
 
     try:

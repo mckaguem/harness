@@ -70,8 +70,7 @@ def web_search(
     try:
         from ddgs import DDGS
     except ImportError as e:
-        msg = _strip_ansi(f"Error: The 'ddgs' package is not available. {e}")
-        return ToolResult(llm_text=msg, display_text=msg, type_tag="text", title="❌ Web Search Error", theme="error")
+        return make_error_result(f"Error: The 'ddgs' package is not available. {e}", title="❌ Web Search Error")
 
     try:
         ddgs = DDGS()
@@ -85,8 +84,7 @@ def web_search(
             backend=backend,
         )
     except Exception as e:
-        msg = _strip_ansi(f"Search failed: {e}")
-        return ToolResult(llm_text=msg, display_text=msg, type_tag="text", title="❌ Web Search Error", theme="error")
+        return make_error_result(f"Search failed: {e}", title="❌ Web Search Error")
 
     if not results:
         msg = f"No results found for query: `{query}`."

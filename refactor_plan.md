@@ -221,3 +221,5 @@ def my_tool(...):
 
 ## Conclusion
 This systematic approach addresses critical bugs first, then improves architecture with safety nets in place. The refactoring will make the codebase more maintainable, testable, and robust while preserving all existing functionality. The key insight is that Phase 2 changes (especially consolidating duplicate logic) are most valuable but also riskiest - hence they come after fixing bugs and adding tests as a safety net.
+
+*Note: Added on [2025-10-30] as part of tool demonstration exercise.*

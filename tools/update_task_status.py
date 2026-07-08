@@ -54,7 +54,7 @@ def update_task_status(task_id: int, status: str) -> tuple | ToolResult:
                 ),
                 type_tag="markdown",
                 title="✅ Task List Complete",
-                theme="success",
+                theme="status",
             )
 
         # Build machine-friendly payload with the next ID to act on.
