@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from sessions.context_compression import (
+from session.context_compression import (
     compress_messages,
     should_auto_compress,
     build_compressed_filepath,
@@ -254,7 +254,7 @@ class TestSessionCompression:
         # For now, just verify the import path is accessible
         
         try:
-            from sessions.context_compression import compress_session
+            from session.context_compression import compress_session
             assert callable(compress_session)
         except ImportError:
             pytest.skip("compress_session not yet implemented")
@@ -264,7 +264,7 @@ class TestSessionCompression:
         # This would require mocking the full Session object
         
         try:
-            from sessions.context_compression import compress_session
+            from session.context_compression import compress_session
             
             mock_session = Mock()
             mock_session.filepath = None

@@ -10,6 +10,7 @@ This module provides functionality to compress conversation history by:
 - Automatic compression when context utilization exceeds thresholds
 """
 
+from .session import Session  # Ensure proper import if needed elsewhere
 
 def compress_messages(messages: list[dict], fraction: float) -> list[dict]:
     """Compress older messages in the list, preserving a portion at the end.
@@ -104,7 +105,6 @@ def build_compressed_filepath(filepath: str) -> tuple[str, bool]:
             - New filepath with '-compressed-<timestamp>' inserted before the extension
             - Boolean indicating if the input was already a compressed filepath
     """
-    # Check if already compressed by looking for timestamp pattern after 'compressed'
     import re
     COMPRESSED_PATTERN = r'-compressed-(\d{8}T\d{6}(?:Z|[+-]\d{2}:?\d{2}))\.'
 
@@ -138,6 +138,14 @@ def compress_session(session: object, fraction: float = 0.1) -> str | None:
     Returns:
         The new filepath string, or None if compression made no changes.
     """
+    # Validate that the session has a valid filepath set.
+    if not getattr(session, "filepath", None):
+        raise ValueError("Cannot compress a session with no filepath set")
+
+    # Ensure the session has a messages attribute that is iterable.
+    if not hasattr(session, "messages"):
+        raise ValueError("Session object must have a 'messages' attribute")
+
     # Always save before mutating
     session.save()
 
@@ -145,7 +153,6 @@ def compress_session(session: object, fraction: float = 0.1) -> str | None:
     new_messages = compress_messages(session.messages, fraction)
 
     # If nothing changed, return None
-    # Check if any message content was actually truncated
     had_changes = False
     for orig_msg, comp_msg in zip(session.messages, new_messages):
         if len(comp_msg.get("content", "")) < len(orig_msg.get("content", "")):
@@ -153,7 +160,6 @@ def compress_session(session: object, fraction: float = 0.1) -> str | None:
             break
 
     if not had_changes:
-        return None  # No actual content truncation happened
         return None
 
     # Update filepath with compression marker
@@ -167,54 +173,9 @@ def compress_session(session: object, fraction: float = 0.1) -> str | None:
     return new_filepath
 
 
-# ============================================================================
-# /compress command handler (for integration with commands/__init__.py)
-# ============================================================================
-
-def compress_handler(rest: str, agent=None):
-    """Handle the /compress command.
-
-    Args:
-        rest: Optional fraction parameter as string (e.g., "0.2")
-        agent: The Agent instance containing a session
-    
-    Returns:
-        False to continue loop
-    """
-    # Deprecated wrapper - original module moved to 'session' package.
-# from sessions.context_compression import compress_session
-
-    if not hasattr(agent, 'session'):
-        print("❌ No active session found. Cannot compress.")
-        return False
-
-    # Parse optional fraction argument
-    try:
-        fraction = float(rest) if rest else 0.1
-    except (ValueError, TypeError):
-        print(f"❌ Invalid compression ratio: {rest}")
-        return False
-
-    if not (0 < fraction <= 1):
-        print("❌ Compression ratio must be between 0 and 1")
-        return False
-
-    try:
-        result = compress_session(agent.session, fraction=fraction)
-        if result is None:
-            print("✅ No compression needed.")
-        else:
-            print(f"✅ Session compressed. New file: {result}")
-    except Exception as e:
-        print(f"❌ Compression failed: {e}")
-
-    return False
-
-
 __all__ = [
     "compress_messages",
     "should_auto_compress",
     "build_compressed_filepath",
     "compress_session",
-    "compress_handler",
 ]

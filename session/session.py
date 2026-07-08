@@ -1,5 +1,3 @@
-"""Session class — manages conversation history and context injection."""
-
 import json
 import os
 from pathlib import Path

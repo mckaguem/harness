@@ -24,4 +24,5 @@ include = [
     "commands",
     "terminal_io",
     "tools",
+    "session",
 ]

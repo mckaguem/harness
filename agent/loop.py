@@ -52,7 +52,7 @@ def _check_and_compress_if_needed(agent, display_error) -> None:
         if utilization > THRESHOLD:
             print(f"⚠️ Context utilization at {utilization:.1%} — auto-compressing...")
             try:
-                from sessions.context_compression import compress_session
+                from session.context_compression import compress_session
                 session = getattr(agent, 'session', None)
                 if session is not None:
                     compress_session(session, fraction=0.5)

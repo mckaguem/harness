@@ -11,7 +11,7 @@ from openai import OpenAI
 
 from agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from agent.context import CURRENT_AGENT
-from agent.session import Session
+from session.session import Session
 
 
 class Agent:

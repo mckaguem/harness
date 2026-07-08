@@ -95,7 +95,7 @@ def cmd_load_session(rest: str, agent=None) -> bool | None:
 
     try:
         from pathlib import Path
-        from agent.session_utils import ensure_sessions_dir, parse_session_yaml
+        from session.session_utils import ensure_sessions_dir, parse_session_yaml
         
         sessions_dir = ensure_sessions_dir()
     except Exception as exc:
@@ -187,7 +187,7 @@ def cmd_load_session(rest: str, agent=None) -> bool | None:
         return False
 
     # Replace the agent's session and system prompt.
-    from agent.session import Session
+    from session.session import Session
     new_session = Session(system_prompt=system_prompt, task_list=agent._task_list)
 
     # Replay conversation messages.
@@ -233,7 +233,7 @@ def cmd_new(rest: str, agent=None) -> bool | None:
         agent._task_list.reset()
     
     # 2. Create a brand new Session with only the system prompt and fresh session file.
-    from agent.session import Session
+    from session.session import Session
     new_session = Session(
         system_prompt=agent._agent_type.system_prompt,
         task_list=agent._task_list,
@@ -273,7 +273,7 @@ def compress_handler(rest: str, agent=None):
     Returns:
         False to continue the loop, True if exit is needed
     """
-    from sessions.context_compression import compress_session
+    from session.context_compression import compress_session
     
     # Get session from agent - try common attribute names
     if agent is None:
@@ -328,7 +328,7 @@ def compress_handler(rest: str, agent=None):
 
 def compress_handler(rest, agent=None):
     """Handle the /compress command — trigger manual session compression."""
-    from sessions.context_compression import compress_session
+    from session.context_compression import compress_session
     
     if agent is None:
         print("❌ No agent provided. Cannot compress.")
