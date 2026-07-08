@@ -143,12 +143,29 @@ def display_error(message: str) -> None:
     console.print(f"[red bold]Error:[/red bold] {message}")
 
 
-def display_agent_response(content: str, response: dict = {}, context_length: int = 0,
+def display_agent_response(content: str | None, response: dict = {}, context_length: int = 0,
                            prompt_token_count: int | None = None) -> None:
-    """Print the agent's text response along with token-speed stats."""
-    markdown_obj = Markdown(content)
+    """Display the agent's response safely.
+
+    Parameters
+    ----------
+    content: str | None
+        The raw text response from the agent. If ``None`` is received, it is
+        treated as an empty string to avoid ``TypeError`` when constructing a
+        ``Markdown`` object.
+    response: dict, optional
+        Additional metadata (e.g., token usage) used for speed reporting.
+    context_length: int, optional
+        Length of the context window used for the request.
+    prompt_token_count: int | None, optional
+        Number of tokens in the original prompt.
+    """
+    # Guard against None content – treat as empty string.
+    safe_content = content if content is not None else ""
+    markdown_obj = Markdown(safe_content)
     console.print(Panel(markdown_obj, title="🤖 Agent Response", border_style="green"))
 
     speed_info = format_speed(response, context_length)
     if speed_info:
         console.print(speed_info)
+
