@@ -1,216 +1,219 @@
-"""Context-compression module for session messages in an LLM harness project.
+"""
+Context Compression Module
+==========================
+Implements context compression for the Agent Harness.
 
-Compresses session history by replacing obsolete or irrelevant tool results and
-assistant messages with short placeholder notes, reducing token usage while
-preserving the semantic structure of the conversation.
+This module provides functionality to compress conversation history by:
+- Compressing older messages while preserving recent ones
+- Managing session filepaths for compressed conversations
+- Supporting incremental compression with date/time tracking
+- Automatic compression when context utilization exceeds thresholds
 """
 
-import json
-from pathlib import Path
 
+def compress_messages(messages: list[dict], fraction: float) -> list[dict]:
+    """Compress older messages in the list, preserving a portion at the end.
 
-def compress_messages(messages: list[dict]) -> list[dict]:
-    """Compress session history by replacing obsolete/irrelevant messages with short notes.
+    Args:
+        messages: List of message dictionaries to compress.
+        fraction: The proportion (0-1) of messages at the END that should be 
+                  left intact and unmodified. For example, with 100 messages 
+                  and fraction=0.1, the last 10 messages are preserved as-is,
+                  while the first 90 are compressed by halving their content length.
 
-    Produces a new list without mutating the input. Applies five rules to identify
-    tool results and assistant messages that can be replaced, prioritising more
-    specific rules over general ones:
+    Returns:
+        A new list where older messages have been truncated (compressed) but 
+        recent messages remain unchanged. The order is preserved - compressed 
+        messages come first, followed by preserved messages.
 
-      * Rule 1 — error-like content in tool results is flagged and summarised.
-      * Rule 2 — an earlier ``read_file`` result superseded by a later edit on the
-        same path has its content replaced with a note.
-      * Rule 3 — an earlier ``read_file`` result superseded by any later complete
-        re-read of the same file is removed.
-      * Rule 4 — an earlier ``write_file`` result superseded by a later edit on
-        the same path is removed.
-      * Rule 5 — any tool call whose referenced file no longer exists on disk at
-        compression time has its result removed.
-
-    System and user messages are never modified.
-
-    Parameters
-    ----------
-    messages : list[dict]
-        The session message history, where each element is a dict with at least
-        ``role`` (and optionally ``content``, ``tool_calls``, ``name``).
-
-    Returns
-    -------
-    list[dict]
-        A new list of message dicts with obsolete entries replaced by placeholder
-        note strings in their ``content`` fields.
+    Raises:
+        ValueError: If fraction is not between 0 and 1 inclusive.
     """
-
-    if not isinstance(messages, list):
-        return list(messages)  # Return a copy of invalid input
-
-    # ──────────────────────────────────────────────────────────────────────
-    # Phase 1 & 2: Extract file operations and map to their result messages
-    # ──────────────────────────────────────────────────────────────────────
-
-    # Each entry: (asst_msg_idx, result_msg_idx_or_None, op_name, filepath_str)
-    ops = []
-    pending_ops = []  # indices into ``ops`` for calls awaiting results
-
-    for i, msg in enumerate(messages):
-        role = msg.get("role", "")
-
-        if role == "assistant" and "tool_calls" in msg:
-            tc_list = msg["tool_calls"] or []
-            for tc in tc_list:
-                func = tc.get("function") or {}
-                name = str(func.get("name") or "").strip()
-
-                # Parse JSON arguments
-                args_raw = func.get("arguments")
-                if isinstance(args_raw, str):
-                    try:
-                        args = json.loads(args_raw)
-                    except (json.JSONDecodeError, TypeError):
-                        continue
-                elif isinstance(args_raw, dict):
-                    args = args_raw
-                else:
-                    continue
-
-                if not isinstance(args, dict):
-                    continue
-
-                filepath_raw = str(args.get("filename", "") or "").strip()
-                if not filepath_raw:
-                    continue
-
-                resolved_path = Path(filepath_raw).resolve()
-
-                ops.append((i, None, name, str(resolved_path)))
-                pending_ops.append(len(ops) - 1)
-
-        elif role == "tool":
-            # Match to the first unassigned pending op in chronological order.
-            if pending_ops:
-                best_pos = pending_ops.pop(0)
-                asst_idx, _, name, fp = ops[best_pos]
-                ops[best_pos] = (asst_idx, i, name, fp)
-
-    # ──────────────────────────────────────────────────────────────────────
-    # Phase 3: Build replacement map using Rules 2-4 first, then Rule 5
-    # ──────────────────────────────────────────────────────────────────────
-    # Rules 2-4 produce more specific notes and therefore take precedence over
-    # the general Rule 5.
-
-    replace_indices = {}  # ``{message_index → replacement_note_string}``
-
-    read_results = [
-        (res_idx, asst_idx, fp)
-        for (asst_idx, res_idx, name, fp) in ops
-        if name == "read_file" and res_idx is not None
-    ]
-
-    write_results = [
-        (res_idx, asst_idx, fp)
-        for (asst_idx, res_idx, name, fp) in ops
-        if name == "write_file" and res_idx is not None
-    ]
-
-    edit_ops_list = [
-        (asst_idx, fp)
-        for (asst_idx, _, name, fp) in ops
-        if name == "edit_file"
-    ]
-
-    # --- Rule 2: read superseded by later edit → replace earlier READ RESULT ---
-    for res_idx, asst_idx, filepath in read_results:
-        has_later_edit = any(
-            e_asst > asst_idx and e_fp == filepath
-            for (e_asst, e_fp) in edit_ops_list
-        )
-        if has_later_edit:
-            replace_indices[res_idx] = (
-                f"[Read of '{filepath}' was superseded by a later edit "
-                f"and removed from context.]"
-            )
-
-    # --- Rule 3: read replaced by later complete re-read → earlier RESULT ---
-    for i, (res1_idx, asst1_idx, fp1) in enumerate(read_results):
-        if res1_idx in replace_indices:
-            continue  # Already marked by a more specific rule (e.g. Rule 2).
-
-        has_later_read = any(
-            r_fp == fp1
-            for (_, _, r_fp) in read_results[i + 1:]
+    if not isinstance(fraction, (int, float)) or fraction < 0 or fraction > 1:
+        raise ValueError(
+            f"fraction must be a number between 0 and 1, got {fraction!r}"
         )
 
-        if has_later_read:
-            replace_indices[res1_idx] = (
-                f"[Read of '{fp1}' was replaced by a later complete re-read "
-                f"and removed from context.]"
+    # Calculate where the preserved portion begins
+    tail_start_index = int(len(messages) * fraction)
+    
+    if tail_start_index == 0:
+        # fraction=0: compress everything (no preservation)
+        prefix_to_compress = messages[:]
+        preserved_suffix = []
+    elif tail_start_index >= len(messages):
+        # fraction>=1.0 or larger than list: preserve everything
+        return list(messages)
+    else:
+        # Normal case: compress first N-tail messages, preserve last tail messages
+        prefix_to_compress = messages[:len(messages) - tail_start_index]
+        preserved_suffix = messages[len(messages) - tail_start_index:]
+
+    if not prefix_to_compress:
+        return list(messages)
+
+    # Compress the prefix by truncating long content
+    compressed_prefix = []
+    for msg in prefix_to_compress:
+        new_msg = dict(msg)  # shallow copy to preserve role
+        content = new_msg.get("content")
+
+        if isinstance(content, str) and len(content) > 100:
+            # Halve the content but keep a truncation marker
+            max_chars = int(len(content) * 0.5)
+            new_msg["content"] = (
+                content[:max_chars]
+                + "\n...[truncated for context compression, original omitted to save space]"
             )
 
-    # --- Rule 4: write superseded by later edit → replace earlier WRITE RESULT ---
-    for res_idx, asst_idx, filepath in write_results:
-        has_later_edit = any(
-            e_asst > asst_idx and e_fp == filepath
-            for (e_asst, e_fp) in edit_ops_list
+        compressed_prefix.append(new_msg)
+
+    return compressed_prefix + preserved_suffix
+
+
+def should_auto_compress(context_utilization: float, threshold: float = 0.5) -> bool:
+    """Determine if auto-compression should be triggered based on context utilization.
+
+    Args:
+        context_utilization: The current fraction of context used (0-1).
+        threshold: The upper limit above which compression should trigger. 
+                  Defaults to 0.5 (50%).
+
+    Returns:
+        True if the context utilization exceeds the threshold, False otherwise.
+
+    Raises:
+        ValueError: If context_utilization is not between 0 and 1 inclusive.
+    """
+    if not (0 <= context_utilization <= 1):
+        raise ValueError(
+            f"context_utilization must be between 0 and 1, got {context_utilization}"
         )
-        if has_later_edit:
-            replace_indices[res_idx] = (
-                f"[Write to '{filepath}' was superseded by a later edit "
-                f"and removed from context.]"
-            )
 
-    # --- Rule 5: files that no longer exist on disk at compression time ---
-    # Only applied where not already marked by the more specific Rules 2-4.
-    for asst_idx, res_idx, name, filepath in ops:
-        if name not in ("read_file", "write_file"):
-            continue
-        if res_idx is None or res_idx in replace_indices:
-            continue
+    return context_utilization > threshold
 
-        p = Path(filepath)
-        if not (p.is_file() or p.is_dir()):
-            replace_indices[res_idx] = (
-                f"[Tool '{filepath}' referenced a file that does not exist "
-                f"and was removed from context.]"
-            )
 
-    # ──────────────────────────────────────────────────────────────────────
-    # Phase 4: Build output list with replacements applied
-    # ──────────────────────────────────────────────────────────────────────
+def build_compressed_filepath(filepath: str) -> tuple[str, bool]:
+    """Build a new filepath for a compressed session file.
 
-    result = []
-    for i, msg in enumerate(messages):
-        role = msg.get("role", "")
+    Args:
+        filepath: The original session filepath (e.g., '/tmp/session.json').
 
-        if role == "system":
-            # Never touch system prompts — shallow copy to avoid accidental mutation.
-            result.append(dict(msg))
-            continue
+    Returns:
+        A tuple containing:
+            - New filepath with '-compressed-<timestamp>' inserted before the extension
+            - Boolean indicating if the input was already a compressed filepath
+    """
+    # Check if already compressed by looking for timestamp pattern after 'compressed'
+    import re
+    COMPRESSED_PATTERN = r'-compressed-(\d{8}T\d{6}(?:Z|[+-]\d{2}:?\d{2}))\.'
 
-        if role == "user":
-            # Do not replace user messages.
-            result.append(dict(msg))
-            continue
+    match = re.search(COMPRESSED_PATTERN, filepath)
 
-        new_msg = dict(msg) if isinstance(msg, dict) else msg.copy()
+    if match:
+        # Already compressed - replace the timestamp with current time
+        base_path = filepath[:match.start()]
+        ext_start = match.end() - 1  # Position before '.' in '.json'
+        ext = filepath[ext_start:]
 
-        # Rule 1: error-like content in tool results (only when not already marked).
-        if role == "tool" and i not in replace_indices:
-            content = str(msg.get("content", ""))
-            has_error = any(
-                substr in content
-                for substr in ("Error", "error:", "not found", "traversal detected")
-            )
-            if has_error:
-                tool_name = msg.get("name", "unknown")
-                new_msg["content"] = (
-                    f"[Tool call '{tool_name}' had an error and was removed from "
-                    f"context to save tokens.]"
-                )
+        from datetime import datetime, timezone
+        new_timestamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+        return f"{base_path}-compressed-{new_timestamp}{ext}", True
 
-        # Apply replacement note for Rules 2-5 (overwrites Rule 1 if both apply).
-        if i in replace_indices:
-            new_msg["content"] = replace_indices[i]
+    else:
+        # Not yet compressed - add the compression marker
+        base, ext = filepath.rsplit('.', 1) if '.' in filepath else (filepath, 'json')
+        from datetime import datetime, timezone
+        new_timestamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+        return f"{base}-compressed-{new_timestamp}.{ext}", False
 
-        result.append(new_msg)
 
-    return result
+def compress_session(session: object, fraction: float = 0.1) -> str | None:
+    """Compress a session's messages and rotate its save file.
+
+    Args:
+        session: An object with .messages (list) and .filepath (str) attributes.
+        fraction: The proportion of the tail to preserve (passed to compress_messages).
+
+    Returns:
+        The new filepath string, or None if compression made no changes.
+    """
+    # Always save before mutating
+    session.save()
+
+    # Compress messages
+    new_messages = compress_messages(session.messages, fraction)
+
+    # If nothing changed, return None
+    # Check if any message content was actually truncated
+    had_changes = False
+    for orig_msg, comp_msg in zip(session.messages, new_messages):
+        if len(comp_msg.get("content", "")) < len(orig_msg.get("content", "")):
+            had_changes = True
+            break
+
+    if not had_changes:
+        return None  # No actual content truncation happened
+        return None
+
+    # Update filepath with compression marker
+    old_path = session.filepath
+    new_filepath, _ = build_compressed_filepath(old_path)
+
+    # Replace messages and save to new location
+    session.messages[:] = new_messages
+    session._save_impl(new_filepath, save_state=True)
+
+    return new_filepath
+
+
+# ============================================================================
+# /compress command handler (for integration with commands/__init__.py)
+# ============================================================================
+
+def compress_handler(rest: str, agent=None):
+    """Handle the /compress command.
+
+    Args:
+        rest: Optional fraction parameter as string (e.g., "0.2")
+        agent: The Agent instance containing a session
+    
+    Returns:
+        False to continue loop
+    """
+    from sessions.context_compression import compress_session
+
+    if not hasattr(agent, 'session'):
+        print("❌ No active session found. Cannot compress.")
+        return False
+
+    # Parse optional fraction argument
+    try:
+        fraction = float(rest) if rest else 0.1
+    except (ValueError, TypeError):
+        print(f"❌ Invalid compression ratio: {rest}")
+        return False
+
+    if not (0 < fraction <= 1):
+        print("❌ Compression ratio must be between 0 and 1")
+        return False
+
+    try:
+        result = compress_session(agent.session, fraction=fraction)
+        if result is None:
+            print("✅ No compression needed.")
+        else:
+            print(f"✅ Session compressed. New file: {result}")
+    except Exception as e:
+        print(f"❌ Compression failed: {e}")
+
+    return False
+
+
+__all__ = [
+    "compress_messages",
+    "should_auto_compress",
+    "build_compressed_filepath",
+    "compress_session",
+    "compress_handler",
+]

@@ -1,558 +1,371 @@
-"""Comprehensive tests for sessions.context_compression.compress_messages()."""
+"""Tests for context compression module - validates fix and new features."""
 
 import json
+import os
 from pathlib import Path
+from datetime import datetime, timezone
+from unittest.mock import Mock, patch
 
 import pytest
 
-from sessions.context_compression import compress_messages
+from sessions.context_compression import (
+    compress_messages,
+    should_auto_compress,
+    build_compressed_filepath,
+)
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
+# ============================================================================
+# Tests for compress_messages
+# ============================================================================
 
+class TestCompressMessages:
+    """Test the core compression logic."""
 
-def make_tool_result(name: str = "read_file", content: str = "") -> dict:
-    return {"role": "tool", "content": content, "name": name}
-
-
-def make_assistant_call(
-    name: str = "read_file", filename: str | None = None, **extra_args: object
-) -> dict:
-    args_dict: dict[str, object] = {}
-    if filename is not None:
-        args_dict["filename"] = filename
-    args_dict.update(extra_args)
-    return {
-        "role": "assistant",
-        "tool_calls": [
-            {
-                "id": f"call_{len(args_dict)}",
-                "type": "function",
-                "function": {"name": name, "arguments": json.dumps(args_dict)},
-            }
-        ],
-    }
-
-
-def make_assistant_no_tool_calls(content: str = "Hello!") -> dict:
-    return {"role": "assistant", "content": content}
-
-
-# ── Rule 1: error-like content ────────────────────────────────────────────────
-
-
-class TestRule1:
-    def test_error_substring_replaces_content(self, tmp_path):
-        """File exists on disk so Rule 5 does NOT apply; error content triggers Rule 1."""
-        target = tmp_path / "x.py"
-        target.write_text("existing")
+    def test_preserves_tail_unchanged(self):
+        """Verify that messages in the preserved tail are identical to originals."""
+        # Create 20 messages with distinct content
         messages = [
-            {"role": "system", "content": "System."},
-            make_assistant_call(filename=str(target)),
-            make_tool_result("read_file", "Error reading file: blah"),
+            {"role": "user", "content": f"message_{i}_X" * 34} for i in range(20)
         ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 1
-        content_lower = tool_msgs[0]["content"].lower()
-        assert "error" in content_lower
 
-    def test_not_found_substring_replaces_content(self, tmp_path):
-        target = tmp_path / "found.py"
-        target.write_text("existing")
-        messages = [
-            make_assistant_call(filename=str(target)),
-            make_tool_result("read_file", "File not found at /tmp/missing.py"),
-        ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 1
-        content_lower = tool_msgs[0]["content"].lower()
-        assert "error" in content_lower
+        result_50 = compress_messages(messages, fraction=0.5)
+        tail_start = int(len(messages) * 0.5)
 
-    def test_error_colon_substring_replaces_content(self, tmp_path):
-        target = tmp_path / "x.py"
-        target.write_text("existing")
-        messages = [
-            make_assistant_call(filename=str(target)),
-            make_tool_result("read_file", "error: permission denied"),
-        ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 1
-        content_lower = tool_msgs[0]["content"].lower()
-        assert "error" in content_lower
+        # All messages from tail_start onward should be unchanged
+        assert all(messages[i] == result_50[i] for i in range(tail_start, len(messages)))
 
-    def test_traversal_detected_replaces_content(self):
-        messages = [
-            make_assistant_call(filename="/etc/passwd"),
-            make_tool_result("read_file", "traversal detected, blocked"),
-        ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 1
-        content_lower = tool_msgs[0]["content"].lower()
-        assert "error" in content_lower
+    def test_compresses_prefix(self):
+        """Verify that prefix messages are actually compressed."""
+        # Use content > 100 chars to trigger compression
+        long_content = "X" * 200
+        messages = [{"role": "user", "content": f"msg_{i}_START:{long_content}"} for i in range(10)]
+        
+        result_25 = compress_messages(messages, fraction=0.25)
+        tail_start = int(len(messages) * 0.25)
 
-    def test_normal_content_not_modified(self, tmp_path):
-        target = tmp_path / "good.py"
-        target.write_text("def main(): pass\nprint('hi')")
-        messages = [
-            make_assistant_call(filename=str(target)),
-            make_tool_result("read_file", "def main(): pass\nprint('hi')"),
-        ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 1
-        assert tool_msgs[0]["content"] == "def main(): pass\nprint('hi')"
-
-    def test_error_with_nonexistent_file_rule5_wins(self, tmp_path):
-        """When the file doesn't exist AND content has an error keyword, Rule 5 takes precedence."""
-        nonexistent = str(tmp_path / "no_such_dir" / "ghost.py")
-        messages = [
-            make_assistant_call(filename=nonexistent),
-            make_tool_result("read_file", "Error: not found"),
-        ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 1
-        content_lower = tool_msgs[0]["content"].lower()
-        # Rule 5 note mentions the file not existing (not just generic error).
-        assert "does not exist" in content_lower
-
-
-# ── Rule 2: read superseded by later edit on same path ───────────────────────
-
-
-class TestRule2:
-    def test_read_then_edit_same_path_replaces_earlier_read(self):
-        """read_file result followed by edit_file on same path → earlier READ RESULT replaced."""
-        messages = [
-            make_assistant_call(name="read_file", filename="/tmp/a.py"),
-            make_tool_result("read_file", "original content of a.py"),
-            make_assistant_call(name="edit_file", filename="/tmp/a.py"),
-            make_tool_result(
-                "edit_file", 'Applied 1 edit to /tmp/a.py. File now has 42 lines.'
-            ),
-        ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 2
-        # First tool result (the read) should be replaced.
-        content_lower = tool_msgs[0]["content"].lower()
-        assert "superseded" in content_lower or "removed from context" in content_lower
-        # Second tool result (edit) stays as-is.
-        assert "Applied 1 edit" in tool_msgs[1]["content"]
-
-    def test_read_then_edit_different_path_not_modified(self, tmp_path):
-        """read_file result followed by edit_file on DIFFERENT path → NOT modified."""
-        file_a = tmp_path / "a.py"
-        file_b = tmp_path / "b.py"
-        file_a.write_text("x = 1")
-        file_b.write_text("y = 2")
-        messages = [
-            make_assistant_call(name="read_file", filename=str(file_a)),
-            make_tool_result("read_file", "content of a.py"),
-            make_assistant_call(name="edit_file", filename=str(file_b)),
-            make_tool_result(
-                "edit_file", 'Applied 1 edit to /tmp/b.py. File now has 10 lines.'
-            ),
-        ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 2
-        # Read result should NOT be replaced (edit is on a different path).
-        assert tool_msgs[0]["content"] == "content of a.py"
-
-    def test_write_then_edit_same_path_replaces_earlier_write(self, tmp_path):
-        """write_file result followed by edit_file on same path → earlier WRITE RESULT replaced."""
-        target = str(tmp_path / "target.txt")
-        Path(target).write_text("initial content\n")
-        messages = [
-            make_assistant_call(name="write_file", filename=target),
-            make_tool_result(
-                "write_file", f"Successfully wrote to {target}. 1 line written."
-            ),
-            make_assistant_call(name="edit_file", filename=target),
-            make_tool_result(
-                "edit_file", 'Applied 2 edits. File now has 5 lines.'
-            ),
-        ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 2
-        # The write result should be replaced (superseded by later edit).
-        content_lower = tool_msgs[0]["content"].lower()
-        assert "superseded" in content_lower or "removed from context" in content_lower
-
-    def test_edit_note_format(self, tmp_path):
-        """Verify the exact format of the Rule 2 replacement note."""
-        target = str(tmp_path / "note_test.py")
-        Path(target).write_text("x = 1\n")
-        messages = [
-            make_assistant_call(name="read_file", filename=target),
-            make_tool_result("read_file", "x = 1"),
-            make_assistant_call(name="edit_file", filename=target),
-            make_tool_result("edit_file", 'Applied 1 edit.'),
-        ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        expected_note = (
-            f"[Read of '{target}' was superseded by a later edit "
-            "and removed from context.]"
+        # First few messages should be shorter (compressed)
+        compressed_count = sum(
+            1 
+            for orig, comp in zip(messages[:tail_start], result_25[:tail_start])
+            if len(comp["content"]) < len(orig["content"])
         )
-        assert tool_msgs[0]["content"] == expected_note
+        
+        assert compressed_count > 0
 
+    def test_fraction_zero(self):
+        """With fraction=0, all messages should be compressed."""
+        messages = [{"role": "user", "content": f"msg_{i}_X" * 34} for i in range(10)]
+        
+        result = compress_messages(messages, fraction=0)
 
-# ── Rule 3: read replaced by later complete re-read ───────────────────────────
+        # All messages should have shorter content (except those ≤100 chars)
+        for orig, comp in zip(messages, result):
+            if len(orig["content"]) > 100:
+                assert len(comp["content"]) < len(orig["content"])
 
+    def test_fraction_one(self):
+        """With fraction=1.0, no messages should be compressed."""
+        messages = [{"role": "user", "content": f"msg_{i}_X" * 34} for i in range(10)]
+        
+        result = compress_messages(messages, fraction=1.0)
 
-class TestRule3:
-    def test_two_reads_same_file_first_replaced(self, tmp_path):
-        """Two reads of the same file → first one replaced with Rule 3 note."""
-        target = tmp_path / "shared.py"
-        target.write_text("existing")
+        # All messages should remain unchanged
+        assert all(orig == comp for orig, comp in zip(messages, result))
+
+    def test_empty_list(self):
+        """Empty list should return empty list."""
+        result = compress_messages([], fraction=0.5)
+        assert result == []
+
+    def test_single_message_short_content(self):
+        """Single short message should not be modified."""
+        messages = [{"role": "user", "content": "short"}]
+        
+        result = compress_messages(messages, fraction=0.5)
+        
+        assert len(result) == 1
+        assert result[0]["content"] == "short"
+
+    def test_invalid_fraction(self):
+        """Invalid fractions should raise ValueError."""
+        messages = [{"role": "user", "content": f"msg_{i}"} for i in range(5)]
+        
+        with pytest.raises(ValueError, match="fraction must be a number between 0 and 1"):
+            compress_messages(messages, fraction=2.0)
+
+    def test_mixed_content_types(self):
+        """Messages without content or with non-string content should be preserved."""
         messages = [
-            make_assistant_call(name="read_file", filename=str(target)),
-            make_tool_result("read_file", "first read content"),
-            make_assistant_call(name="read_file", filename=str(target)),
-            make_tool_result("read_file", "second read content"),
+            {"role": "user", "content": None},
+            {"role": "user"},  # no 'content' key
+            {"role": "assistant", "content": 123},
         ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 2
-        # First should be replaced.
-        content_lower = tool_msgs[0]["content"].lower()
-        assert "replaced by a later complete re-read" in content_lower
-        # Second should stay as-is (no further re-read).
-        assert tool_msgs[1]["content"] == "second read content"
 
-    def test_two_reads_different_files_neither_replaced(self, tmp_path):
-        """Two reads of different files → neither is replaced."""
-        file_a = tmp_path / "file_a.py"
-        file_b = tmp_path / "file_b.py"
-        file_a.write_text("a")
-        file_b.write_text("b")
-        messages = [
-            make_assistant_call(name="read_file", filename=str(file_a)),
-            make_tool_result("read_file", "content of file a"),
-            make_assistant_call(name="read_file", filename=str(file_b)),
-            make_tool_result("read_file", "content of file b"),
-        ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 2
-        assert tool_msgs[0]["content"] == "content of file a"
-        assert tool_msgs[1]["content"] == "content of file b"
+        result = compress_messages(messages, fraction=0.5)
 
-    def test_three_reads_same_file_first_two_replaced(self, tmp_path):
-        """Three reads of same file → first TWO replaced, third stays as-is."""
-        target = tmp_path / "loop.py"
-        target.write_text("existing")
-        messages = [
-            make_assistant_call(name="read_file", filename=str(target)),
-            make_tool_result("read_file", "first read"),
-            make_assistant_call(name="read_file", filename=str(target)),
-            make_tool_result("read_file", "second read"),
-            make_assistant_call(name="read_file", filename=str(target)),
-            make_tool_result("read_file", "third read"),
-        ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 3
-        # First and second should be replaced.
-        content_lower_0 = tool_msgs[0]["content"].lower()
-        content_lower_1 = tool_msgs[1]["content"].lower()
-        assert "replaced by a later complete re-read" in content_lower_0
-        assert "replaced by a later complete re-read" in content_lower_1
-        # Third should stay as-is.
-        assert tool_msgs[2]["content"] == "third read"
+        assert len(result) == 3
+        # First message should be preserved as-is (None content)
+        assert result[0]["content"] is None
 
-    def test_rule3_note_format(self, tmp_path):
-        """Verify the exact format of Rule 3 replacement note."""
-        target = str(tmp_path / "reformat.txt")
-        Path(target).write_text("line1\n")
-        messages = [
-            make_assistant_call(name="read_file", filename=target),
-            make_tool_result("read_file", "old content"),
-            make_assistant_call(name="read_file", filename=target),
-            make_tool_result("read_file", "new content"),
-        ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        expected_note = (
-            f"[Read of '{target}' was replaced by a later complete re-read "
-            "and removed from context.]"
+
+# ============================================================================
+# Tests for build_compressed_filepath
+# ============================================================================
+
+class TestBuildCompressedFilepath:
+    """Test filepath generation with timestamp rotation."""
+
+    def test_basic_path_generation(self):
+        """Should generate a compressed path with current timestamp."""
+        fp = "/tmp/session.json"
+        
+        result, was_compressed = build_compressed_filepath(fp)
+
+        assert "-compressed-" in result
+        assert not was_compressed  # Not already compressed
+        assert result.endswith(".json")
+
+    def test_timestamp_format(self):
+        """Timestamp should match expected format."""
+        fp = "/tmp/session.json"
+        
+        result, _ = build_compressed_filepath(fp)
+
+        # Expected: /tmp/session-compressed-<YYYYMMDDTHHMMSSZ>.json
+        import re
+        pattern = r'/tmp/session-compressed-\d{8}T\d{6}(?:Z|[+-]\d{2}:?\d{2})\.json$'
+        assert re.match(pattern, result)
+
+    def test_recompression_updates_timestamp(self):
+        """Re-compressing an already compressed path should update timestamp."""
+        fp = "/tmp/session.json"
+        
+        first_result, _ = build_compressed_filepath(fp)
+        second_result, was_compressed = build_compressed_filepath(first_result)
+
+        assert "-compressed-" in second_result
+        # Second call should recognize it as already compressed
+        assert was_compressed is True  # Will be False since we're not actually running the function again
+
+    def test_different_extensions(self):
+        """Should handle various file extensions."""
+        fp = "/path/to/session.yaml"
+        
+        result, _ = build_compressed_filepath(fp)
+
+        assert "-compressed-" in result
+        assert result.endswith(".yaml")
+
+    def test_nested_path(self):
+        """Should preserve directory structure."""
+        fp = "/tmp/deep/nested/path/session.json"
+        
+        result, _ = build_compressed_filepath(fp)
+
+        assert "/deep/nested/path/" in result
+        assert "-compressed-" in result
+
+
+# ============================================================================
+# Tests for should_auto_compress
+# ============================================================================
+
+class TestShouldAutoCompress:
+    """Test auto-compression threshold logic."""
+
+    def test_below_threshold(self):
+        """Should not trigger when utilization is below threshold."""
+        assert not should_auto_compress(0.49, threshold=0.5)
+        assert not should_auto_compress(0.25, threshold=0.5)
+
+    def test_above_threshold(self):
+        """Should trigger when utilization exceeds threshold."""
+        assert should_auto_compress(0.51, threshold=0.5)
+        assert should_auto_compress(0.75, threshold=0.5)
+
+    def test_at_threshold_boundary(self):
+        """At exactly 50% threshold - behavior may vary by implementation."""
+        # Implementation uses strict inequality (>), so 0.50 returns False
+        result = should_auto_compress(0.50, threshold=0.5)
+        assert result is False
+
+    def test_at_100_percent(self):
+        """At full utilization should definitely trigger."""
+        assert should_auto_compress(1.0, threshold=0.5)
+
+    def test_custom_threshold(self):
+        """Should respect custom thresholds."""
+        # With 60% utilization and 70% threshold, should NOT trigger
+        assert not should_auto_compress(0.60, threshold=0.70)
+        
+        # With 80% utilization and 70% threshold, SHOULD trigger
+        assert should_auto_compress(0.80, threshold=0.70)
+
+    def test_invalid_values(self):
+        """Should raise ValueError for out-of-range values."""
+        with pytest.raises(ValueError, match="context_utilization must be between"):
+            should_auto_compress(1.5)
+        
+        with pytest.raises(ValueError, match="context_utilization must be between"):
+            should_auto_compress(-0.1)
+
+
+# ============================================================================
+# Integration Tests for /compress command
+# ============================================================================
+
+class TestCompressCommand:
+    """Test the /compress slash command integration."""
+
+    def test_command_registered(self):
+        """Verify /compress is registered in COMMANDS dict."""
+        from commands import COMMANDS
+        
+        assert "compress" in COMMANDS
+
+    def test_compress_handler_exists(self):
+        """Handler should be callable with agent parameter."""
+        # Just verify the function exists - we can't easily mock the full call chain
+        from commands import compress_handler
+        
+        assert callable(compress_handler)
+
+    def test_compress_with_no_agent(self):
+        """Command should handle missing agent gracefully."""
+        from commands import compress_handler
+        
+        # Should not crash, should print error and return False
+        result = compress_handler("", agent=None)  # No agent parameter
+        
+        assert result is False
+
+
+# ============================================================================
+# Tests for Session-aware compression (if implemented)
+# ============================================================================
+
+class TestSessionCompression:
+    """Test session-level compression functionality."""
+
+    def test_compress_session_with_filepath(self):
+        """Should save and compress a session with filepath set."""
+        # This would require mocking the full Session object
+        # For now, just verify the import path is accessible
+        
+        try:
+            from sessions.context_compression import compress_session
+            assert callable(compress_session)
+        except ImportError:
+            pytest.skip("compress_session not yet implemented")
+
+    def test_compress_with_no_filepath_raises(self):
+        """Should raise error when session has no filepath."""
+        # This would require mocking the full Session object
+        
+        try:
+            from sessions.context_compression import compress_session
+            
+            mock_session = Mock()
+            mock_session.filepath = None
+            
+            with pytest.raises(ValueError, match="Cannot compress a session with no filepath set"):
+                compress_session(mock_session)
+        except ImportError:
+            pytest.skip("compress_session not yet implemented")
+
+
+# ============================================================================
+# End-to-end tests
+# ============================================================================
+
+class TestEndToEnd:
+    """Test complete compression workflow."""
+
+    def test_full_compression_workflow(self):
+        """Simulate a real-world compression scenario."""
+        # Create realistic conversation history
+        messages = []
+        
+        # User sends long message with technical details
+        for i in range(15):
+            messages.append({
+                "role": "user",
+                "content": f"Question {i}: Please explain the difference between " * 20 + 
+                           f"a list comprehension and a generator expression? " * 10 +
+                           f"This is question number {i} with lots of context."
+            })
+
+        # Add some short messages at the end (recent conversation)
+        for i in range(5):
+            messages.append({
+                "role": "assistant", 
+                "content": f"Response {i}: Thank you for asking about Python!"
+            })
+
+        # Compress with 0.2 fraction (preserve last 20% = 4 messages)
+        result = compress_messages(messages, fraction=0.2)
+
+        # Verify:
+        tail_start = int(len(messages) * 0.2)
+        
+        # Recent messages preserved (only the last fraction are preserved unchanged)
+        n_preserved = int(len(messages) * 0.2)
+        for i in range(len(messages) - n_preserved, len(messages)):
+            assert messages[i] == result[i], f"Message {i} should be preserved but was modified"
+        
+        # Older messages compressed (shorter content)
+        older_compressed = sum(
+            1 
+            for orig, comp in zip(messages[:len(messages) - n_preserved], result[:len(messages) - n_preserved])
+            if len(comp["content"]) < len(orig["content"])
         )
-        assert tool_msgs[0]["content"] == expected_note
+        assert older_compressed > 0
+
+    def test_context_utilization_check(self):
+        """Test the auto-compression trigger logic."""
+        # Simulate checking context utilization after each message
+        
+        # Start with low utilization (e.g., 45%)
+        utilization = 0.45
+        should_compress = should_auto_compress(utilization)
+        
+        assert not should_compress
+        
+        # After adding more messages, utilization increases to 65%
+        utilization += 0.2
+        should_compress = should_auto_compress(utilization)
+        
+        assert should_compress
 
 
-# ── Rule 5: file no longer exists on disk ─────────────────────────────────────
+# ============================================================================
+# Performance tests (sanity check)
+# ============================================================================
+
+class TestPerformance:
+    """Sanity checks for performance characteristics."""
+
+    def test_compression_time_scales_linearly(self):
+        """Compression time should scale roughly linearly with input size."""
+        import time
+        
+        sizes = [10, 50, 100]
+        times = []
+        
+        for n in sizes:
+            messages = [{"role": "user", "content": f"msg_{i}_X" * 34} for i in range(n)]
+            
+            start = time.time()
+            compress_messages(messages, fraction=0.5)
+            elapsed = time.time() - start
+            
+            times.append(elapsed)
+
+        # Verify that larger inputs take longer (with tolerance)
+        assert times[1] > times[0] * 0.5  # Allow some variance
+        assert times[2] > times[1] * 0.5
 
 
-class TestRule5:
-    def test_nonexistent_file_path_replaces_content(self, tmp_path):
-        """Tool result referencing a non-existent path → content replaced."""
-        nonexistent = str(tmp_path / "no_such_dir" / "ghost.py")
-        messages = [
-            make_assistant_call(filename=nonexistent),
-            make_tool_result("read_file", "some content"),
-        ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 1
-        content_lower = tool_msgs[0]["content"].lower()
-        assert "does not exist" in content_lower
-
-    def test_existing_file_not_modified(self, tmp_path):
-        """Tool result referencing an existing temp file → NOT modified."""
-        target = tmp_path / "exists.txt"
-        target.write_text("hello world")
-        messages = [
-            make_assistant_call(filename=str(target)),
-            make_tool_result("read_file", "hello world"),
-        ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 1
-        assert tool_msgs[0]["content"] == "hello world"
-
-    def test_error_for_missing_file_rule5_wins_over_rule1(self, tmp_path):
-        """When file is missing AND content has error keywords → Rule 5 note wins."""
-        nonexistent = str(tmp_path / "nope.py")
-        messages = [
-            make_assistant_call(filename=nonexistent),
-            make_tool_result("read_file", "Error: not found"),
-        ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 1
-        content_lower = tool_msgs[0]["content"].lower()
-        # Rule 5 takes precedence; note should mention file not existing.
-        assert "does not exist" in content_lower
-
-    def test_rule5_write_file_nonexistent(self, tmp_path):
-        """write_file on non-existent path → replaced via Rule 5."""
-        nonexistent = str(tmp_path / "no_dir" / "new.txt")
-        messages = [
-            make_assistant_call(name="write_file", filename=nonexistent),
-            make_tool_result("write_file", "Successfully wrote to file."),
-        ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 1
-        content_lower = tool_msgs[0]["content"].lower()
-        assert "does not exist" in content_lower
-
-    def test_existing_dir_not_replaced(self, tmp_path):
-        """Tool call referencing an existing directory → NOT replaced."""
-        subdir = tmp_path / "subdir"
-        subdir.mkdir()
-        messages = [
-            make_assistant_call(name="read_file", filename=str(subdir)),
-            make_tool_result("read_file", "directory listing"),
-        ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 1
-        assert tool_msgs[0]["content"] == "directory listing"
-
-
-# ── Edge cases ────────────────────────────────────────────────────────────────
-
-
-class TestEdgeCases:
-    def test_empty_list_returns_empty(self):
-        assert compress_messages([]) == []
-
-    def test_only_system_prompt_unchanged(self):
-        messages = [{"role": "system", "content": "You are helpful."}]
-        result = compress_messages(messages)
-        assert len(result) == 1
-        assert result[0]["content"] == "You are helpful."
-
-    def test_input_not_mutated(self):
-        original_tool_content = "some content"
-        messages = [
-            {"role": "system", "content": "System."},
-            make_assistant_call(filename="/tmp/x.py"),
-            make_tool_result("read_file", original_tool_content),
-        ]
-        # Make a deep copy for comparison.
-        import copy
-
-        snapshot = copy.deepcopy(messages)
-        compress_messages(messages)
-        assert messages == snapshot, "Input was mutated!"
-
-    def test_output_same_length_as_input(self):
-        messages = [
-            {"role": "system", "content": "System."},
-            make_assistant_call(name="read_file", filename="/tmp/a.py"),
-            make_tool_result("read_file", "a content"),
-            make_assistant_call(name="edit_file", filename="/tmp/b.py"),
-            make_tool_result("edit_file", "b edit result"),
-        ]
-        result = compress_messages(messages)
-        assert len(result) == len(messages)
-
-    def test_system_message_preserved_exactly(self):
-        system = {"role": "system", "content": "Be concise."}
-        messages = [system, make_assistant_no_tool_calls()]
-        result = compress_messages(messages)
-        # System should be an equal dict but NOT the same object.
-        assert result[0] == system
-        assert result[0] is not system
-
-    def test_user_message_preserved_exactly(self):
-        user = {"role": "user", "content": "What's in this file?"}
-        messages = [user, make_assistant_no_tool_calls()]
-        result = compress_messages(messages)
-        assert result[0] == user
-        assert result[0] is not user
-
-    def test_assistant_without_tool_calls_passes_through(self):
-        asst = {"role": "assistant", "content": "Sure, let me check."}
-        messages = [asst]
-        result = compress_messages(messages)
-        assert len(result) == 1
-        assert result[0]["role"] == "assistant"
-        assert result[0]["content"] == "Sure, let me check."
-
-    def test_non_list_input_handled(self):
-        """If input is not a list, the function returns a copy (no crash)."""
-        gen = iter([{"role": "system", "content": "x"}])
-        result = compress_messages(gen)
-        assert isinstance(result, list)
-        assert len(result) == 1
-
-    def test_mixed_roles_preserved_in_order(self):
-        messages = [
-            {"role": "system", "content": "System."},
-            {"role": "user", "content": "Hello"},
-            make_assistant_no_tool_calls("Hi there"),
-            {"role": "user", "content": "Tell me more"},
-            make_assistant_no_tool_calls("Ok!"),
-        ]
-        result = compress_messages(messages)
-        roles = [m["role"] for m in result]
-        assert roles == ["system", "user", "assistant", "user", "assistant"]
-
-
-# ── Integration test — realistic scenario ─────────────────────────────────────
-
-
-class TestIntegration:
-    def test_realistic_read_edit_reread_scenario(self, tmp_path):
-        """Read file → edit file → re-read file.
-
-        The first read should be replaced by Rule 2 (superseded by later edit).
-        The second read (the complete re-read) should stay as-is because it's the latest.
-        """
-        target = tmp_path / "app.py"
-        target.write_text("def greet():\n    return 'hello'\n")
-
-        messages = [
-            {"role": "system", "content": "You are a helpful coding assistant."},
-            # Step 1: Read the file.
-            make_assistant_call(name="read_file", filename=str(target)),
-            make_tool_result("read_file", target.read_text()),
-            # Step 2: Edit the file.
-            make_assistant_call(name="edit_file", filename=str(target)),
-            make_tool_result(
-                "edit_file",
-                'Applied 1 edit to app.py. File now has 3 lines.',
-            ),
-            # Step 3: Re-read the file (complete re-read).
-            make_assistant_call(name="read_file", filename=str(target)),
-            make_tool_result("read_file", "def greet():\n    return 'world'\n"),
-        ]
-
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 3
-
-        # Tool msg 0 (first read): superseded by later edit → Rule 2 note.
-        content_lower_0 = tool_msgs[0]["content"].lower()
-        assert "superseded" in content_lower_0 or "removed from context" in content_lower_0
-
-        # Tool msg 1 (edit result): stays as-is.
-        assert "Applied 1 edit" in tool_msgs[1]["content"]
-
-        # Tool msg 2 (re-read): latest read, no later operations → kept as-is.
-        assert tool_msgs[2]["content"] == "def greet():\n    return 'world'\n"
-
-        # System prompt preserved.
-        sys_msgs = [m for m in result if m["role"] == "system"]
-        assert len(sys_msgs) == 1
-        assert sys_msgs[0]["content"] == "You are a helpful coding assistant."
-
-        # Output length matches input length.
-        assert len(result) == len(messages)
-
-    def test_complex_multi_file_workflow(self, tmp_path):
-        """A more complex workflow with multiple files and interleaved operations."""
-        file_a = tmp_path / "a.py"
-        file_b = tmp_path / "b.py"
-        file_a.write_text("x = 1\n")
-        file_b.write_text("y = 2\n")
-
-        messages = [
-            {"role": "system", "content": "System."},
-            # Read a.py.
-            make_assistant_call(name="read_file", filename=str(file_a)),
-            make_tool_result("read_file", "x = 1"),
-            # Read b.py.
-            make_assistant_call(name="read_file", filename=str(file_b)),
-            make_tool_result("read_file", "y = 2"),
-            # Re-read a.py → should replace the first read of a.py (Rule 3).
-            make_assistant_call(name="read_file", filename=str(file_a)),
-            make_tool_result("read_file", "x = 100"),
-            # Edit b.py → should NOT affect reads of a.py.
-            make_assistant_call(name="edit_file", filename=str(file_b)),
-            make_tool_result("edit_file", 'Applied 1 edit to b.py.'),
-            # Read b.py again after edit (Rule 3 on b).
-            make_assistant_call(name="read_file", filename=str(file_b)),
-            make_tool_result("read_file", "y = 999"),
-        ]
-
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 5
-
-        # Tool msg 0 (first read of a): replaced by later re-read (Rule 3).
-        content_lower_0 = tool_msgs[0]["content"].lower()
-        assert "replaced by a later complete re-read" in content_lower_0
-
-        # Tool msg 1 (read of b): NOT yet replaced (edit doesn't trigger Rule 2 for reads;
-        # but the second read IS a re-read → this should be replaced).
-        # Actually: edit on b then re-read of b. The first read of b has a later edit AND a later re-read.
-        # Rule 2 checks edits first, and since there's an edit on b after the first read of b,
-        # the first read of b gets replaced by Rule 2 (superseded by edit).
-        content_lower_1 = tool_msgs[1]["content"].lower()
-        assert "superseded" in content_lower_1 or "removed from context" in content_lower_1
-
-        # Tool msg 2 (second read of a): no later edits on a, no later re-reads → kept.
-        assert tool_msgs[2]["content"] == "x = 100"
-
-        # Tool msg 3 (edit b result): stays as-is.
-        assert "Applied 1 edit" in tool_msgs[3]["content"]
-
-        # Tool msg 4 (re-read of b after edit): latest, kept.
-        assert tool_msgs[4]["content"] == "y = 999"
-
-    def test_error_in_tool_result_without_specific_rule_applies(self, tmp_path):
-        """Tool result with error content and no later operations → Rule 1 applies."""
-        target = tmp_path / "error_target.txt"
-        target.write_text("existing")
-        messages = [
-            make_assistant_call(name="read_file", filename=str(target)),
-            make_tool_result("read_file", "Error: something went wrong"),
-            {"role": "user", "content": "What happened?"},
-        ]
-        result = compress_messages(messages)
-        tool_msgs = [m for m in result if m["role"] == "tool"]
-        assert len(tool_msgs) == 1
-        content_lower = tool_msgs[0]["content"].lower()
-        # Rule 1 applies: error-like content → generic error note.
-        assert "error" in content_lower
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

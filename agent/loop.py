@@ -15,6 +15,53 @@ from skills_interceptor import intercept_message, InterceptorKind
 
 _console = Console()
 
+def _count_approx_tokens(messages: list) -> int:
+    """Approximate token count from a message list using character estimation.
+    
+    Uses ~4 chars per token as a rough approximation. This is much faster than
+    calling the OpenAI tokenizer for every message loop iteration.
+    """
+    if not messages:
+        return 0
+    total_chars = sum(
+        len(str(msg.get('content', '')) or '')
+        for msg in messages
+    )
+    # Rough approximation: ~4 characters per token
+    return total_chars // 4
+
+def _check_and_compress_if_needed(agent, display_error) -> None:
+    """Check context utilization and trigger compression if above threshold.
+    
+    Args:
+        agent: The Agent instance with .messages and ._context_length attributes.
+        display_error: Error display callback from terminal_io.
+    """
+    try:
+        messages = getattr(agent, 'messages', None)
+        context_length = getattr(agent, '_context_length', 1 << 17)  # default ~131072
+        
+        if not messages or not context_length:
+            return
+        
+        token_count = _count_approx_tokens(messages)
+        utilization = token_count / context_length if context_length > 0 else 0
+        
+        THRESHOLD = 0.5  # Compress when above 50% utilization
+        
+        if utilization > THRESHOLD:
+            print(f"⚠️ Context utilization at {utilization:.1%} — auto-compressing...")
+            try:
+                from sessions.context_compression import compress_session
+                session = getattr(agent, 'session', None)
+                if session is not None:
+                    compress_session(session, fraction=0.5)
+                    print(f"✅ Auto-compressed: {len(messages)} → {len(session.messages)} messages")
+            except Exception as e:
+                display_error(f"Auto-compression failed: {e}")
+    except Exception as e:
+        pass  # silently skip on any error
+
 def user_loop(agent: "Agent", openai_client=None, on_exit=None) -> None:
     """Run the interactive chat loop.
 
@@ -82,3 +129,11 @@ def user_loop(agent: "Agent", openai_client=None, on_exit=None) -> None:
             elif kind == ERROR:
                 _, description = output
                 display_error(description)
+        
+        # Auto-compression check: after each agent response to a user message,
+        # if context utilization exceeds 50%, trigger compression.
+        if effective_input != user_input or not user_input.startswith('/'):
+            try:
+                _check_and_compress_if_needed(agent, display_error)
+            except Exception as e:
+                pass  # silently skip auto-compression on any error

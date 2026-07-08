@@ -11,7 +11,6 @@ from agent.session_utils import (
     create_session_filename,
     ensure_sessions_dir,
 )
-from sessions.context_compression import compress_messages
 
 
 class Session:
@@ -36,6 +35,7 @@ class Session:
         self._injected_text: Optional[str] = None
         self._auto_save = auto_save
         self._agent_type_name: str = "main"
+        self.filepath = None
         
         # Generate a unique filename for this session at creation time (if auto-save is enabled)
         if auto_save:
@@ -101,27 +101,39 @@ class Session:
             )
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(yaml_content)
+            self.filepath = str(filepath)  # Set filepath after saving
 
         except Exception:
             # Silently fail - don't break the conversation flow if save fails.
             pass
 
-    def get_messages(self, compress: bool = True) -> list[dict]:
-        """Return the message list for sending to the LLM.
+    def save(self) -> None:
+        """Public method to trigger saving the session to disk."""
+        self._auto_save_session()
 
-        When *compress* is ``True`` (the default), obsolete tool results and
-        assistant messages are replaced with short placeholder notes so that the
-        model receives a shorter context window. Pass ``False`` when you need the
-        full uncompressed history (e.g., for export).
+    def _save_impl(self, new_filepath: str, save_state: bool = True) -> None:
+        """Internal helper to write messages to a specific filepath as JSON.
+        
+        Used by compress_session for compressed file output.
+        """
+        import json
+        from pathlib import Path
+        
+        # Ensure parent directory exists
+        Path(new_filepath).parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(new_filepath, 'w', encoding='utf-8') as f:
+            json.dump({"messages": self.messages}, f, ensure_ascii=False, indent=2)
+        
+        if save_state:
+            self.filepath = new_filepath
 
-        Args:
-            compress: If True, apply context compression before returning.
+    def get_messages(self) -> list[dict]:
+        """Return the full message list for sending to the LLM.
 
         Returns:
-            The (possibly compressed) conversation history including the system prompt.
+            The complete conversation history (including system prompt).
         """
-        if compress and len(self.messages) > 1:
-            return compress_messages(self.messages)
         return self.messages
 
     # -- injection API -------------------------------------------------------

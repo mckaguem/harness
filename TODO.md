@@ -3,13 +3,8 @@
 ## Context efficiency
 
 - Context compression
-    - Mark and truncate:
-        - tool calls with errors
-        - read call results if they have been invalidated by later edits
-        - read call results if there is a complete read later
-        - write call if contents invalidated by later edits
-        - read or write call if file doesn't exist anymore (moved, deleted, etc.)
-    - 
+    - Print out when auto compression happens
+    - Print out size of context before and after (% of max context)
 - Relevance realisation system
 
 ## Commands
@@ -39,7 +34,7 @@
 - Change theme for some things back to info (were changed to status)
 - Streaming responses (including thinking)
 - Textual TUI
-- Remove the extra line printed by read_file tool.
+- For subagents, give 1-line tool call summaries, prefix with agent name.
 - Change the tool result title to be like Result: Read File or something.  Probably don't need to say what the tool name is because it is in the box immediately above.
 - Context usage after tool calls.
 
