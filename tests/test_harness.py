@@ -118,9 +118,9 @@ class TestRunLoop:
         mock_agent._agent_type.model_name = "test-model"
         mock_client = MagicMock()
         
-        # Mock handle_prompt to yield a tool_call output
+        # Mock handle_prompt to yield a tool_call output (4-tuple as implementation expects).
         mock_agent.handle_prompt.return_value = [
-            ("tool_call", "execute_bash", '{"command": "ls"}')
+            ("tool_call", "execute_bash", '{"command": "ls"}', None),
         ]
         
         with patch("agent.loop.print_system"):
@@ -151,7 +151,7 @@ class TestRunLoop:
         mock_agent._agent_type.model_name = "test-model"
         mock_client = MagicMock()
         
-        # Mock handle_prompt to yield a tool_result output (3-tuple with ToolResult)
+        # Mock handle_prompt to yield a tool_result output (4-tuple as implementation expects).
         result_obj = ToolResult(
             llm_text="file1.txt\nfile2.txt",
             display_text="file1.txt\nfile2.txt",
@@ -160,7 +160,7 @@ class TestRunLoop:
             theme="status"
         )
         mock_agent.handle_prompt.return_value = [
-            ("tool_result", "execute_bash", result_obj)
+            ("tool_result", "execute_bash", result_obj, None),
         ]
         
         with patch("agent.loop.print_system"):
@@ -223,7 +223,7 @@ class TestRunLoop:
         mock_agent._agent_type.model_name = "test-model"
         mock_client = MagicMock()
         
-        # Mock handle_prompt to yield mixed outputs: response + tool_call + result
+        # Mock handle_prompt to yield mixed outputs: response + tool_call + result.
         result_obj = ToolResult(
             llm_text="file1.txt",
             display_text="file1.txt",
@@ -233,8 +233,8 @@ class TestRunLoop:
         )
         mock_agent.handle_prompt.return_value = [
             ("response", "Thinking...", {"eval_count": 5}),
-            ("tool_call", "execute_bash", '{"command": "ls"}'),
-            ("tool_result", "execute_bash", result_obj),
+            ("tool_call", "execute_bash", '{"command": "ls"}', None),
+            ("tool_result", "execute_bash", result_obj, None),
         ]
         
         with patch("agent.loop.print_system"):

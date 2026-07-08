@@ -11,6 +11,7 @@ from agent.session_utils import (
     create_session_filename,
     ensure_sessions_dir,
 )
+from sessions.context_compression import compress_messages
 
 
 class Session:
@@ -105,12 +106,22 @@ class Session:
             # Silently fail - don't break the conversation flow if save fails.
             pass
 
-    def get_messages(self) -> list[dict]:
-        """Return the full message list for sending to the LLM.
+    def get_messages(self, compress: bool = True) -> list[dict]:
+        """Return the message list for sending to the LLM.
+
+        When *compress* is ``True`` (the default), obsolete tool results and
+        assistant messages are replaced with short placeholder notes so that the
+        model receives a shorter context window. Pass ``False`` when you need the
+        full uncompressed history (e.g., for export).
+
+        Args:
+            compress: If True, apply context compression before returning.
 
         Returns:
-            The complete conversation history (including system prompt).
+            The (possibly compressed) conversation history including the system prompt.
         """
+        if compress and len(self.messages) > 1:
+            return compress_messages(self.messages)
         return self.messages
 
     # -- injection API -------------------------------------------------------

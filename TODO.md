@@ -14,9 +14,6 @@
 
 ## Commands
 
-- /new  - new session
-
-
 ## Skills
 
 - a bunch of usefull skills.
