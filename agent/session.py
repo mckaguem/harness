@@ -1,5 +1,6 @@
 """Session class — manages conversation history and context injection."""
 
+import json
 import os
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -138,6 +139,16 @@ class Session:
         the original unchanged. Otherwise wraps the content with structural delimiters
         so the LLM can distinguish injected state from new instructions.
 
+        The injected payload uses JSON format with explicit IDs for machine-readability:
+            {
+              "tasks": [
+                {"id": 1, "description": "...", "status": "pending"},
+                ...
+              ]
+            }
+        This is more reliable than markdown checkboxes because the LLM can parse JSON
+        deterministically and agents are less likely to reference a non-existent task ID.
+
         Args:
             message: A single message dict (should have role='user').
 
@@ -148,17 +159,17 @@ class Session:
         if not self._task_list or message.get("role") != "user":
             return message
 
-        # Get original content and task state markdown
+        # Get original content and structured JSON task list
         original_content = message["content"]
-        task_state_md = self._task_list.to_markdown()
+        task_json_payload = json.dumps(self._task_list.to_json_list(), indent=2)
 
-        # Wrap with explicit structural delimiters
+        # Wrap with explicit structural delimiters using JSON for machine-readability
         wrapped_content = f"""
 [SYSTEM STATE]
-The current state of your task execution list is:
-{task_state_md}
+The current state of your task execution list (JSON, IDs are 1-indexed):
+{task_json_payload}
 
-Execute the next logical step based on this state.
+Execute the next logical step based on this state. Only reference tasks by their explicit ID above.
 
 [USER NEW INSTRUCTION]
 {original_content}

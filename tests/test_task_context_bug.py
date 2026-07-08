@@ -15,7 +15,7 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 from tools.update_task_status import update_task_status
 from tools.tool_result import ToolResult
-from agent.task_list import TaskList
+from agent.task_list import TaskList, NextTaskInfo
 from agent.context import CURRENT_AGENT
 
 
@@ -28,25 +28,33 @@ class TestTaskContextIsolation:
         task_list = TaskList()
         task_list.initialize_tasks(["Task 1", "Task 2", "Task 3"])
         
-        # Verify we can update them all
-        assert task_list.update_status(1, "completed") is True
-        assert task_list.update_status(2, "in_progress") is True
-        assert task_list.update_status(3, "failed") is True
+        # Verify we can update them all (now returns tuple instead of bool)
+        success, _ = task_list.update_status(1, "completed")
+        assert success is True
+        
+        success, _ = task_list.update_status(2, "in_progress")
+        assert success is True
+        
+        success, _ = task_list.update_status(3, "failed")
+        assert success is True
 
     def test_update_task_status_returns_false_for_missing_tasks(self):
         """Verify that update_task_status returns False for non-existent task IDs."""
         task_list = TaskList()
         task_list.initialize_tasks(["Task 1", "Task 2"])
         
-        # Try to update a non-existent task ID
-        assert task_list.update_status(99, "completed") is False
+        # Try to update a non-existent task ID (now returns tuple instead of bool)
+        success, next_info = task_list.update_status(99, "completed")
+        assert success is False
+        # But should still return info about remaining tasks
+        assert next_info.has_next is True
 
     def test_update_task_status_uses_current_agent(self):
         """Verify that update_task_status uses the agent from CURRENT_AGENT."""
         # Create two agents with different task lists
         parent = Mock()
         mock_parent_task_list = MagicMock()
-        mock_parent_task_list.update_status.return_value = True
+        mock_parent_task_list.update_status.return_value = (True, NextTaskInfo())
         parent.task_list = mock_parent_task_list
         
         fake_child = Mock()

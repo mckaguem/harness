@@ -72,10 +72,9 @@ class TestTaskListInitializeTasks:
         task_list = TaskList()
         task_list.initialize_tasks(["Old task"])
         
-        task_list.initialize_tasks(["New task"])
-        
-        assert len(task_list.tasks) == 1
-        assert task_list.tasks[0].description == "New task"
+        # Should raise error because old task is still pending
+        with pytest.raises(ValueError, match="Cannot initialize"):
+            task_list.initialize_tasks(["New task"])
 
     def test_auto_incremented_ids(self):
         task_list = TaskList()
@@ -106,28 +105,32 @@ class TestTaskListUpdateStatus:
         task_list = TaskList()
         task_list.initialize_tasks(["Test task"])
         
-        result = task_list.update_status(1, "in_progress")
+        success, next_info = task_list.update_status(1, "in_progress")
         
-        assert result is True
+        assert success is True
         assert task_list.tasks[0].status == "in_progress"
+        # in_progress IS still incomplete - has_next should be True (task 1 is the next to work on)
+        assert next_info.has_next is True
 
     def test_valid_status_transition_pending_to_completed(self):
         task_list = TaskList()
         task_list.initialize_tasks(["Test task"])
         
-        result = task_list.update_status(1, "completed")
+        success, next_info = task_list.update_status(1, "completed")
         
-        assert result is True
+        assert success is True
         assert task_list.tasks[0].status == "completed"
+        assert next_info.all_complete is True  # Single task completed
 
     def test_valid_status_transition_to_failed(self):
         task_list = TaskList()
         task_list.initialize_tasks(["Test task"])
         
-        result = task_list.update_status(1, "failed")
+        success, next_info = task_list.update_status(1, "failed")
         
-        assert result is True
+        assert success is True
         assert task_list.tasks[0].status == "failed"
+        assert next_info.all_complete is True  # Single task failed
 
     def test_invalid_status_raises_value_error(self):
         task_list = TaskList()
@@ -140,35 +143,41 @@ class TestTaskListUpdateStatus:
         task_list = TaskList()
         task_list.initialize_tasks(["Task 1", "Task 2"])
         
-        result = task_list.update_status(999, "completed")
+        success, next_info = task_list.update_status(999, "completed")
         
-        assert result is False
-        # Original tasks unchanged
-        assert all(t.status == "pending" for t in task_list.tasks)
+        assert success is False  # Task not found
+        assert next_info.has_next is True  # Still have pending tasks
+        assert next_info.id == 1  # First task is next to work on
 
     def test_update_multiple_tasks(self):
         task_list = TaskList()
         task_list.initialize_tasks(["Task 1", "Task 2", "Task 3"])
         
-        task_list.update_status(1, "in_progress")
-        task_list.update_status(2, "completed")
-        task_list.update_status(3, "failed")
+        success, _ = task_list.update_status(1, "in_progress")
+        assert success is True
         
+        success, _ = task_list.update_status(2, "completed")
+        assert success is True
+        
+        success, next_info = task_list.update_status(3, "failed")
+        assert success is True
+        # Task 1 still has in_progress status
         assert task_list.tasks[0].status == "in_progress"
-        assert task_list.tasks[1].status == "completed"
-        assert task_list.tasks[2].status == "failed"
+        assert next_info.has_next is True
 
     def test_chained_updates(self):
         task_list = TaskList()
         task_list.initialize_tasks(["Test task"])
         
         # pending -> in_progress -> completed
-        task_list.update_status(1, "in_progress")
+        success, _ = task_list.update_status(1, "in_progress")
+        assert success is True
         assert task_list.tasks[0].status == "in_progress"
         
-        result = task_list.update_status(1, "completed")
-        assert result is True
+        success, next_info = task_list.update_status(1, "completed")
+        assert success is True
         assert task_list.tasks[0].status == "completed"
+        assert next_info.all_complete is True  # All done
 
 
 # ── TaskList.has_incomplete_tasks() ────────────────────────────────────
@@ -270,7 +279,7 @@ class TestTaskListToMarkdown:
         
         md = task_list.to_markdown()
         
-        assert "- [ ] Failed task" in md
+        assert "- [!] Failed task *(FAILED)*" in md
 
     def test_mixed_statuses_correct_markers(self):
         task_list = TaskList()

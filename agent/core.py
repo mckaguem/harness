@@ -220,8 +220,6 @@ or update their status to 'failed' before stopping.
                     block_dict = {"role": "user", "content": block_content}
                     prepared_block = self._session.prepare_message_for_injection(block_dict)
                     self._session.add_user_message(prepared_block["content"])
-                    
-                    print("incomplete tasks!")
                                      
                     continue
                     

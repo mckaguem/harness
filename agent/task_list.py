@@ -9,8 +9,8 @@ Each Agent instance maintains its own TaskList for independent task tracking,
 enabling multiple agents to operate concurrently without shared state conflicts.
 """
 
-from dataclasses import dataclass
-from typing import List
+from dataclasses import dataclass, field
+from typing import List, Optional
 
 
 # Valid status values for task lifecycle management
@@ -20,11 +20,11 @@ VALID_STATUSES = ("pending", "in_progress", "completed", "failed")
 @dataclass
 class Task:
     """Represents a single executable task within the agent's workflow."""
-    
+
     id: int
     description: str
     status: str = "pending"
-    
+
     def __post_init__(self):
         """Validate that status is one of the allowed values."""
         if self.status not in VALID_STATUSES:
@@ -32,33 +32,72 @@ class Task:
                 f"Invalid status '{self.status}'. Must be one of: {', '.join(VALID_STATUSES)}"
             )
 
+    def to_json(self) -> dict:
+        """Serialize this task to a JSON-compatible dictionary with explicit ID."""
+        return {
+            "id": self.id,
+            "description": self.description,
+            "status": self.status,
+        }
+
+
+@dataclass
+class NextTaskInfo:
+    """Information about the next uncompleted task, returned by update_status.
+
+    Used to guide agents toward the correct (1-indexed) task ID and to signal
+    when all tasks are complete so the caller can clear the list.
+    """
+
+    has_next: bool = False          # True if there is still a pending/in_progress task
+    id: Optional[int] = None        # The next uncompleted task's ID (1-indexed)
+    description: str = ""           # Description of that task
+    status: str = ""                # Its current status
+    all_complete: bool = False      # True when every task is completed or failed
+    message: str = ""               # Human-readable summary
+
 
 class TaskList:
     """Manages a collection of tasks and their lifecycle states.
-    
+
     This class provides methods to initialize, update, and query the state
     of multiple tasks. It's designed for concurrent agent environments where
     each Agent instance holds its own independent TaskList.
     """
-    
+
     def __init__(self):
         """Initialize an empty TaskList instance."""
         self.tasks: List[Task] = []
-    
+
+    # -- initialization ----------------------------------------------------
+
     def initialize_tasks(self, tasks: list[str]) -> None:
         """Clear existing tasks and populate with a new list.
-        
+
+        Raises ValueError if there are currently incomplete (pending/in_progress)
+        tasks remaining. Call :meth:`reset` to clear the list before re-initializing
+        in that case.
+
         Args:
             tasks: A list of task description strings. Each string becomes
                    the description for a new Task object with auto-incremented
                    IDs starting from 1 and status set to "pending".
-        
+
         Raises:
-            ValueError: If any task description is empty or None.
+            ValueError: If any task description is empty or None,
+                        or if there are incomplete tasks in the current list.
         """
         if not tasks:
             raise ValueError("Task list cannot be empty")
-        
+
+        # Guard against overwriting an unfinished task list silently
+        if self.tasks and any(t.status in ("pending", "in_progress") for t in self.tasks):
+            incomplete_ids = [t.id for t in self.tasks if t.status in ("pending", "in_progress")]
+            raise ValueError(
+                f"Cannot initialize: {len(incomplete_ids)} task(s) still incomplete "
+                f"(IDs: {', '.join(map(str, incomplete_ids))}). Call reset() first, or complete all tasks."
+            )
+
         self.tasks = []
         for i, desc in enumerate(tasks, start=1):
             if not desc or not desc.strip():
@@ -66,19 +105,27 @@ class TaskList:
             self.tasks.append(Task(
                 id=i,
                 description=desc.strip(),
-                status="pending"
+                status="pending",
             ))
-    
-    def update_status(self, task_id: int, status: str) -> bool:
+
+    def reset(self) -> None:
+        """Clear all tasks from the list. Called internally when completion is detected."""
+        self.tasks = []
+
+    # -- status update -----------------------------------------------------
+
+    def update_status(self, task_id: int, status: str) -> tuple[bool, NextTaskInfo]:
         """Update the status of a specific task.
-        
+
         Args:
-            task_id: The unique identifier of the task to update.
+            task_id: The unique identifier of the task to update (1-indexed).
             status: The new status value (must be one of VALID_STATUSES).
-        
+
         Returns:
-            True if the task was found and updated successfully, False otherwise.
-        
+            A tuple ``(success, next_task_info)`` where ``success`` is True if the
+            task was found and updated, and ``next_task_info`` describes what tasks
+            remain.  ``next_task_info`` always points agents toward the next ID to act on.
+
         Raises:
             ValueError: If the provided status is not in VALID_STATUSES.
         """
@@ -86,39 +133,76 @@ class TaskList:
             raise ValueError(
                 f"Invalid status '{status}'. Must be one of: {', '.join(VALID_STATUSES)}"
             )
-        
+
         for task in self.tasks:
             if task.id == task_id:
                 task.status = status
-                return True
-        
-        return False
-    
+                return True, self._build_next_task_info()
+
+        # Task not found — still return info about remaining tasks so the caller knows
+        return False, self._build_next_task_info()
+
+    def _build_next_task_info(self) -> NextTaskInfo:
+        """Build a NextTaskInfo describing the current state of remaining work."""
+        info = NextTaskInfo()
+        next_t = self.next_uncompleted_task()
+        if next_t is not None:
+            info.has_next = True
+            info.id = next_t.id
+            info.description = next_t.description
+            info.status = next_t.status
+            return info
+
+        # All tasks are done (completed or failed)
+        info.all_complete = len(self.tasks) > 0
+        if info.all_complete:
+            info.message = "All tasks have been completed or failed."
+        else:
+            info.message = "No tasks in list."
+        return info
+
+    # -- queries -----------------------------------------------------------
+
     def has_incomplete_tasks(self) -> bool:
         """Check if there are any tasks that haven't been completed or failed.
-        
-        A task is considered incomplete if its status is either "pending" or
-        "in_progress". Tasks with status "completed" or "failed" are excluded.
-        
-        Returns:
-            True if at least one task has an incomplete status, False otherwise.
+
+        Kept as a thin wrapper around ``not self.all_complete()`` plus an empty-list
+        guard, for callers (e.g. the core loop terminator) that only need the boolean.
         """
-        return any(task.status in ("pending", "in_progress") for task in self.tasks)
-    
+        return not (len(self.tasks) == 0 or self.all_complete())
+
+    def all_complete(self) -> bool:
+        """Return True if every task is completed or failed (no pending/in_progress remain)."""
+        return len(self.tasks) > 0 and not any(t.status in ("pending", "in_progress") for t in self.tasks)
+
+    def next_uncompleted_task(self) -> Optional[Task]:
+        """Return the first task that is still pending or in_progress, or None."""
+        for task in self.tasks:
+            if task.status in ("pending", "in_progress"):
+                return task
+        return None
+
+    # -- formatting (JSON + Markdown) --------------------------------------
+
+    def to_json_list(self) -> list[dict]:
+        """Render the full task list as a list of JSON-compatible dicts with explicit IDs."""
+        return [t.to_json() for t in self.tasks]
+
     def to_markdown(self) -> str:
         """Render the current task list state as a formatted markdown string.
-        
+
         The output is designed to be injected directly into LLM message payloads
         with clear visual delimiters and status indicators using checkbox syntax:
         - [x] for completed tasks (checkmark)
         - [*] for in-progress tasks (with CURRENT marker)
-        - [ ] for pending or failed tasks
-        
+        - [ ] for pending tasks (empty checkbox)
+        - [!] for failed tasks (exclamation mark, italic FAILED label)
+
         Returns:
             A string containing the formatted task list ready for context injection.
         """
         lines = ["### SYSTEM STATE: CURRENT TASK LIST"]
-        
+
         for task in self.tasks:
             if task.status == "completed":
                 marker = "[x]"
@@ -126,10 +210,13 @@ class TaskList:
             elif task.status == "in_progress":
                 marker = "[*]"
                 line = f"- {marker} {task.description} *(CURRENT)*"
-            else:  # pending or failed
+            elif task.status == "failed":
+                marker = "[!]"
+                line = f"- {marker} {task.description} *(FAILED)*"
+            else:  # pending
                 marker = "[ ]"
                 line = f"- {marker} {task.description}"
-            
+
             lines.append(line)
-        
+
         return "\n".join(lines)
