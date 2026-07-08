@@ -232,7 +232,20 @@ or update their status to 'failed' before stopping.
             
             for tool_call in message["tool_calls"]:
                 func_name = tool_call["function"]["name"]
-                args = json.loads(tool_call["function"]["arguments"])
+                raw_args = tool_call["function"]["arguments"]
+                # Attempt to parse JSON; if it fails, treat as an error and continue.
+                try:
+                    args = json.loads(raw_args)
+                except json.JSONDecodeError as exc:
+                    description = f"Tool call argument parsing failed: {exc}"
+                    # Produce an error result via the executor so the LLM can react.
+                    error_result = self._executor.make_error_result(func_name, description)
+                    # Record the tool result (error) in the session.
+                    self._session.add_tool_result(func_name, error_result.llm_text, tool_call["id"])
+                    # Yield an error event and skip further processing of this tool call.
+                    yield (ERROR, description)
+                    # Continue to next tool call (or next loop iteration).
+                    continue
                 
                 # Termination circuit breaker (Component 4): block submit_results if tasks remain.
                 if func_name == "submit_results" and self._task_list and self._task_list.has_incomplete_tasks():
@@ -246,6 +259,7 @@ or update their status to 'failed' before stopping.
                         loop_count += 1
                         continue
                 
+                # Prepare a pretty string representation of the arguments for the TOOL_CALL yield.
                 try:
                     if func_name == "initialize_task_list":
                         args_str = ""
@@ -270,7 +284,7 @@ or update their status to 'failed' before stopping.
                     yield (ERROR, description)
 
                 # Use session.add_tool_result instead of self.messages.append({"role":"tool",...})
-                self._session.add_tool_result(func_name, return_result.llm_text)
+                self._session.add_tool_result(func_name, return_result.llm_text, tool_call_id)
                 yield (TOOL_RESULT, func_name, return_result, response)
 
     @classmethod

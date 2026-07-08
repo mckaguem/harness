@@ -69,7 +69,7 @@ class Session:
         if self._auto_save:
             self._auto_save_session()
 
-    def add_tool_result(self, func_name: str, llm_text: str) -> None:
+    def add_tool_result(self, func_name: str, llm_text: str, tool_call_id: str) -> None:
         """Append a tool result message to the conversation.
 
         Args:
@@ -79,7 +79,8 @@ class Session:
         self.messages.append({
             "role": "tool",
             "content": llm_text,
-            "name": func_name,
+            #"name": func_name,
+            "tool_call_id": tool_call_id
         })
         if self._auto_save:
             self._auto_save_session()
