@@ -3,14 +3,8 @@
 from terminal_io.display import print_system
 
 
-def cmd_exit(rest: str, agent=None) -> bool | None:
-    """Handle the /exit command. Returns True to break the loop."""
-    print_system("Goodbye!", "See you next time.")
-    return True  # signal break
-
-
-def cmd_quit(rest: str, agent=None) -> bool | None:
-    """Handle the /quit command. Returns True to break the loop."""
+def _cmd_exit(_rest, agent=None) -> bool:
+    """Handle the /exit and /quit commands. Returns True to break the loop."""
     print_system("Goodbye!", "See you next time.")
     return True  # signal break
 
@@ -215,8 +209,8 @@ def cmd_load_session(rest: str, agent=None) -> bool | None:
 
 
 COMMANDS = {
-    'exit': cmd_exit,
-    'quit': cmd_quit,
+    'exit': _cmd_exit,
+    'quit': _cmd_exit,  # Same function, different name in dict
     'sub': cmd_sub,
     'tasks': cmd_tasks,
     'save': cmd_save_session,

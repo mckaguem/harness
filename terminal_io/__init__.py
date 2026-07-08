@@ -3,7 +3,7 @@
 
 # ── Public surface (re-exported from submodules) ───────────────────────
 
-from .speed import _format_speed
+from .speed import format_speed
 from .prompt import prompt_user
 from .display import (
     print_system,
@@ -15,7 +15,7 @@ from .display import (
 
 
 __all__ = [
-    "_format_speed",
+    "format_speed",
     "display_agent_response",
     "display_error",
     "display_tool_call",

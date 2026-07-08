@@ -1,11 +1,16 @@
 """User input prompt with readline support (arrow keys, history)."""
 
-import os
 from pathlib import Path
 
 
-def prompt_user() -> str:
+def prompt_user(prompt: str = None) -> str:
     """Display the user prompt and read *multi-line* input.
+
+    Parameters
+    ----------
+    prompt : str, optional
+        The prompt string to display before reading input. If None, a default
+        prompt is used.
 
     Features
     --------
@@ -41,7 +46,8 @@ def prompt_user() -> str:
 
     while True:
         try:
-            text = session.prompt("You> ", multiline=True)
+            display_prompt = prompt if prompt is not None else "You> "
+            text = session.prompt(display_prompt, multiline=True)
             if not text.strip():
                 continue  # skip accidental empty submissions
             return text

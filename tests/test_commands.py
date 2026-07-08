@@ -9,21 +9,21 @@ class TestCmdExit:
 
     @patch("builtins.print")
     def test_returns_true_to_break_loop(self, mock_print):
-        from commands import cmd_exit
-        result = cmd_exit("")
+        from commands import _cmd_exit
+        result = _cmd_exit("")
         assert result is True
 
     @patch("builtins.print")
     def test_calls_print_system_with_goodbye_message(self, mock_print):
-        from commands import cmd_exit
+        from commands import _cmd_exit
         with patch('commands.print_system') as mock_ps:
-            cmd_exit("")
+            _cmd_exit("")
             mock_ps.assert_called_once()
 
     @patch("builtins.print")
     def test_returns_true_for_non_empty_rest(self, mock_print):
-        from commands import cmd_exit
-        result = cmd_exit("  ")
+        from commands import _cmd_exit
+        result = _cmd_exit("  ")
         assert result is True
 
 
@@ -32,21 +32,21 @@ class TestCmdQuit:
 
     @patch("builtins.print")
     def test_returns_true_to_break_loop(self, mock_print):
-        from commands import cmd_quit
-        result = cmd_quit("")
+        from commands import _cmd_exit
+        result = _cmd_exit("")
         assert result is True
 
     @patch("builtins.print")
     def test_calls_print_system_with_goodbye_message(self, mock_print):
-        from commands import cmd_quit
+        from commands import _cmd_exit
         with patch('commands.print_system') as mock_ps:
-            cmd_quit("")
+            _cmd_exit("")
             mock_ps.assert_called_once()
 
     @patch("builtins.print")
     def test_returns_true_for_non_empty_rest(self, mock_print):
-        from commands import cmd_quit
-        result = cmd_quit("  ")
+        from commands import _cmd_exit
+        result = _cmd_exit("  ")
         assert result is True
 
 

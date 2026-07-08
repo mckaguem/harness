@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from agent import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
+
 
 class TestAgentTypeFromFile:
     """Tests for AgentType.from_file() YAML loading."""
@@ -555,7 +557,7 @@ class TestAgentHandlePrompt:
         
         # Third: RESPONSE
         kind, content, response = outputs[2]
-        assert kind == "response"
+        assert kind == RESPONSE
         assert content == "Done!"
 
     def test_yields_error_on_unknown_tool(self):
@@ -708,7 +710,7 @@ class TestAgentHandlePrompt:
 
     def test_handles_multiple_tool_calls(self):
         """Should handle multiple tool calls in one response."""
-        from agent import Agent, AgentType
+        from agent import Agent, AgentType, TOOL_CALL, TOOL_RESULT
         
         agent_type = AgentType(
             model_name="test",
@@ -751,15 +753,15 @@ class TestAgentHandlePrompt:
         assert len(outputs) == 5
         
         # First two: first tool call and result
-        assert outputs[0][0] == "tool_call"
-        assert outputs[1][0] == "tool_result"
+        assert outputs[0][0] == TOOL_CALL
+        assert outputs[1][0] == TOOL_RESULT
         
         # Next two: second tool call and result
-        assert outputs[2][0] == "tool_call"
-        assert outputs[3][0] == "tool_result"
+        assert outputs[2][0] == TOOL_CALL
+        assert outputs[3][0] == TOOL_RESULT
         
         # Final response
-        assert outputs[4][0] == "response"
+        assert outputs[4][0] == RESPONSE
 
     def test_calls_chat_with_correct_params(self):
         """Should call ollama chat with correct model, messages, tools."""
@@ -837,4 +839,4 @@ class TestAgentHandlePrompt:
         outputs = list(agent.handle_prompt("Test"))
         assert len(outputs) == 4
         kind_error = outputs[1][0]
-        assert kind_error == "error"
+        assert kind_error == ERROR

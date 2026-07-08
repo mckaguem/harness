@@ -1,17 +1,12 @@
 """Token-speed formatting for Ollama chat responses."""
 
-from rich.console import Console
 
-console = Console()
-
-
-def _format_speed(response: dict, context_length: int = 0,
+def format_speed(response: dict, context_length: int = 0,
                   prompt_token_count: int | None = None) -> str:
     """Extract and format tokens/sec and context usage from an Ollama chat response.
 
-    When ``prompt_token_count`` is supplied (e.g. via :func:`_tokenize_prompt` it
-    takes precedence over the possibly-zero ``prompt_eval_count`` that Ollama
-    returns after a cache hit.
+    When ``prompt_token_count`` is supplied it takes precedence over the
+    possibly-zero ``prompt_eval_count`` that Ollama returns after a cache hit.
 
     Produces two stats joined by `` | ``::
 

@@ -1,5 +1,6 @@
 """Interactive user loop for the agent harness."""
 
+from agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from terminal_io import (
     print_system, prompt_user,
     display_tool_call, display_tool_result, display_error,
@@ -62,15 +63,15 @@ def user_loop(agent: "Agent", openai_client=None, on_exit=None) -> None:
 
         for output in agent.handle_prompt(effective_input):
             kind = output[0]
-            if kind == "response":
+            if kind == RESPONSE:
                 _, content, ollama_response = output
                 display_agent_response(content, ollama_response, agent._context_length, None)
-            elif kind == "tool_call":
+            elif kind == TOOL_CALL:
                 _, func_name, args_str = output
                 display_tool_call(func_name, args_str)
-            elif kind == "tool_result":
+            elif kind == TOOL_RESULT:
                 _, func_name, result = output
                 display_tool_result(func_name, result)
-            else:  # ERROR
+            elif kind == ERROR:
                 _, description = output
                 display_error(description)

@@ -192,7 +192,7 @@ class TestRunLoop:
         
         # Mock handle_prompt to yield an error output
         mock_agent.handle_prompt.return_value = [
-            ("ERROR", "Connection timeout")
+            ("error", "Connection timeout")
         ]
         
         with patch("agent.loop.print_system"):

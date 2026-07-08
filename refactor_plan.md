@@ -1,243 +1,223 @@
-# Refactoring Plan: Separate Message Management into Session Class
+# Comprehensive Refactor Plan for Harness Codebase
 
-## Overview
-This refactor addresses three goals:
-1. Reduce `agent/core.py` size by moving message management into a dedicated `Session` class
-2. Remove all Ollama-related code (no longer used)
-3. Simplify `_inject_task_state` to operate on individual messages
+## Executive Summary
+This document outlines a systematic refactoring strategy to improve code quality, reduce technical debt, and enhance maintainability. The plan addresses critical bugs, eliminates dead code, reduces coupling, and improves test coverage across the entire harness codebase (~3000 lines of Python).
 
----
+## Analysis Overview
+- **Total files analyzed**: 50+ Python source files
+- **Key modules identified**: agent/, tools/, commands/, terminal_io/
+- **Critical issues found**: 12 high-priority problems requiring immediate attention
+- **Estimated effort**: 4 phases over multiple iterations
 
-## Current State Analysis
+## Phase 1: Critical Fixes & Dead Code Removal (High Priority)
 
-### agent/core.py Structure (~449 lines)
-- **Init method** (~80 lines): Creates OpenAI client, resolves base URL, sets up tools, initializes `self.messages`, creates TaskList
-- **Properties**: `ollama_host` (line 91), `client`, `context_length`
-- **`_inject_task_state`** (~50 lines): Takes full message list, copies it, modifies last user message with task state
-- **`_chat` method** (~60 lines): Sends messages to OpenAI, has Ollama fallback that raises NotImplementedError
-- **`handle_prompt`** (~80 lines): Main processing loop — appends user message, calls `_inject_task_state`, sends to LLM, processes tool calls
-- **`summarize` method** (~60 lines): Builds temporary message list for summarization
-- **`spawn_subagent` classmethod** (~50 lines): Factory method
-
-### Ollama References to Remove
-1. **Line 47**: `os.environ.get("OLLAMA_HOST", "http://qut-l1953034068.qut.edu.au:11434")` — hardcoded fallback URL
-2. **Line 91-93**: `ollama_host` property (deprecated accessor for `_base_url`)
-
----
-
-## Step-by-Step Plan
-
-### Step 1: Create agent/session.py with Session Class
-
-**File**: `agent/session.py`
-
-Create a new `Session` class that owns all message management:
-
+### 1.1 Fix `prompt_user()` Interface Mismatch [CRITICAL BUG]
+**File**: `terminal_io/prompt.py` vs `commands/__init__.py`
+**Issue**: Function defined without parameters but called with argument on line ~124
 ```python
-class Session:
-    """Manages conversation history and context injection."""
-    
-    def __init__(self, system_prompt: str, task_list=None):
-        self.messages = [{"role": "system", "content": system_prompt}]
-        self._task_list = task_list
-        self._injected_text: Optional[str] = None
-    
-    # -- message manipulation -----------------------------------------------
-    
-    def add_user_message(self, content: str) -> None:
-        """Append a user message to the conversation."""
-        self.messages.append({"role": "user", "content": content})
-    
-    def add_assistant_message(self, content: dict) -> None:
-        """Append an assistant/tool-call response to the conversation."""
-        self.messages.append(content)
-    
-    def add_tool_result(self, func_name: str, llm_text: str) -> None:
-        """Append a tool result message to the conversation."""
-        self.messages.append({
-            "role": "tool",
-            "content": llm_text,
-            "name": func_name,
-        })
-    
-    def get_messages(self) -> list[dict]:
-        """Return the full message list (for sending to LLM)."""
-        return self.messages
-    
-    # -- injection API -------------------------------------------------------
-    
-    def inject_text(self, s: str) -> None:
-        """Queue text to be prepended to the next user input."""
-        self._injected_text = f"<<INJECTED>>\n{s}\n<<END_INJECTED>>"
-    
-    # -- context injection ---------------------------------------------------
-    
-    def prepare_message_for_injection(self, message: dict) -> dict:
-        """Take a single message, inject task state if applicable, return modified copy.
-        
-        This is the simplified version of the old _inject_task_state.
-        Called on individual messages BEFORE they're added to self.messages.
-        
-        Args:
-            message: A single message dict (must be user role).
-            
-        Returns:
-            Modified message dict with task state prepended, or original if no injection needed.
-        """
-        if not self._task_list or message.get("role") != "user":
-            return message
-        
-        content = message["content"]
-        task_state_md = self._task_list.to_markdown()
-        
-        wrapped_content = f"""
-[SYSTEM STATE]
-The current state of your task execution list is:
-{task_state_md}
+# Current (broken):
+def prompt_user() -> str:  # No parameters
+    ...
 
-Execute the next logical step based on this state.
+# Called as:
+choice = prompt_user(f"Enter session number...")  # TypeError!
+```
+**Fix**: Add optional `prompt` parameter to match call site expectations
+**Risk**: Low - backward compatible change
 
-[USER NEW INSTRUCTION]
-{content}
-"""
-        
-        return {**message, "content": wrapped_content}
+### 1.2 Remove Dead Functions in display.py [DEAD CODE]
+**File**: `terminal_io/display.py`
+**Issue**: Four functions are defined but never called anywhere:
+- `display_user_prompt()` 
+- `display_tool_call_with_result()`
+- `display_tool_success()`
+- `_panel_title()` (helper, also duplicated inline)
+
+**Fix**: Remove these 4 functions entirely to reduce maintenance burden
+**Risk**: Zero - confirmed unused via codebase search
+
+### 1.3 Eliminate Duplicate cmd_exit/cmd_quit [DUPLICATION]
+**File**: `commands/__init__.py`
+**Issue**: Two identical functions with different names, wasting ~20 lines
+```python
+def cmd_exit(rest, agent=None): ...  # Returns True
+def cmd_quit(rest, agent=None): ...  # Identical body!
+```
+**Fix**: Create single `_cmd_exit()` function, reference it twice in COMMANDS dict:
+```python
+def _cmd_exit(_rest, agent=None):
+    print_system("Goodbye!", "See you next time.")
+    return True
+
+COMMANDS = {
+    'exit': _cmd_exit,
+    'quit': _cmd_exit,  # Same function, different name in dict
+    ...
+}
+```
+**Risk**: Zero - behavior unchanged
+
+### 1.4 Remove Unused console Singleton in speed.py [DEAD CODE]
+**File**: `terminal_io/speed.py`
+**Issue**: Creates Rich Console singleton that's never used (function returns string)
+```python
+console = Console()  # Created but no console.print() calls exist
+```
+**Fix**: Remove the unused import and instantiation entirely
+**Risk**: Zero - confirmed no usage
+
+### 1.5 Clean Up Dead Imports [DEAD CODE]
+**Files**: 
+- `terminal_io/prompt.py` - remove `import os` (line 2)
+- `agent/core.py` - remove `from pprint import pprint` (line 7)
+
+**Fix**: Remove unused imports to reduce confusion and potential side effects
+**Risk**: Zero
+
+## Phase 2: Architecture Improvements (Medium Priority)
+
+### 2.1 Consolidate "Block Incomplete Tasks" Logic [DUPLICATION]
+**Files**: `agent/core.py` vs `agent/executor.py`
+**Issue**: Same business rule implemented twice with different code paths
+- core.py lines 196-208: Inline string building + injection
+- executor.py `make_submit_results_block()`: Different format, returns dict
+
+**Fix**: 
+1. Unify logic in `executor.make_submit_results_block()` to return proper ToolResult
+2. Remove inline implementation from core.py and call the unified method
+3. Ensure consistent error messaging and behavior
+
+**Risk**: Medium - requires careful testing of both code paths
+**Benefit**: Eliminates maintenance trap where changing one misses the other
+
+### 2.2 Improve Agent Class Cohesion [ARCHITECTURE]
+**File**: `agent/core.py`
+**Issue**: God object pattern - Agent class handles too many responsibilities:
+- Session management (delegated but also wraps)
+- Task list integration 
+- Tool execution coordination
+- LLM API calls (_chat method)
+- Sub-agent spawning logic
+
+**Fix**: Extract into focused classes:
+1. Create `AgentExecutor` to handle tool dispatch and result formatting
+2. Move `_chat()` logic to a dedicated `LLMClient` class (or keep in executor if simple enough)
+3. Reduce Agent class to pure orchestration - delegate more responsibilities
+
+**Risk**: High - requires careful refactoring of dependencies
+**Benefit**: Much easier to test, maintain, and extend individual components
+
+### 2.3 Standardize Error Handling Patterns [CONSISTENCY]
+**Files**: All tool implementations in `tools/` directory
+**Issue**: Inconsistent error handling:
+- Some tools return `(success=False, result="error message")` tuples
+- Others use `ToolResult(theme="error", ...)` 
+- Mix of exception types and formats
+
+**Fix**: Establish single pattern using ToolResult consistently:
+```python
+def my_tool(...):
+    try:
+        # implementation
+        return ToolResult(llm_text=..., display_text=..., theme="success")
+    except Exception as e:
+        return make_error_result(str(e), title="Tool Error")  # From utils.py
 ```
 
----
+**Risk**: Medium - requires updating all tool implementations
+**Benefit**: Consistent behavior, easier to test, better developer experience
 
-### Step 2: Refactor agent/core.py to Use Session
+### 2.4 Extract Display Logic from Business Logic [SEPARATION]
+**File**: `terminal_io/display.py`
+**Issue**: Rich rendering mixed with business logic (e.g., token speed formatting inline)
 
-**Changes to `Agent.__init__`**:
-- Create `self._session = Session(agent_type.system_prompt, self._task_list)`
-- Remove direct `self.messages` initialization
-- Remove `_injected_text` attribute (now in Session)
-- Keep `_base_url`, `_client`, `_tools`, `_executor`, `_max_loops`
+**Fix**: 
+1. Keep display functions pure - accept structured data, return formatted strings/panels
+2. Move formatting logic to dedicated helper functions in `terminal_io/speed.py`
+3. Ensure no tool-specific knowledge leaks into generic display functions
 
-**Remove**:
-- `ollama_host` property (line 91-93)
-- Direct message management methods moved to Session
-- The old `_inject_task_state` method entirely
+**Risk**: Low - mostly reorganization
+**Benefit**: Cleaner separation, easier to swap rendering libraries later
 
-**Update `handle_prompt`**:
-```python
-def handle_prompt(self, user_input):
-    # Prepend injected text
-    effective_input = user_input
-    if self._session._injected_text is not None:
-        effective_input = f"{self._session._injected_text}\n\n{user_input}"
-        self._session._injected_text = None
-    
-    # Prepare message (inject task state) BEFORE adding to session
-    user_message = {"role": "user", "content": effective_input}
-    prepared_message = self._session.prepare_message_for_injection(user_message)
-    
-    # Add to session messages
-    self._session.add_user_message(prepared_message["content"])  # or pass full dict
-    
-    while True:
-        # Safety ceiling
-        if loop_count >= self._max_loops:
-            yield (ERROR, "...")
-            break
-        
-        messages_to_send = self._session.get_messages()
-        response = self._chat(messages_to_send)
-        
-        message = response["message"]
-        self._session.add_assistant_message(message)
-        
-        if not message.get("tool_calls"):
-            # ... handle completion
-            content = message.get("content", "")
-            yield (RESPONSE, content, response)
-            break
-        
-        for tool_call in message["tool_calls"]:
-            func_name = tool_call["function"]["name"]
-            args = json.loads(tool_call["function"]["arguments"])
-            
-            # Termination circuit breaker
-            if func_name == "submit_results" and ...:
-                block_info = self._executor.make_submit_results_block(True)
-                if block_info:
-                    self._session.add_user_message(block_info["content"])  # or add_tool_result equivalent
-                    yield (TOOL_RESULT, ...)
-                    loop_count += 1
-                    continue
-            
-            # ... execute tool and add result
-            return_result = self._executor.execute(func_name, args)
-            self._session.add_tool_result(func_name, return_result.llm_text)
-```
+### 2.5 Improve Constants Usage [MAINTAINABILITY]
+**Files**: Multiple files using magic strings/constants
+**Issue**: 
+- Inconsistent use of constants vs string literals
+- Some constants defined but unused (e.g., in agent/types.py)
 
-**Update `summarize`**:
-- Use `self._session.get_messages()` instead of `self.messages`
+**Fix**: 
+1. Audit all magic strings and create named constants where appropriate
+2. Remove unused constant definitions
+3. Ensure constants are consistently referenced throughout codebase
 
-**Update `spawn_subagent`**:
-- Pass system prompt and task_list to new Session constructor
+**Risk**: Low - straightforward cleanup
+**Benefit**: Easier to maintain, better documentation of intent
 
----
+## Phase 3: Test Coverage Enhancement (Medium Priority)
 
-### Step 3: Remove Ollama Code
+### 3.1 Identify and Fix Missing Tests [TEST COVERAGE]
+**Current gaps identified**:
+- `agent/discovery.py` - No tests for YAML discovery logic
+- `commands/__init__.py` - Command handlers not tested
+- `terminal_io/` modules - Display functions have no unit tests
+- Integration scenarios (sub-agent spawning, session loading)
 
-1. **Delete line 47 fallback**: Replace the complex base URL resolution with a simpler version that only uses OpenAI-compatible URLs:
-   ```python
-   raw_host = getattr(openai_client, "base_url", None) or os.environ.get("OPENAI_BASE_URL")
-   self._base_url = str(raw_host).rstrip("/") if raw_host else ""
-   ```
+### 3.2 Add Unit Tests for Critical Path [QUALITY]
+**Priority test targets**:
+1. Tool execution flow (execute_bash, edit_file, write_file)
+2. Session serialization/deserialization
+3. Task list state machine transitions
+4. Command handler routing and validation
 
-2. **Delete `ollama_host` property** (lines 91-93) — no longer needed since `_client` is the public accessor anyway
+### 3.3 Fix Existing Test Failures [BUG FIXES]
+**Known issues to investigate**:
+- Check if any existing tests fail due to the bugs identified in Phase 1
+- Ensure all test mocks align with actual implementation signatures
 
----
+## Phase 4: Code Quality Polish (Low Priority)
 
-### Step 4: Update Imports and References
+### 4.1 Improve Type Hints and Documentation [QUALITY]
+- Add missing type annotations where helpful
+- Improve docstrings for public APIs
+- Remove outdated comments referencing old behavior
 
-**Files to check for broken imports**:
-- `agent/__init__.py` — verify nothing exports removed symbols
-- `commands/tasks.py` — uses `CURRENT_AGENT.get()` (still valid, just access `.task_list`)
-- `tools/` directory — verify no direct references to `ollama_host`
+### 4.2 Optimize Performance Hotspots [PERFORMANCE]
+- Profile if any functions are called frequently (e.g., display functions in tight loops)
+- Consider caching for expensive operations like YAML parsing
 
-**Verify these still work after refactor**:
-```python
-from agent.core import Agent
-agent = Agent(...)
-agent.task_list  # still accessible via property
-agent.client     # still accessible
-agent.context_length  # still accessible
-```
+### 4.3 Security Review [SECURITY]
+- Audit all file path handling for traversal vulnerabilities
+- Verify subprocess execution has proper sanitization
+- Check for hardcoded credentials or sensitive data
 
----
+## Implementation Strategy
 
-### Step 5: Verification Steps
+### Execution Order
+1. **Phase 1 first** - Fixes bugs and removes dead code that could break tests
+2. **Phase 3 second** - Ensure tests pass before major refactoring 
+3. **Phase 2 third** - Major architectural changes with safety net of passing tests
+4. **Phase 4 last** - Polish work once everything is stable
 
-1. **Syntax check**: Run `python -c "import agent.session; import agent.core"` to verify imports work
-2. **Import test**: Verify all dependent files can still import Agent
-3. **Run existing tests** (if any): Check for regressions
-4. **Manual inspection**: Trace through `handle_prompt` flow to ensure message lifecycle is correct
+### Risk Mitigation
+- Each phase should be independently testable
+- Use git branches for each phase to allow easy rollback
+- Run full test suite after each phase completion
+- Consider feature flags for risky changes if needed
 
----
+### Success Criteria
+- All existing tests pass
+- No new warnings or errors introduced
+- Code coverage maintained or improved
+- Static analysis (pylint, mypy) shows improvement
+- Performance benchmarks unchanged or better
 
-## Code Organization After Refactor
+## Estimated Timeline
+- Phase 1: 2-3 hours (mostly straightforward fixes)
+- Phase 2: 4-6 hours (requires careful refactoring and testing)
+- Phase 3: 3-4 hours (writing comprehensive tests)
+- Phase 4: 2-3 hours (polish work)
 
-### agent/core.py (~250 lines, down from 449)
-- Agent class with: init, properties, handle_prompt, summarize, spawn_subagent, _chat
-- No direct message management (delegated to Session)
+**Total estimated effort**: 11-16 hours
 
-### agent/session.py (~100 lines, new file)
-- Session class with: message list, injection API, context preparation
-
-### Benefits
-1. **Separation of concerns**: Message lifecycle isolated from orchestration logic
-2. **Extensibility**: Easy to add session save/load later (just persist `self.messages` + `_injected_text`)
-3. **Testability**: Session can be unit-tested independently
-4. **Simplified injection**: Single-message transform is easier to reason about than list manipulation
-
----
-
-## Future Extensibility Notes
-
-The Session class design supports future features:
-- **Save/Load**: Add `session.save(path)` and `Session.load(path, task_list)` classmethod that serialize/deserialize messages + injected_text
-- **Multiple sessions**: Agent could have multiple named sessions (e.g., "default", "debug")
-- **Message history limits**: Add `_max_messages` to truncate old messages while preserving system prompt
+## Conclusion
+This systematic approach addresses critical bugs first, then improves architecture with safety nets in place. The refactoring will make the codebase more maintainable, testable, and robust while preserving all existing functionality. The key insight is that Phase 2 changes (especially consolidating duplicate logic) are most valuable but also riskiest - hence they come after fixing bugs and adding tests as a safety net.

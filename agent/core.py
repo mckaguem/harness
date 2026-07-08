@@ -3,7 +3,6 @@
 import json
 import os
 from typing import Dict, Generator, List, Optional, TYPE_CHECKING
-from pprint import pprint
 
 if TYPE_CHECKING:
     from agent.task_list import TaskList
