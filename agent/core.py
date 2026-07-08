@@ -233,6 +233,8 @@ or update their status to 'failed' before stopping.
             for tool_call in message["tool_calls"]:
                 func_name = tool_call["function"]["name"]
                 raw_args = tool_call["function"]["arguments"]
+                tool_call_id = tool_call["id"]
+                
                 # Attempt to parse JSON; if it fails, treat as an error and continue.
                 try:
                     args = json.loads(raw_args)
