@@ -7,21 +7,19 @@ import pytest
 class TestCmdExit:
     """Tests for the /exit command handler."""
 
-    @patch("builtins.print")
-    def test_returns_true_to_break_loop(self, mock_print):
+    def test_returns_true_to_break_loop(self):
         from commands import _cmd_exit
         result = _cmd_exit("")
         assert result is True
 
-    @patch("builtins.print")
-    def test_calls_print_system_with_goodbye_message(self, mock_print):
+    @patch('commands.exit_quit.print_system')
+    def test_calls_print_system_with_goodbye_message(self, mock_ps):
+        # Import after patching
         from commands import _cmd_exit
-        with patch('commands.print_system') as mock_ps:
-            _cmd_exit("")
-            mock_ps.assert_called_once()
+        _cmd_exit("")
+        mock_ps.assert_called_once()
 
-    @patch("builtins.print")
-    def test_returns_true_for_non_empty_rest(self, mock_print):
+    def test_returns_true_for_non_empty_rest(self):
         from commands import _cmd_exit
         result = _cmd_exit("  ")
         assert result is True
@@ -30,21 +28,19 @@ class TestCmdExit:
 class TestCmdQuit:
     """Tests for the /quit command handler."""
 
-    @patch("builtins.print")
-    def test_returns_true_to_break_loop(self, mock_print):
+    def test_returns_true_to_break_loop(self):
         from commands import _cmd_exit
         result = _cmd_exit("")
         assert result is True
 
-    @patch("builtins.print")
-    def test_calls_print_system_with_goodbye_message(self, mock_print):
+    @patch('commands.exit_quit.print_system')
+    def test_calls_print_system_with_goodbye_message(self, mock_ps):
+        # Import after patching
         from commands import _cmd_exit
-        with patch('commands.print_system') as mock_ps:
-            _cmd_exit("")
-            mock_ps.assert_called_once()
+        _cmd_exit("")
+        mock_ps.assert_called_once()
 
-    @patch("builtins.print")
-    def test_returns_true_for_non_empty_rest(self, mock_print):
+    def test_returns_true_for_non_empty_rest(self):
         from commands import _cmd_exit
         result = _cmd_exit("  ")
         assert result is True
