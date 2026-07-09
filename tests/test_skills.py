@@ -50,7 +50,7 @@ description: This should fail validation.
     
     def test_discover_valid_skills(self):
         """Test that valid skills are discovered correctly."""
-        from skills_discovery import discover_skills
+        from skills.discovery import discover_skills
         
         skills = discover_skills([Path(self.temp_dir)])
         
@@ -63,7 +63,7 @@ description: This should fail validation.
     
     def test_skip_invalid_name_mismatch(self):
         """Test that skills with mismatched names are skipped."""
-        from skills_discovery import discover_skills
+        from skills.discovery import discover_skills
         
         skills = discover_skills([Path(self.temp_dir)])
         
@@ -73,7 +73,7 @@ description: This should fail validation.
     
     def test_format_skill_catalog(self):
         """Test catalog formatting for system prompt injection."""
-        from skills_discovery import discover_skills, format_skill_catalog
+        from skills.discovery import discover_skills, format_skill_catalog
         
         skills = discover_skills([Path(self.temp_dir)])
         catalog = format_skill_catalog(skills)
@@ -84,7 +84,7 @@ description: This should fail validation.
     
     def test_missing_skil_md(self):
         """Test handling of missing SKILL.md."""
-        from skills_discovery import parse_skill_metadata
+        from skills.discovery import parse_skill_metadata
         
         bad_dir = Path(self.temp_dir) / "no-skil-md"
         bad_dir.mkdir(parents=True, exist_ok=True)
@@ -200,7 +200,7 @@ description: Full integration test skill with scripts and references.
     
     def test_full_workflow(self):
         """Test complete discovery → activation workflow."""
-        from skills_discovery import discover_skills, format_skill_catalog
+        from skills.discovery import discover_skills, format_skill_catalog
         from tools.activate_skill import activate_skill
         
         # Phase 1: Discovery

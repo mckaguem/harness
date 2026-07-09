@@ -13,7 +13,7 @@ from terminal_io import (
 from commands import COMMANDS
 from agent import Agent, AgentType, user_loop
 from tools import AGENT_TOOLS
-from skills_discovery import discover_skills, format_skill_catalog
+from skills.discovery import discover_skills, format_skill_catalog
 from agent.discovery import discover_agents
 
 

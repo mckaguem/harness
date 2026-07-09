@@ -10,7 +10,7 @@ from terminal_io import (
     display_agent_response, format_speed,
 )
 from commands import COMMANDS
-from skills_interceptor import intercept_message, InterceptorKind
+from skills.interceptor import intercept_message, InterceptorKind
 
 
 _console = Console()

@@ -7,7 +7,7 @@ import pytest
 
 from terminal_io import format_speed
 
-from model_utils import get_context_length
+from model.utils import get_context_length
 
 
 # ── Speed formatting ────────────────────────────────────────────────────

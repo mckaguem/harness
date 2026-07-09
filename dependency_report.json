@@ -1,0 +1,751 @@
+{
+  "module_categories": {
+    "skills": [
+      "skills_discovery",
+      "skills_interceptor"
+    ],
+    "utils": [
+      "model_utils"
+    ],
+    "config": [
+      "config"
+    ],
+    "other": [
+      ".harness_py.skills.sample-skill.scripts.test",
+      "dependency_analyzer",
+      "original_source",
+      "sample_config.skills.sample-skill.scripts.test",
+      "sessions.__init__",
+      "sessions.context_compression"
+    ],
+    "main": [
+      "harness"
+    ],
+    "tools": [
+      "tools.__init__",
+      "tools.activate_skill",
+      "tools.dispatcher",
+      "tools.edit_file",
+      "tools.execute_bash",
+      "tools.grep",
+      "tools.initialize_task_list",
+      "tools.read_file",
+      "tools.run_subagent",
+      "tools.submit_results",
+      "tools.tool_result",
+      "tools.update_task_status",
+      "tools.utils",
+      "tools.web_fetch",
+      "tools.web_search",
+      "tools.write_file"
+    ],
+    "commands": [
+      "commands.__init__",
+      "commands.sub",
+      "commands.tasks"
+    ],
+    "tests": [
+      "tests.__init__",
+      "tests.test_agent",
+      "tests.test_commands",
+      "tests.test_context_compression",
+      "tests.test_discovery",
+      "tests.test_dispatcher",
+      "tests.test_edit_file",
+      "tests.test_executor",
+      "tests.test_grep",
+      "tests.test_harness",
+      "tests.test_run_subagent",
+      "tests.test_skills",
+      "tests.test_task_context_bug",
+      "tests.test_task_list",
+      "tests.test_tasks_command",
+      "tests.test_terminal_display",
+      "tests.test_terminal_io",
+      "tests.test_tools"
+    ],
+    "session": [
+      "session.__init__",
+      "session.context_compression",
+      "session.session",
+      "session.session_utils"
+    ],
+    "agent": [
+      "agent.__init__",
+      "agent.constants",
+      "agent.context",
+      "agent.core",
+      "agent.discovery",
+      "agent.executor",
+      "agent.loop",
+      "agent.session",
+      "agent.session_utils",
+      "agent.task_list",
+      "agent.types",
+      "agent.utils"
+    ],
+    "terminal_io": [
+      "terminal_io.__init__",
+      "terminal_io.display",
+      "terminal_io.prompt",
+      "terminal_io.speed"
+    ]
+  },
+  "dependency_graph": {
+    "skills_interceptor": [
+      "[EXTERNAL] __future__",
+      "[EXTERNAL] dataclasses",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] re",
+      "[EXTERNAL] typing",
+      "config",
+      "skills_discovery"
+    ],
+    "model_utils": [
+      "[EXTERNAL] json",
+      "[EXTERNAL] os",
+      "[EXTERNAL] urllib.error",
+      "[EXTERNAL] urllib.request"
+    ],
+    "config": [
+      "[EXTERNAL] os",
+      "[EXTERNAL] pathlib"
+    ],
+    "dependency_analyzer": [
+      "[EXTERNAL] ast",
+      "[EXTERNAL] collections",
+      "[EXTERNAL] json",
+      "[EXTERNAL] os",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] typing"
+    ],
+    "harness": [
+      "[EXTERNAL] agent",
+      "[EXTERNAL] commands",
+      "[EXTERNAL] openai",
+      "[EXTERNAL] os",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] sys",
+      "[EXTERNAL] terminal_io",
+      "[EXTERNAL] tools",
+      "agent.discovery",
+      "skills_discovery"
+    ],
+    "skills_discovery": [
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] re",
+      "[EXTERNAL] typing",
+      "[EXTERNAL] yaml",
+      "config"
+    ],
+    "original_source": [
+      "[EXTERNAL] ollama",
+      "[EXTERNAL] os",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] subprocess"
+    ],
+    "tools.tool_result": [
+      "[EXTERNAL] dataclasses"
+    ],
+    "tools.utils": [
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] re",
+      "tools.tool_result"
+    ],
+    "tools.update_task_status": [
+      "agent.core",
+      "tools.tool_result",
+      "tools.utils"
+    ],
+    "tools.initialize_task_list": [
+      "agent.core",
+      "tools.tool_result",
+      "tools.utils"
+    ],
+    "tools.web_search": [
+      "[EXTERNAL] ddgs",
+      "tools.tool_result",
+      "tools.utils"
+    ],
+    "tools.__init__": [
+      "[EXTERNAL] importlib.util",
+      "[EXTERNAL] pathlib"
+    ],
+    "tools.web_fetch": [
+      "[EXTERNAL] json",
+      "[EXTERNAL] urllib.error",
+      "[EXTERNAL] urllib.request",
+      "tools.tool_result",
+      "tools.utils"
+    ],
+    "tools.submit_results": [
+      "[EXTERNAL] json",
+      "tools.tool_result",
+      "tools.utils"
+    ],
+    "tools.execute_bash": [
+      "[EXTERNAL] subprocess",
+      "tools.tool_result",
+      "tools.utils"
+    ],
+    "tools.read_file": [
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] rich.console",
+      "tools.tool_result",
+      "tools.utils"
+    ],
+    "tools.run_subagent": [
+      "[EXTERNAL] agent",
+      "[EXTERNAL] json",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] typing",
+      "agent.context",
+      "agent.discovery",
+      "config",
+      "tools.dispatcher",
+      "tools.submit_results",
+      "tools.tool_result",
+      "tools.utils"
+    ],
+    "tools.activate_skill": [
+      "[EXTERNAL] pathlib",
+      "skills_discovery",
+      "tools.tool_result",
+      "tools.utils"
+    ],
+    "tools.edit_file": [
+      "tools.tool_result",
+      "tools.utils"
+    ],
+    "tools.dispatcher": [
+      "tools.tool_result"
+    ],
+    "tools.write_file": [
+      "[EXTERNAL] json",
+      "tools.tool_result",
+      "tools.utils"
+    ],
+    "tools.grep": [
+      "[EXTERNAL] fnmatch",
+      "[EXTERNAL] os",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] re",
+      "tools.tool_result",
+      "tools.utils"
+    ],
+    "sessions.context_compression": [
+      "[EXTERNAL] datetime",
+      "[EXTERNAL] re"
+    ],
+    "commands.sub": [
+      "[EXTERNAL] agent",
+      "[EXTERNAL] tools",
+      "terminal_io.display"
+    ],
+    "commands.__init__": [
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] traceback",
+      "commands.sub",
+      "commands.tasks",
+      "session.context_compression",
+      "session.session",
+      "session.session_utils",
+      "terminal_io.display",
+      "terminal_io.prompt"
+    ],
+    "commands.tasks": [
+      "agent.core",
+      "terminal_io.display"
+    ],
+    "tests.test_grep": [
+      "[EXTERNAL] os",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] pytest",
+      "[EXTERNAL] unittest.mock",
+      "tools.grep"
+    ],
+    "tests.test_skills": [
+      "[EXTERNAL] os",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] pytest",
+      "[EXTERNAL] sys",
+      "[EXTERNAL] tempfile",
+      "skills_discovery",
+      "tools.activate_skill"
+    ],
+    "tests.test_task_context_bug": [
+      "[EXTERNAL] pytest",
+      "[EXTERNAL] sys",
+      "[EXTERNAL] unittest.mock",
+      "agent.context",
+      "agent.task_list",
+      "tools.tool_result",
+      "tools.update_task_status"
+    ],
+    "tests.test_harness": [
+      "[EXTERNAL] os",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] pytest",
+      "[EXTERNAL] unittest.mock",
+      "agent.loop",
+      "tools.tool_result"
+    ],
+    "tests.test_task_list": [
+      "[EXTERNAL] pytest",
+      "agent.task_list"
+    ],
+    "tests.test_context_compression": [
+      "[EXTERNAL] commands",
+      "[EXTERNAL] datetime",
+      "[EXTERNAL] json",
+      "[EXTERNAL] os",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] pytest",
+      "[EXTERNAL] re",
+      "[EXTERNAL] time",
+      "[EXTERNAL] unittest.mock",
+      "session.context_compression"
+    ],
+    "tests.test_terminal_display": [
+      "[EXTERNAL] pytest",
+      "[EXTERNAL] rich.markdown",
+      "[EXTERNAL] rich.panel",
+      "[EXTERNAL] rich.syntax",
+      "[EXTERNAL] unittest.mock",
+      "terminal_io.display"
+    ],
+    "tests.test_commands": [
+      "[EXTERNAL] commands",
+      "[EXTERNAL] pytest",
+      "[EXTERNAL] unittest.mock"
+    ],
+    "tests.test_tasks_command": [
+      "[EXTERNAL] sys",
+      "[EXTERNAL] unittest.mock",
+      "agent.context",
+      "agent.task_list",
+      "commands.tasks"
+    ],
+    "tests.test_executor": [
+      "[EXTERNAL] pytest",
+      "[EXTERNAL] unittest.mock",
+      "agent.executor",
+      "tools.tool_result"
+    ],
+    "tests.test_terminal_io": [
+      "[EXTERNAL] os",
+      "[EXTERNAL] pytest",
+      "[EXTERNAL] terminal_io",
+      "[EXTERNAL] unittest.mock",
+      "model_utils"
+    ],
+    "tests.test_run_subagent": [
+      "[EXTERNAL] json",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] sys",
+      "[EXTERNAL] unittest.mock",
+      "tools.run_subagent"
+    ],
+    "tests.test_discovery": [
+      "[EXTERNAL] os",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] pytest",
+      "[EXTERNAL] unittest.mock",
+      "agent.discovery"
+    ],
+    "tests.test_edit_file": [
+      "[EXTERNAL] os",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] pytest",
+      "[EXTERNAL] unittest.mock",
+      "tools.edit_file"
+    ],
+    "tests.test_tools": [
+      "[EXTERNAL] os",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] pytest",
+      "[EXTERNAL] subprocess",
+      "[EXTERNAL] tools",
+      "[EXTERNAL] unittest.mock",
+      "tools.execute_bash",
+      "tools.read_file",
+      "tools.tool_result",
+      "tools.utils",
+      "tools.write_file"
+    ],
+    "tests.test_dispatcher": [
+      "[EXTERNAL] os",
+      "[EXTERNAL] pytest",
+      "tools.dispatcher"
+    ],
+    "tests.test_agent": [
+      "[EXTERNAL] agent",
+      "[EXTERNAL] json",
+      "[EXTERNAL] openai",
+      "[EXTERNAL] os",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] pytest",
+      "[EXTERNAL] unittest.mock",
+      "tools.tool_result"
+    ],
+    "session.__init__": [
+      "session.context_compression",
+      "session.session",
+      "session.session_utils"
+    ],
+    "session.session_utils": [
+      "[EXTERNAL] datetime",
+      "[EXTERNAL] os",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] time",
+      "[EXTERNAL] typing",
+      "[EXTERNAL] yaml"
+    ],
+    "session.session": [
+      "[EXTERNAL] json",
+      "[EXTERNAL] os",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] typing",
+      "session.session_utils"
+    ],
+    "session.context_compression": [
+      "[EXTERNAL] datetime",
+      "[EXTERNAL] re",
+      "session.session"
+    ],
+    "agent.core": [
+      "[EXTERNAL] json",
+      "[EXTERNAL] openai",
+      "[EXTERNAL] os",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] time",
+      "[EXTERNAL] tools",
+      "[EXTERNAL] typing",
+      "agent.constants",
+      "agent.context",
+      "agent.discovery",
+      "agent.executor",
+      "agent.task_list",
+      "agent.types",
+      "agent.utils",
+      "session.session"
+    ],
+    "agent.utils": [
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] typing"
+    ],
+    "agent.__init__": [
+      "agent.constants",
+      "agent.context",
+      "agent.core",
+      "agent.discovery",
+      "agent.loop",
+      "agent.task_list",
+      "agent.types",
+      "agent.utils"
+    ],
+    "agent.context": [
+      "[EXTERNAL] contextvars"
+    ],
+    "agent.session_utils": [
+      "[EXTERNAL] datetime",
+      "[EXTERNAL] os",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] time",
+      "[EXTERNAL] typing",
+      "[EXTERNAL] yaml"
+    ],
+    "agent.session": [
+      "[EXTERNAL] json",
+      "[EXTERNAL] os",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] typing",
+      "agent.session_utils"
+    ],
+    "agent.executor": [
+      "tools.dispatcher",
+      "tools.tool_result"
+    ],
+    "agent.types": [
+      "[EXTERNAL] dataclasses",
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] re",
+      "[EXTERNAL] tools",
+      "[EXTERNAL] typing",
+      "[EXTERNAL] yaml",
+      "agent.discovery",
+      "skills_discovery"
+    ],
+    "agent.loop": [
+      "[EXTERNAL] commands",
+      "[EXTERNAL] rich.console",
+      "[EXTERNAL] terminal_io",
+      "[EXTERNAL] time",
+      "agent.constants",
+      "session.context_compression",
+      "skills_interceptor"
+    ],
+    "agent.task_list": [
+      "[EXTERNAL] dataclasses",
+      "[EXTERNAL] typing"
+    ],
+    "agent.discovery": [
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] typing",
+      "config"
+    ],
+    "terminal_io.prompt": [
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] prompt_toolkit",
+      "[EXTERNAL] prompt_toolkit.history"
+    ],
+    "terminal_io.display": [
+      "[EXTERNAL] __future__",
+      "[EXTERNAL] json",
+      "[EXTERNAL] rich.console",
+      "[EXTERNAL] rich.markdown",
+      "[EXTERNAL] rich.panel",
+      "[EXTERNAL] rich.syntax",
+      "terminal_io.speed"
+    ],
+    "terminal_io.__init__": [
+      "terminal_io.display",
+      "terminal_io.prompt",
+      "terminal_io.speed"
+    ],
+    "sample_config.skills.sample-skill.scripts.test": [
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] sys"
+    ],
+    ".harness_py.skills.sample-skill.scripts.test": [
+      "[EXTERNAL] pathlib",
+      "[EXTERNAL] sys"
+    ]
+  },
+  "reverse_dependencies": {
+    "config": [
+      "agent.discovery",
+      "skills_discovery",
+      "skills_interceptor",
+      "tools.run_subagent"
+    ],
+    "skills_discovery": [
+      "agent.types",
+      "harness",
+      "skills_interceptor",
+      "tests.test_skills",
+      "tools.activate_skill"
+    ],
+    "agent.discovery": [
+      "agent.__init__",
+      "agent.core",
+      "agent.types",
+      "harness",
+      "tests.test_discovery",
+      "tools.run_subagent"
+    ],
+    "tools.tool_result": [
+      "agent.executor",
+      "tests.test_agent",
+      "tests.test_executor",
+      "tests.test_harness",
+      "tests.test_task_context_bug",
+      "tests.test_tools",
+      "tools.activate_skill",
+      "tools.dispatcher",
+      "tools.edit_file",
+      "tools.execute_bash",
+      "tools.grep",
+      "tools.initialize_task_list",
+      "tools.read_file",
+      "tools.run_subagent",
+      "tools.submit_results",
+      "tools.update_task_status",
+      "tools.utils",
+      "tools.web_fetch",
+      "tools.web_search",
+      "tools.write_file"
+    ],
+    "agent.core": [
+      "agent.__init__",
+      "commands.tasks",
+      "tools.initialize_task_list",
+      "tools.update_task_status"
+    ],
+    "tools.utils": [
+      "tests.test_tools",
+      "tools.activate_skill",
+      "tools.edit_file",
+      "tools.execute_bash",
+      "tools.grep",
+      "tools.initialize_task_list",
+      "tools.read_file",
+      "tools.run_subagent",
+      "tools.submit_results",
+      "tools.update_task_status",
+      "tools.web_fetch",
+      "tools.web_search",
+      "tools.write_file"
+    ],
+    "agent.context": [
+      "agent.__init__",
+      "agent.core",
+      "tests.test_task_context_bug",
+      "tests.test_tasks_command",
+      "tools.run_subagent"
+    ],
+    "tools.dispatcher": [
+      "agent.executor",
+      "tests.test_dispatcher",
+      "tools.run_subagent"
+    ],
+    "tools.submit_results": [
+      "tools.run_subagent"
+    ],
+    "terminal_io.display": [
+      "commands.__init__",
+      "commands.sub",
+      "commands.tasks",
+      "terminal_io.__init__",
+      "tests.test_terminal_display"
+    ],
+    "terminal_io.prompt": [
+      "commands.__init__",
+      "terminal_io.__init__"
+    ],
+    "session.session_utils": [
+      "commands.__init__",
+      "session.__init__",
+      "session.session"
+    ],
+    "commands.sub": [
+      "commands.__init__"
+    ],
+    "session.session": [
+      "agent.core",
+      "commands.__init__",
+      "session.__init__",
+      "session.context_compression"
+    ],
+    "session.context_compression": [
+      "agent.loop",
+      "commands.__init__",
+      "session.__init__",
+      "tests.test_context_compression"
+    ],
+    "commands.tasks": [
+      "commands.__init__",
+      "tests.test_tasks_command"
+    ],
+    "tools.grep": [
+      "tests.test_grep"
+    ],
+    "tools.activate_skill": [
+      "tests.test_skills"
+    ],
+    "tools.update_task_status": [
+      "tests.test_task_context_bug"
+    ],
+    "agent.task_list": [
+      "agent.__init__",
+      "agent.core",
+      "tests.test_task_context_bug",
+      "tests.test_task_list",
+      "tests.test_tasks_command"
+    ],
+    "agent.loop": [
+      "agent.__init__",
+      "tests.test_harness"
+    ],
+    "agent.executor": [
+      "agent.core",
+      "tests.test_executor"
+    ],
+    "model_utils": [
+      "tests.test_terminal_io"
+    ],
+    "tools.run_subagent": [
+      "tests.test_run_subagent"
+    ],
+    "tools.edit_file": [
+      "tests.test_edit_file"
+    ],
+    "tools.execute_bash": [
+      "tests.test_tools"
+    ],
+    "tools.write_file": [
+      "tests.test_tools"
+    ],
+    "tools.read_file": [
+      "tests.test_tools"
+    ],
+    "agent.constants": [
+      "agent.__init__",
+      "agent.core",
+      "agent.loop"
+    ],
+    "agent.utils": [
+      "agent.__init__",
+      "agent.core"
+    ],
+    "agent.types": [
+      "agent.__init__",
+      "agent.core"
+    ],
+    "agent.session_utils": [
+      "agent.session"
+    ],
+    "skills_interceptor": [
+      "agent.loop"
+    ],
+    "terminal_io.speed": [
+      "terminal_io.__init__",
+      "terminal_io.display"
+    ]
+  },
+  "circular_dependencies": [],
+  "external_dependencies": [
+    "[EXTERNAL] __future__",
+    "[EXTERNAL] agent",
+    "[EXTERNAL] ast",
+    "[EXTERNAL] collections",
+    "[EXTERNAL] commands",
+    "[EXTERNAL] contextvars",
+    "[EXTERNAL] dataclasses",
+    "[EXTERNAL] datetime",
+    "[EXTERNAL] ddgs",
+    "[EXTERNAL] fnmatch",
+    "[EXTERNAL] importlib.util",
+    "[EXTERNAL] json",
+    "[EXTERNAL] ollama",
+    "[EXTERNAL] openai",
+    "[EXTERNAL] os",
+    "[EXTERNAL] pathlib",
+    "[EXTERNAL] prompt_toolkit",
+    "[EXTERNAL] prompt_toolkit.history",
+    "[EXTERNAL] pytest",
+    "[EXTERNAL] re",
+    "[EXTERNAL] rich.console",
+    "[EXTERNAL] rich.markdown",
+    "[EXTERNAL] rich.panel",
+    "[EXTERNAL] rich.syntax",
+    "[EXTERNAL] subprocess",
+    "[EXTERNAL] sys",
+    "[EXTERNAL] tempfile",
+    "[EXTERNAL] terminal_io",
+    "[EXTERNAL] time",
+    "[EXTERNAL] tools",
+    "[EXTERNAL] traceback",
+    "[EXTERNAL] typing",
+    "[EXTERNAL] unittest.mock",
+    "[EXTERNAL] urllib.error",
+    "[EXTERNAL] urllib.request",
+    "[EXTERNAL] yaml"
+  ],
+  "summary": {
+    "total_modules": 68,
+    "total_internal_dependencies": 301,
+    "circular_dependency_count": 0,
+    "external_dependency_count": 36
+  }
+}

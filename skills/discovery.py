@@ -245,3 +245,11 @@ def get_skill_body(skill_name: str, skills_dirs: Optional[List[Path]] = None) ->
             return body, ""
 
     return "", f"Skill '{skill_name}' not found in any configured path"
+
+
+__all__ = [
+    "discover_skills",
+    "get_skill_by_name",
+    "get_skill_body",
+    "format_skill_catalog",
+]

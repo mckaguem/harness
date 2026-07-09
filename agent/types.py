@@ -209,10 +209,10 @@ class AgentType:
         # Resolve skills, agents and tools via the existing discovery mechanisms.
         from agent.discovery import discover_agents as _discover_agents
         from tools import AGENT_TOOLS
-        import skills_discovery
+        from skills import discovery
 
         try:
-            discovered_skills = list(skills_discovery.discover_skills())
+            discovered_skills = list(discovery.discover_skills())
         except Exception:
             discovered_skills = []
 

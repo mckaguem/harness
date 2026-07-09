@@ -21,7 +21,7 @@ def activate_skill(skill_name: str) -> ToolResult:
         on failure.
     """
     try:
-        from skills_discovery import get_skill_body
+        from skills.discovery import get_skill_body
 
         # Look up and read the body directly using dual-path discovery.
         # This automatically searches project then global config paths.

@@ -127,7 +127,7 @@ def intercept_message(
         An :class:`InterceptorOutcome` summarising what happened. Callers should
         inspect :attr:`InterceptorOutcome.kind` and act accordingly.
     """
-    from skills_discovery import get_skill_by_name  # lazy import — avoids cycle at startup
+    from skills.discovery import get_skill_by_name  # lazy import — avoids cycle at startup
 
     if not raw_user_input or not raw_user_input.startswith("/"):
         return InterceptorOutcome(kind=InterceptorKind.SKIP)
@@ -230,3 +230,12 @@ def extract_command_name(text: str) -> Optional[str]:
     if not match:
         return None
     return match.group(1).lower()
+
+
+__all__ = [
+    "InterceptorKind",
+    "InterceptorOutcome",
+    "intercept_message",
+    "matches_slash_pattern",
+    "extract_command_name",
+]
