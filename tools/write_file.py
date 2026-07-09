@@ -13,7 +13,7 @@ def write_file(filename: str, content: str) -> ToolResult:
         or an error result for failures.
     """
     if not is_safe_path(filename):
-        return make_error_result("Path traversal detected. You may only write to the current directory.")
+        return make_error_result("Path traversal detected. You may only write to within the project directory.")
 
     try:
         with open(filename, 'w', encoding='utf-8') as f:

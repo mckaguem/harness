@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from utils import project_root
+
 import yaml
 
 # Built-in variable names recognised in system prompt templates.
@@ -36,7 +38,7 @@ class AgentType:
         +-----------+-------------------------------------------------------+
         | Variable  | Value                                                 |
         +===========+=======================================================+
-        | ``CWD``   | Absolute path of the current working directory.       |
+        | ``CWD``   | Absolute path of the project root (detected via project markers). |
         +-----------+-------------------------------------------------------+
         | ``SKILLS``| One line per discovered skill (name: description),    |
         |           | joined by newlines. Empty string if none discovered.  |
@@ -54,7 +56,7 @@ class AgentType:
 
         Args:
             system_prompt: The raw prompt text sourced from the agent YAML.
-            cwd: The current working directory to insert for ``$CWD``.
+            cwd: The project root directory to insert for ``$CWD``.
             skills: Optional list of ``(name, metadata)`` tuples (from
                 :func:`skills_discovery.discover_skills`).
             agents: Optional list of dicts describing available agents,
@@ -134,7 +136,7 @@ class AgentType:
 
         Args:
             raw_prompt: The base prompt text sourced from the agent YAML.
-            cwd: Current working directory (defaults to ``pathlib.Path.cwd()``).
+            cwd: Current working directory (defaults to project root via ``utils.project_root()``).
             skills: Optional list of ``(name, metadata)`` tuples from skill discovery.
             agents: Optional list of dicts describing available agents.
             tools: Optional list of tool schema dicts from the tool registry.
@@ -142,7 +144,15 @@ class AgentType:
         Returns:
             The fully-built system prompt with variables substituted.
         """
-        cwd = Path.cwd() if cwd is None else (Path(cwd) if isinstance(cwd, str) else cwd)
+        if cwd is None:
+            try:
+                cwd = project_root()
+            except FileNotFoundError:
+                # Fall back to current working directory if project markers aren't found
+                # (e.g., in test environments or when used as a library)
+                cwd = Path.cwd()
+        else:
+            cwd = Path(cwd) if isinstance(cwd, str) else cwd
 
         # Detect whether the raw prompt originally contained any template variables.
         had_template_vars = bool(re.search(r'\$\{?[A-Z_][A-Z0-9_]*\}?', raw_prompt))

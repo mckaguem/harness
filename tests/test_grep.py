@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from tools.grep import grep
+from utils import project_root
 
 
 def _result_text(result) -> str:
@@ -305,7 +306,7 @@ class TestGrepOutputFormat:
             result = grep("hello", str(target))
             content = _result_text(result)
             # Should include file path and line number.
-            assert str(target.name) in content or target.relative_to(Path.cwd()).as_posix() in content
+            assert str(target.name) in content or target.relative_to(project_root()).as_posix() in content
         finally:
             os.chdir(old_cwd)
 

@@ -25,7 +25,7 @@ def edit_file(filename: str, edits: list[dict]) -> ToolResult:
 
     # Path safety check once up front.
     if not is_safe_path(filename):
-        return make_error_result("Path traversal detected. You may only edit files in the current directory.")
+        return make_error_result("Path traversal detected. You may only edit files within the project directory.")
 
     # Read existing content first — we want a clean error if it doesn't exist.
     try:

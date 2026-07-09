@@ -3,14 +3,28 @@
 import re
 from pathlib import Path
 from tools.tool_result import ToolResult
+from utils import project_root
 
 
 def is_safe_path(filename: str) -> bool:
-    """Ensure the target path is strictly within the current working directory."""
+    """Ensure the target path is strictly within the project root directory.
+    
+    First tries to use the project root (found via project markers like .git or .harness_py).
+    If no project root can be found, falls back to the current working directory.
+    """
     try:
-        cwd = Path.cwd().resolve()
-        target = (Path.cwd() / filename).resolve()
-        return target.is_relative_to(cwd)
+        # First try to get project root
+        root = project_root().resolve()
+    except FileNotFoundError:
+        # If no project root found, fall back to current working directory
+        root = Path.cwd().resolve()
+    except Exception:
+        # Any other exception, be conservative and return False
+        return False
+    
+    try:
+        target = (root / filename).resolve()
+        return target.is_relative_to(root)
     except Exception:
         return False
 

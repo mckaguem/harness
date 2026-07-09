@@ -52,7 +52,7 @@ def read_file(filename: str) -> ToolResult:
         by " | "), or an error result for failures.
     """
     if not is_safe_path(filename):
-        return make_error_result("Path traversal detected. You may only read from the current directory.")
+        return make_error_result("Path traversal detected. You may only read from within the project directory.")
 
     try:
         with open(filename, 'r', encoding='utf-8') as f:

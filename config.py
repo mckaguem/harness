@@ -3,6 +3,9 @@
 import os
 from pathlib import Path
 
+# Import project_root from utils
+from utils import project_root
+
 # ---------------------------------------------------------------------------
 # Centralized constants for the harness codebase.
 # ---------------------------------------------------------------------------
@@ -19,8 +22,10 @@ _AGENTS_DIR = "agents"
 
 
 def get_project_dir() -> Path:
-    """Return the project config directory ``cwd/.harness_py/``."""
-    return (Path.cwd() / ".harness_py").resolve()
+    """Return the project config directory ``project_root/.harness_py/``."""
+    # Find the project root directory using common markers
+    root = project_root()
+    return (root / ".harness_py").resolve()
 
 
 def get_global_dir() -> Path:

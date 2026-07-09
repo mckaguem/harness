@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from tools.utils import _strip_ansi, make_error_result
 from tools.tool_result import ToolResult
+from utils import project_root
 
 
 def grep(
@@ -46,8 +47,11 @@ def grep(
     if max_matches < 1:
         return make_error_result(f"`max_matches` must be >= 1.")
 
-    cwd = Path.cwd().resolve()
-    target = (Path.cwd() / path).resolve()
+    try:
+        cwd = project_root().resolve()
+    except FileNotFoundError:
+        cwd = Path.cwd().resolve()
+    target = (cwd / path).resolve()
 
     # Safety — every candidate path must stay inside cwd.
     if not target.is_relative_to(cwd):

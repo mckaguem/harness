@@ -3,6 +3,7 @@
 from pathlib import Path
 from tools.tool_result import ToolResult
 from tools.utils import make_error_result
+from utils import project_root
 
 
 def activate_skill(skill_name: str) -> ToolResult:
@@ -45,15 +46,15 @@ def activate_skill(skill_name: str) -> ToolResult:
         # Determine absolute path from config
         abs_path = None
         for base in [
-            (Path.cwd() / ".harness_py" / "skills"),
+            (project_root() / ".harness_py" / "skills"),
             (Path.home() / ".harness_py" / "skills"),
         ]:
             if (base / skill_name).is_dir():
                 abs_path = str((base / skill_name).resolve())
                 break
         if not abs_path:
-            # last-resort: relative to cwd
-            abs_path = str((Path.cwd() / "skills" / skill_name).resolve())
+            # last-resort: relative to project root
+            abs_path = str((project_root() / "skills" / skill_name).resolve())
         
         formatted_body = (
             f"=== SKILL ACTIVATED: {skill_name} ===\n\n"

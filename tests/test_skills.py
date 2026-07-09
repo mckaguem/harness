@@ -9,6 +9,8 @@ import pytest
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from utils import project_root
+
 
 class TestSkillsDiscovery:
     """Test Phase 1: Discovery and validation logic."""
@@ -204,7 +206,7 @@ description: Full integration test skill with scripts and references.
         from tools.activate_skill import activate_skill
         
         # Phase 1: Discovery
-        discovered = discover_skills([Path.cwd() / ".harness_py" / "skills"])
+        discovered = discover_skills([project_root() / ".harness_py" / "skills"])
         assert len(discovered) == 1, f"Expected 1 skill, found {len(discovered)}"
         
         name, metadata = discovered[0]
@@ -219,7 +221,7 @@ description: Full integration test skill with scripts and references.
         assert result.type_tag == "markdown"
         combined_text = result.display_text + result.llm_text
         assert "SKILL ACTIVATED: integration-test" in combined_text
-        assert str(Path.cwd() / ".harness_py" / "skills" / "integration-test") in combined_text
+        assert str(project_root() / ".harness_py" / "skills" / "integration-test") in combined_text
         
         # Phase 3: Execution context (simulated)
         assert "scripts/run.sh" in combined_text or "references/README.md" in combined_text

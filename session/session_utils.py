@@ -4,6 +4,9 @@ from pathlib import Path
 from typing import Optional
 import yaml
 
+# Import project_root from utils
+from utils import project_root
+
 
 def format_session_yaml(messages: list[dict], agent_type_name: str = "main") -> str:
     """Format session messages as YAML with human-readable comment lines.
@@ -183,13 +186,16 @@ def ensure_sessions_dir(base_path: Optional[str] = None) -> Path:
     """Ensure the .sessions/ directory exists.
 
     Args:
-        base_path: Base path to create .sessions/ under. Defaults to cwd.
+        base_path: Base path to create .sessions/ under. 
+            Defaults to project root (detected via project_root()).
 
     Returns:
         The Path object for the .sessions/ directory.
     """
     if base_path is None:
-        sessions_dir = Path.cwd() / ".sessions"
+        # Use project root instead of cwd
+        root = project_root()
+        sessions_dir = root / ".sessions"
     else:
         sessions_dir = Path(base_path) / ".sessions"
 
