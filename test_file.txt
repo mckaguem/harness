@@ -1,4 +1,0 @@
-This is a test file for testing file operations.
-Line 2: SUCCESS - write_file tool works!
-Line 3: Testing read_file tool next.
-Line 4: SUCCESS - edit_file tool works! File operations complete.

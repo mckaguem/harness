@@ -1,2 +1,0 @@
-Hello world! This is a test file for tool verification.
-Second line with the word agent.
