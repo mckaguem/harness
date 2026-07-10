@@ -55,7 +55,7 @@ def display_tool_call(func_name: str, args_str: str) -> None:
     title = f"Tool: {func_name}"
     display_message_panel(
         text=display_content,
-        theme="status",
+        theme="info",
         title=title,
         result_type="markdown",
     )

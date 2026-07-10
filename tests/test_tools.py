@@ -163,10 +163,14 @@ class TestReadFile:
             os.chdir(tmp_path)
             target = tmp_path / "data.txt"
             target.write_text("payload")
-            result = read_file(str(target))
+            # Read the whole file (offset 0, limit large enough)
+            result = read_file(str(target), 0, 10)
             assert isinstance(result, ToolResult)
             combined_text = result.llm_text + result.display_text
             assert "payload" in combined_text
+            # Verify XML-like structure is present
+            assert combined_text.startswith("<file ")
+            assert combined_text.endswith("</file>")
         finally:
             os.chdir(old_cwd)
 
@@ -174,7 +178,8 @@ class TestReadFile:
         old_cwd = os.getcwd()
         try:
             os.chdir(tmp_path)
-            result = read_file("nonexistent_xyz.txt")
+            # Use offset 0 and a reasonable limit.
+            result = read_file("nonexistent_xyz.txt", 0, 10)
             # Should contain an error indicator.
             assert isinstance(result, ToolResult)
             combined_text = result.llm_text + result.display_text
@@ -185,7 +190,7 @@ class TestReadFile:
     def test_permission_error_captured(self):
         with patch("builtins.open", side_effect=PermissionError("denied")):
             with patch("pathlib.Path.cwd", return_value=Path("/tmp/safe").resolve()):
-                result = read_file("protected.txt")
+                result = read_file("protected.txt", 0, 10)
         assert isinstance(result, ToolResult)
         combined_text = result.llm_text + result.display_text
         assert "Error" in combined_text
