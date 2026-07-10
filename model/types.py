@@ -16,6 +16,7 @@ class ModelConfig(TypedDict, total=False):
 @dataclass
 class ProviderConfig:
     """Configuration for a provider."""
+    name: str  # unique identifier for the provider
     provider_type: str  # "openai", "ollama", etc.
     base_url: str
     api_key: Optional[str] = None

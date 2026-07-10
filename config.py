@@ -84,33 +84,26 @@ def _load_yaml_file(path: Path) -> dict:
     except Exception as e:
         raise RuntimeError(f"Failed to parse config file {path}: {e}")
 
-def _merge_providers(global_provs: list[dict], project_provs: list[dict]) -> list[ProviderConfig]:
-    """Merge provider lists, preferring project definitions on name conflict.
+def _build_providers_dict(raw_provs: list[dict]) -> dict[str, ProviderConfig]:
+    """Build a providers dict from a raw YAML provider list.
 
-    Returns a list of ProviderConfig dataclass instances.
+    Returns a dictionary keyed by provider ``name`` with :class:`ProviderConfig`
+    instances as values. Only entries that are dicts containing a ``name`` key
+    are included.
     """
-    merged: dict[str, ProviderConfig] = {}
-    for prov in global_provs:
+    providers: dict[str, ProviderConfig] = {}
+    for prov in raw_provs:
         if not isinstance(prov, dict) or "name" not in prov:
             continue
         name = prov["name"]
-        merged[name] = ProviderConfig(
+        providers[name] = ProviderConfig(
+            name=name,
             provider_type=prov.get("type", ""),
             base_url=prov.get("base_url", ""),
             api_key=prov.get("api_key"),
             default_model=prov.get("default_model"),
         )
-    for prov in project_provs:
-        if not isinstance(prov, dict) or "name" not in prov:
-            continue
-        name = prov["name"]
-        merged[name] = ProviderConfig(
-            provider_type=prov.get("type", ""),
-            base_url=prov.get("base_url", ""),
-            api_key=prov.get("api_key"),
-            default_model=prov.get("default_model"),
-        )
-    return list(merged.values())
+    return providers
 
 # ---------------------------------------------------------------------------
 # Module-level configuration cache — loaded once on first access.
@@ -137,7 +130,7 @@ def load_harness_config() -> dict:
     """Load and merge configuration from global and project ``config.yaml`` files.
 
     Returns a dictionary with keys:
-    - "providers": List[ProviderConfig]
+    - "providers": Dict[str, ProviderConfig] keyed by provider name
     - "default_provider": Optional[str]
     - "default_model": Optional[str]
     """
@@ -148,10 +141,10 @@ def load_harness_config() -> dict:
     global_cfg = _load_yaml_file(global_cfg_path)
     project_cfg = _load_yaml_file(project_cfg_path)
 
-    providers = _merge_providers(
-        global_cfg.get("providers", []),
-        project_cfg.get("providers", []),
-    )
+    # Build providers dict from global config, then update with project config
+    # (project takes precedence on name conflicts)
+    providers = _build_providers_dict(global_cfg.get("providers", []))
+    providers.update(_build_providers_dict(project_cfg.get("providers", [])))
 
     default_provider = project_cfg.get("default_provider") or global_cfg.get("default_provider")
     default_model = project_cfg.get("default_model") or global_cfg.get("default_model")
@@ -165,14 +158,11 @@ def load_harness_config() -> dict:
 def get_provider_config(name: str) -> ProviderConfig | None:
     """Retrieve a ProviderConfig by its identifier name.
 
-    Matches against the provider's ``provider_type`` or ``base_url``.
-    Returns ``None`` if not found.
+    Looks up the provider in the providers dictionary using the exact ``name``
+    field. Returns ``None`` if not found.
     """
     cfg = _get_cached_config()
-    for prov in cfg["providers"]:
-        if prov.provider_type == name or prov.base_url == name:
-            return prov
-    return None
+    return cfg["providers"].get(name)
 
 def get_default_provider() -> ProviderConfig | None:
     """Return the default provider configuration, if specified."""
@@ -180,10 +170,7 @@ def get_default_provider() -> ProviderConfig | None:
     name = cfg.get("default_provider")
     if not name:
         return None
-    for prov in cfg["providers"]:
-        if prov.provider_type == name or prov.base_url == name:
-            return prov
-    return None
+    return cfg["providers"].get(name)
 
 def get_default_model() -> str | None:
     """Return the default model name, if specified."""
