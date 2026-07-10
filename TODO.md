@@ -26,6 +26,7 @@
 
 ## Infra
 
+- Change to use openai responses instead of chat
 - Separate agent specification from model specification.  Use a model profile type thing in between.
 - Async everything and multiple agents running concurrently
 
