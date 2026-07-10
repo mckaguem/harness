@@ -15,6 +15,33 @@ from agent import Agent, AgentType, user_loop
 from tools import AGENT_TOOLS
 from skills.discovery import discover_skills, format_skill_catalog
 from agent.discovery import discover_agents
+from config import get_default_provider
+
+
+def _resolve_provider_settings() -> tuple[str, str]:
+    """Resolve base_url and api_key from the configuration's default provider.
+
+    Falls back to environment variables if no default provider is configured,
+    maintaining backwards compatibility with existing deployments.
+
+    Returns:
+        A tuple of (base_url, api_key).
+    """
+    provider = get_default_provider()
+
+    if provider and provider.base_url:
+        base_url = provider.base_url.rstrip("/")
+        api_key = provider.api_key or os.environ.get("OPENAI_API_KEY", "")
+    else:
+        # Fallback to environment variables
+        openai_base_url = os.environ.get(
+            "OPENAI_BASE_URL",
+            os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
+        )
+        base_url = openai_base_url.rstrip("/")
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+
+    return base_url, api_key
 
 
 def check_command_skill_collision() -> list[str]:
@@ -44,13 +71,7 @@ def check_command_skill_collision() -> list[str]:
 
 
 def main():
-    openai_base_url = os.environ.get(
-        "OPENAI_BASE_URL",
-        os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
-    )
-    # strip trailing /v1 if the user passed an OpenAI-format URL
-    base_url = openai_base_url.rstrip("/")   #.rstrip("/v1")
-    api_key = os.environ.get("OPENAI_API_KEY", "")
+    base_url, api_key = _resolve_provider_settings()
 
     client = OpenAI(base_url=base_url, api_key=api_key)
     context_length = 2**17

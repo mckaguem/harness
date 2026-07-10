@@ -202,7 +202,14 @@ class AgentType:
         name = config.get("name", Path(path).stem)  # fall back to filename stem
         model_name = config.get("model_name")
         if not model_name:
-            raise ValueError("YAML must contain 'model_name'")
+            from config import get_default_model
+            default_model = get_default_model()
+            if default_model is None:
+                raise ValueError(
+                    f"YAML '{path}' does not contain 'model_name' and no "
+                    "default model is configured."
+                )
+            model_name = default_model
         
         agent_tools = config.get("agent_tools", [])
         if not isinstance(agent_tools, list):

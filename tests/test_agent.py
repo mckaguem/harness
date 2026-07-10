@@ -69,7 +69,8 @@ agent_tools: ["*"]
         with pytest.raises(FileNotFoundError):
             AgentType.from_file(str(tmp_path / "nonexistent.yaml"))
 
-    def test_raises_value_error_missing_model_name(self, tmp_path):
+    @patch("config.get_default_model", return_value=None)
+    def test_raises_value_error_missing_model_name(self, mock_default_model, tmp_path):
         """Should raise ValueError if model_name is missing."""
         from agent import AgentType
         
@@ -84,6 +85,25 @@ agent_tools: []
         try:
             with pytest.raises(ValueError, match="model_name"):
                 AgentType.from_file(str(tmp_path / "bad_config.yaml"))
+        finally:
+            os.chdir(old_cwd)
+
+    @patch("config.get_default_model", return_value="fallback-model")
+    def test_uses_default_model_when_missing(self, mock_default_model, tmp_path):
+        """Should fall back to configured default model when YAML has no model_name."""
+        from agent import AgentType
+
+        yaml_content = """
+system_prompt: "Test"
+agent_tools: []
+"""
+        (tmp_path / "config.yaml").write_text(yaml_content)
+
+        old_cwd = os.getcwd()
+        os.chdir(tmp_path)
+        try:
+            agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
+            assert agent_type.model_name == "fallback-model"
         finally:
             os.chdir(old_cwd)
 
