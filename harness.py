@@ -1,9 +1,7 @@
 """Entry point — wires up configuration and starts the agent loop."""
 
-import os
 import sys
 from pathlib import Path
-from openai import OpenAI
 
 from terminal_io import (
     print_system, prompt_user,
@@ -14,34 +12,7 @@ from commands import COMMANDS
 from agent import Agent, AgentType, user_loop
 from tools import AGENT_TOOLS
 from skills.discovery import discover_skills, format_skill_catalog
-from agent.discovery import discover_agents
-from config import get_default_provider
-
-
-def _resolve_provider_settings() -> tuple[str, str]:
-    """Resolve base_url and api_key from the configuration's default provider.
-
-    Falls back to environment variables if no default provider is configured,
-    maintaining backwards compatibility with existing deployments.
-
-    Returns:
-        A tuple of (base_url, api_key).
-    """
-    provider = get_default_provider()
-
-    if provider and provider.base_url:
-        base_url = provider.base_url.rstrip("/")
-        api_key = provider.api_key or os.environ.get("OPENAI_API_KEY", "")
-    else:
-        # Fallback to environment variables
-        openai_base_url = os.environ.get(
-            "OPENAI_BASE_URL",
-            os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
-        )
-        base_url = openai_base_url.rstrip("/")
-        api_key = os.environ.get("OPENAI_API_KEY", "")
-
-    return base_url, api_key
+from config import resolve_config_path
 
 
 def check_command_skill_collision() -> list[str]:
@@ -71,11 +42,6 @@ def check_command_skill_collision() -> list[str]:
 
 
 def main():
-    base_url, api_key = _resolve_provider_settings()
-
-    client = OpenAI(base_url=base_url, api_key=api_key)
-    context_length = 2**17
-
     # ------------------------------------------------------------------
     # Pre-flight: check for command/skill name collisions.
     # If a built-in slash command and a skill share the same name, we can't
@@ -91,52 +57,55 @@ def main():
         sys.exit(1)
 
     # ------------------------------------------------------------------
-    # Discover and load the main agent from config paths.
-    # The "main" agent YAML is looked up in both project and global agents/
-    # directories (project takes precedence).
+    # Resolve the absolute path to agents/main.yaml (project dir preferred over global).
     # ------------------------------------------------------------------
-    discovered_agents = discover_agents()
-    
-    if not discovered_agents:
-        sys.stderr.write("\n[agents] FATAL: No agents found in config paths. Aborting startup.\n")
-        sys.exit(1)
-
-    # Look for the "main" agent specifically
-    main_agent_path = None
-    for name, path in discovered_agents:
-        if name == "main":
-            main_agent_path = path
-            break
-
+    main_agent_path = resolve_config_path("agents/main.yaml")
     if main_agent_path is None:
-        sys.stderr.write("\n[agents] FATAL: No 'main' agent found in config paths. Aborting startup.\n")
-        available_names = ", ".join(name for name, _ in discovered_agents)
-        sys.stderr.write(f"Available agents: {available_names}\n")
+        sys.stderr.write(
+            "\n[harness] FATAL: Could not find 'agents/main.yaml' in project or global config dirs. Aborting startup.\n"
+        )
         sys.exit(1)
 
-    # Build the agent definition from YAML.
-    agent_type = AgentType.from_file(main_agent_path)
-    
-    # Phase 1: Discover skills and inject their catalog into the system prompt.
-    discovered = discover_skills()
-    if discovered:
-        # Filter out skills marked disable-model-invocation: true
+    # Build the agent definition from YAML (this also resolves provider_config).
+    agent_type = AgentType.from_file(str(main_agent_path))
+
+    if not agent_type.provider_config:
+        sys.stderr.write(
+            "\n[harness] FATAL: No provider configuration found for agent 'main'. Aborting startup.\n"
+        )
+        sys.exit(1)
+
+    # Create a Provider from the resolved ProviderConfig.
+    from model.provider import Provider
+    provider = Provider.from_config(agent_type.provider_config)
+
+    # Phase 2: Discover skills and inject their catalog into the system prompt.
+    discovered_skills = discover_skills()
+    if discovered_skills:
         visible_skills = [
-            (name, meta) for name, meta in discovered
+            (name, meta) for name, meta in discovered_skills
             if not meta.get("disable-model-invocation", False)
         ]
         if visible_skills:
             catalog = format_skill_catalog(visible_skills)
             agent_type.inject_extra_system_prompt(catalog)
-    
+
+    # ------------------------------------------------------------------
+    # Build context_length from the provider (try to detect, fall back to default).
+    # ------------------------------------------------------------------
+    try:
+        context_length = provider.get_context_length(agent_type.model_name) or 2**17
+    except Exception:
+        context_length = 2**17
+
     agent = Agent(
         agent_type=agent_type,
-        openai_client=client,
+        provider=provider,
         context_length=context_length,
         tool_schemas=AGENT_TOOLS,  # pass all schemas so filter_tool_schemas can work
     )
 
-    user_loop(agent, client)
+    user_loop(agent)
 
 
 if __name__ == "__main__":

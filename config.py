@@ -68,6 +68,31 @@ def get_discovery_dirs(subdir: str) -> list[Path]:
     project_dir, global_dir = get_harness_py_dir()
     return [project_dir / subdir, global_dir / subdir]
 
+
+def resolve_config_path(relative_path: str) -> Optional[Path]:
+    """Resolve a relative path (e.g. ``"agents/main.yaml"``) to an absolute Path.
+
+    Searches first in the project config directory (preferred), then falls back to
+    the global config directory.  Returns ``None`` if the file is not found in either
+    location.
+
+    Args:
+        relative_path: A path relative to a config root, e.g. ``"agents/main.yaml"``.
+
+    Returns:
+        The resolved absolute :class:`Path`, or ``None`` when neither directory
+        contains the requested file.
+    """
+    project_dir = get_project_dir() / relative_path
+    if project_dir.is_file():
+        return project_dir.resolve()
+
+    global_dir = get_global_dir() / relative_path
+    if global_dir.is_file():
+        return global_dir.resolve()
+
+    return None
+
 # ---------------------------------------------------------------------------
 # Configuration file handling for providers and models.
 # ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from model.types import ProviderConfig
 from utils import project_root
 
 import yaml
@@ -21,6 +22,7 @@ class AgentType:
     name: str = ""
     model_name: str = ""
     system_prompt: str = ""
+    provider_config: Optional[ProviderConfig] = None
     agent_tools: List[str] = field(default_factory=list)
 
     @staticmethod
@@ -210,7 +212,18 @@ class AgentType:
                     "default model is configured."
                 )
             model_name = default_model
-        
+
+        # Resolve provider_config based on YAML 'provider' key or fallback.
+        from config import get_provider_config, get_default_provider
+        yaml_provider = config.get("provider")
+        if yaml_provider:
+            resolved_provider = get_provider_config(yaml_provider)
+            if resolved_provider is None:
+                # Fall back to default provider if the specified one doesn't exist
+                resolved_provider = get_default_provider()
+        else:
+            resolved_provider = get_default_provider()
+
         agent_tools = config.get("agent_tools", [])
         if not isinstance(agent_tools, list):
             raise ValueError("'agent_tools' must be a list of strings")
@@ -267,6 +280,7 @@ class AgentType:
             name=name,
             model_name=model_name,
             system_prompt=system_prompt,
+            provider_config=resolved_provider,
             agent_tools=agent_tools,
         )
     

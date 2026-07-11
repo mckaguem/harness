@@ -7,11 +7,42 @@ from typing import Dict, Generator, List, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from agent.task_list import TaskList
 
-from openai import OpenAI
+from model.provider import Provider
 
 from agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from agent.context import CURRENT_AGENT
 from session.session import Session
+
+
+def _build_subagent_provider(agent_type, parent_agent):
+    """Build a Provider instance for a sub-agent.
+
+    Uses the agent type's provider_config if available, otherwise falls back to
+    constructing one from the parent agent's base URL and OpenAI API key.
+    """
+    # Try using provider config from agent type if it has one
+    if hasattr(agent_type, 'provider_config') and agent_type.provider_config is not None:
+        try:
+            return Provider.from_config(agent_type.provider_config)
+        except Exception as exc:
+            print(f"Warning: Failed to create provider from config: {exc}")
+
+    # Fall back to using OpenAI-compatible setup based on parent's base URL
+    from openai import OpenAI as _OpenAIClient
+
+    client = _OpenAIClient(
+        base_url=parent_agent._base_url,
+        api_key=os.environ.get("OPENAI_API_KEY", ""),
+    )
+
+    # Create a minimal provider config and use it to build the provider
+    class MinimalProviderConfig:
+        def __init__(self):
+            self.provider_type = 'openai'
+            self.base_url = parent_agent._base_url
+            self.api_key = os.environ.get("OPENAI_API_KEY", "")
+
+    return Provider.from_config(MinimalProviderConfig())
 
 
 class Agent:
@@ -19,7 +50,7 @@ class Agent:
     
     def __init__(self, 
                  agent_type: "AgentType", 
-                 openai_client: "OpenAI",
+                 provider: Provider,
                  context_length: int,
                  tool_schemas: Optional[List[Dict]] = None,
                  extra_tools: Optional[List[Dict]] = None):
@@ -27,7 +58,7 @@ class Agent:
         
         Args:
             agent_type: The agent definition (model, system prompt, tools).
-            openai_client: An initialized OpenAI client.
+            provider: A Provider instance for LLM communication. (OpenAI-compatible.)
             context_length: Model's context window size.
             tool_schemas: All available tool schema dicts. If provided, the 
                          agent will only expose the schemas whose names are in 
@@ -38,12 +69,14 @@ class Agent:
                          in sub-agent sessions) without modifying agent YAML files.
         """
         self._agent_type = agent_type
-        self._client = openai_client
+        self._provider = provider
         self._context_length = context_length
         
-        # Resolve base URL, stripping trailing /v1 if present (OpenAI-compatible URLs).
-        raw_host = getattr(openai_client, "base_url", None) or os.environ.get("OPENAI_BASE_URL", "")
-        self._base_url = str(raw_host).rstrip("/") if raw_host else ""
+        # Resolve base URL from provider if available.
+        try:
+            self._base_url = provider.get_base_url().rstrip("/")
+        except Exception:
+            self._base_url = ""
 
         # Filter tool schemas based on AgentType.
         from agent.utils import filter_tool_schemas
@@ -84,8 +117,15 @@ class Agent:
 
     @property
     def client(self):
-        """Public accessor for the OpenAI client instance (kept for backward compatibility)."""
-        return self._client
+        """Public accessor for the underlying OpenAI client (for backward compatibility)."""
+        # Lazy access to provider's internal client if it has one.
+        if hasattr(self._provider, 'client'):
+            return self._provider.client
+        raise AttributeError("Provider does not expose a direct .client attribute")
+    @property
+    def provider(self):
+        """Public accessor for the Provider instance."""
+        return self._provider
 
     @property
     def context_length(self) -> int:
@@ -109,64 +149,69 @@ class Agent:
     # -- internal helpers ----------------------------------------------------
 
     def _chat(self, messages: list[dict]) -> dict:
-        """Send *messages* to the OpenAI client and return a normalized response dict.
+        """Send *messages* to the provider and return a normalized response dict.
 
         Tracks timing data alongside token counts for performance metrics. Returns
         both the message content and usage statistics in a single dict.
         """
         import time
         start_time = time.time()
-        
-        if hasattr(self._client, 'chat') and hasattr(self._client.chat, 'completions'):
-            kwargs: dict = {
-                "model": self._agent_type.model_name,
-                "messages": messages,
-                "tools": self._tools if self._tools else None,
-            }
 
-            try:
-                completion = self._client.chat.completions.create(**{k: v for k, v in kwargs.items() if v is not None})
-            except Exception as exc:
-                raise RuntimeError(f"OpenAI chat request failed: {exc}") from exc
-
-            choice = completion.choices[0]
-            message_obj = choice.message  # ChatCompletionMessage with .content and .tool_calls
-
-            # Build a dict that contains both message content and usage data
-            resp_dict: dict = {
-                "message": {
-                    "role": message_obj.role or "assistant",
-                    "content": message_obj.content,
-                },
-                "model": completion.model,
-                "usage": {
-                    "prompt_tokens": (completion.usage.prompt_tokens if completion.usage else None),
-                    "completion_tokens": (completion.usage.completion_tokens if completion.usage else None),
-                    "total_tokens": (completion.usage.total_tokens if completion.usage else None),
-                },
-            }
-
-            # Track timing for performance metrics
-            end_time = time.time()
-            resp_dict["duration_ms"] = (end_time - start_time) * 1000
-
-            if message_obj.tool_calls:
-                resp_dict["message"]["tool_calls"] = [
-                    {
-                        "id": tc.id,
-                        "type": tc.type,
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments
-                        }
-                    } for tc in message_obj.tool_calls 
-                ]
-
-            return resp_dict
-        else:
-            raise NotImplementedError(
-                "Only OpenAI clients are supported in this build."
+        try:
+            raw_response = self._provider.chat_completion(
+                messages=messages,
+                model=self._agent_type.model_name,
+                tools=self._tools if self._tools else None,
             )
+        except Exception as exc:
+            raise RuntimeError(f"Provider chat request failed: {exc}") from exc
+
+        # Normalize the provider response to match OpenAI format.
+        choices = raw_response.get("choices", [])
+        usage_data = raw_response.get("usage") or {}
+
+        if not choices:
+            return {
+                "message": {"role": "assistant", "content": ""},
+                "model": self._agent_type.model_name,
+                "usage": usage_data,
+            }
+
+        choice = choices[0]
+        message_obj = choice.get("message", {})
+        
+        # Build a dict that contains both message content and usage data.
+        resp_dict: dict = {
+            "message": {
+                "role": message_obj.get("role") or "assistant",
+                "content": message_obj.get("content"),
+            },
+            "model": self._agent_type.model_name,
+            "usage": {
+                "prompt_tokens": usage_data.get("prompt_tokens"),
+                "completion_tokens": usage_data.get("completion_tokens"),
+                "total_tokens": usage_data.get("total_tokens"),
+            },
+        }
+
+        # Track timing for performance metrics.
+        end_time = time.time()
+        resp_dict["duration_ms"] = (end_time - start_time) * 1000
+
+        if message_obj.get("tool_calls"):
+            resp_dict["message"]["tool_calls"] = [
+                {
+                    "id": tc.get("id"),
+                    "type": tc.get("type", "function"),
+                    "function": {
+                        "name": tc["function"].get("name"),
+                        "arguments": tc["function"].get("arguments"),
+                    },
+                }
+                for tc in message_obj["tool_calls"]
+            ]
+
+        return resp_dict
     
     # -- public API ----------------------------------------------------------
     
@@ -333,7 +378,7 @@ or update their status to 'failed' before stopping.
         # so no extra work is needed here.
         agent_type = AgentType.from_file(str(yaml_path_str))
 
-        # Reuse the parent's client host and context window.
+        # Reuse the parent's provider (if it has one) and context window.
         if parent_agent is None:
             from agent.context import CURRENT_AGENT
             parent_agent = CURRENT_AGENT.get()
@@ -342,7 +387,13 @@ or update their status to 'failed' before stopping.
                 "No sub-agent name provided and no current agent in context. "
                 "Pass sub_name or call run_subagent from within a handle_prompt loop."
             )
-        client = OpenAI(base_url=parent_agent._base_url, api_key=os.environ.get("OPENAI_API_KEY", ""))
+
+        # Try to use the parent's provider; otherwise construct one from config.
+        if hasattr(parent_agent, '_provider') and parent_agent._provider is not None:
+            new_provider = parent_agent._provider
+        else:
+            new_provider = _build_subagent_provider(agent_type, parent_agent)
+
         context_length = parent_agent._context_length
 
         if tool_schemas is None:
@@ -351,7 +402,7 @@ or update their status to 'failed' before stopping.
 
         return cls(
             agent_type=agent_type,
-            openai_client=client,
+            provider=new_provider,
             context_length=context_length,
             tool_schemas=tool_schemas,
             extra_tools=extra_tools,

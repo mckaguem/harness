@@ -59,6 +59,34 @@ class Provider(ABC):
         """
         pass
 
+    @classmethod
+    def from_config(cls, config: 'ProviderConfig') -> 'Provider':
+        """Create a Provider instance from a configuration object.
+
+        Args:
+            config: A ProviderConfig with provider_type, base_url,
+                    and optional api_key fields.
+
+        Returns:
+            An appropriate subclass of Provider (e.g. OpenAIProvider or OllamaProvider).
+
+        Raises:
+            ValueError: If required fields are missing from the configuration.
+        """
+        from openai import OpenAI as _OpenAIClient
+
+        if not config.provider_type:
+            raise ValueError("ProviderConfig must include a 'provider_type' field")
+        if not config.base_url:
+            raise ValueError("ProviderConfig must include a 'base_url' field")
+
+        client = _OpenAIClient(
+            base_url=config.base_url,
+            api_key=config.api_key or "",
+        )
+
+        return create_provider(client, provider_type=config.provider_type)
+
 
 class OpenAIProvider(Provider):
     """OpenAI provider implementation."""
@@ -78,13 +106,17 @@ class OpenAIProvider(Provider):
             messages=messages,
             **kwargs
         )
+        msg = {
+            "content": response.choices[0].message.content,
+            "role": response.choices[0].message.role
+        }
+        if response.choices[0].message.tool_calls:
+            msg["tool_calls"] = [
+                {"id": tc.id, "type": tc.type, "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in response.choices[0].message.tool_calls
+            ]
         return {
-            "choices": [{
-                "message": {
-                    "content": response.choices[0].message.content,
-                    "role": response.choices[0].message.role
-                }
-            }],
+            "choices": [{"message": msg}],
             "usage": {
                 "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
                 "completion_tokens": response.usage.completion_tokens if response.usage else 0,
@@ -137,13 +169,17 @@ class OllamaProvider(Provider):
             messages=messages,
             **kwargs
         )
+        msg = {
+            "content": response.choices[0].message.content,
+            "role": response.choices[0].message.role
+        }
+        if response.choices[0].message.tool_calls:
+            msg["tool_calls"] = [
+                {"id": tc.id, "type": tc.type, "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in response.choices[0].message.tool_calls
+            ]
         return {
-            "choices": [{
-                "message": {
-                    "content": response.choices[0].message.content,
-                    "role": response.choices[0].message.role
-                }
-            }],
+            "choices": [{"message": msg}],
             "usage": {
                 "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
                 "completion_tokens": response.usage.completion_tokens if response.usage else 0,
