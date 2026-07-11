@@ -136,7 +136,15 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
         _tui = get_tui()
         _tui.show_spinner()
         try:
-            for output in agent.handle_prompt(effective_input):
+            # Iterate defensively: agent.handle_prompt() is a generator, so the
+            # provider/LLM call (and any tool dispatch) runs lazily as we pull
+            # items. An exception raised while pulling the first item must be
+            # caught *here* — otherwise it propagates out of user_loop, and in
+            # the Textual TUI the worker's finally-block calls app.exit(),
+            # closing the whole app after a single message. Surface it and keep
+            # the loop alive so the user can retry (just like a tool ERROR).
+            outputs = agent.handle_prompt(effective_input)
+            for output in outputs:
                 kind = output[0]
                 if kind == RESPONSE:
                     _, content, ollama_response = output
@@ -152,6 +160,12 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                 elif kind == ERROR:
                     _, description = output
                     display_error(description)
+        except Exception as exc:  # pragma: no cover - defensive
+            import traceback
+            display_error(
+                f"Agent turn failed: {exc}\n"
+                + (traceback.format_exc() if _console.is_terminal else "")
+            )
         finally:
             _tui.hide_spinner()
         

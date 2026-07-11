@@ -245,3 +245,33 @@ exits 0. No new regressions; failure count unchanged at 22.
 - Each step's sub-agent is instructed to run `harness.py` in **non-interactive
   mode** (from Step 1) as part of its testing where applicable.
 - Each step commits its own changes and summarizes them inline below.
+
+---
+
+## Hotfix — interactive mode exited after one message 🔧
+**Reported bug:** "When I run in interactive mode, I can type one thing and then it exits without doing anything."
+
+**Root cause:** In `harness_core/agent/loop.py`, `user_loop` iterated
+`agent.handle_prompt(effective_input)` with **no exception handling**. When the
+provider/LLM call fails (e.g. the configured endpoint in `.harness_py/config.yaml`
+is unreachable, or a bad API key/model), `Agent._chat()` raises
+`RuntimeError("Provider chat request failed: ...")`. That exception propagated
+out of `handle_prompt` → out of `user_loop` → into the Textual TUI worker's
+`finally: self.call_from_thread(self.exit)`, which **closed the whole app
+after the first message**. Reproduced headlessly via the real `TextualHarnessApp`
++ worker-thread `user_loop`: with a failing provider, `is_active()` went
+`True → False` after one input (app closed); the success path stayed alive.
+
+**Fix:** Wrapped the agent-turn iteration in `user_loop` with a `try/except`
+that surfaces the error via `display_error` and **continues the loop** (just as a
+tool-error `ERROR` yield already does) instead of crashing. The spinner `finally`
+hide is preserved. The interactive session now survives provider/tool failures and
+keeps prompting — the user can fix credentials and retry.
+
+**Files touched:** `harness_core/agent/loop.py`; new
+`tests/test_user_loop_resilient.py` (2 tests: a failing turn no longer
+propagates; a normal turn still drives end-to-end).
+
+**Test results:** full suite now **22 failed / 287 passed** — the +2 vs the
+previous 285 are the new regression tests; the 22 failures remain the
+pre-existing, unrelated `tests/test_agent.py` cases.
