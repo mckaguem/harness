@@ -20,13 +20,16 @@ class Session:
     - Preparing individual messages with task-state context before they enter the conversation
     """
 
-    def __init__(self, system_prompt: str, task_list=None, auto_save: bool = True):
+    def __init__(self, system_prompt: str, task_list=None, auto_save: bool = True,
+                 provider=None, model_name: str = ""):
         """Initialize a Session.
 
         Args:
             system_prompt: The system prompt that becomes messages[0].
             task_list: Optional TaskList instance for context injection.
             auto_save: If True, automatically saves to .sessions/ after every change.
+            provider: Optional LLM Provider instance (needed for summarize()).
+            model_name: Model name string (needed for summarize() calls).
         """
         self.messages: list[dict] = [{"role": "system", "content": system_prompt}]
         self._task_list = task_list
@@ -34,6 +37,8 @@ class Session:
         self._auto_save = auto_save
         self._agent_type_name: str = "main"
         self.filepath = None
+        self._provider = provider          # type: Optional[object]
+        self._model_name: str = model_name
         
         # Generate a unique filename for this session at creation time (if auto-save is enabled)
         if auto_save:
@@ -148,6 +153,94 @@ class Session:
             s: The string to inject. Leading/trailing whitespace is preserved.
         """
         self._injected_text = f"<<INJECTED>>\n{s}\n<<END_INJECTED>>"
+
+    # -- summarization -------------------------------------------------------
+
+    def summarize(self, summary_prompt: Optional[str] = None) -> str:
+        """Ask the LLM to summarise the conversation accumulated so far.
+
+        Builds a temporary message list from recent history and appends a
+        summary prompt. The resulting turn is *not* persisted in ``self.messages``
+        — the session's own history remains untouched.
+
+        Args:
+            summary_prompt: Optional override for how to summarise. If provided,
+                this replaces the default "expert summarizer" system message and
+                user instruction, letting the caller specify any custom guidance.
+
+        Returns:
+            A string containing the generated summary, or an empty string on
+            failure.
+        
+        Raises:
+            RuntimeError: If no provider is configured (call Agent to use summarize).
+        """
+        if self._provider is None:
+            raise RuntimeError(
+                "Session.summarize() requires a Provider. "
+                "Ensure the agent was initialized with a valid provider."
+            )
+
+        transcript_lines = []
+        for msg in self.messages:
+            if msg['role'] == 'system':
+                continue
+            elif msg['role'] == 'tool':
+                # Turn a technical tool response into a simple narrative note
+                transcript_lines.append(f"[The agent received a tool call response.]")
+            else:
+                transcript_lines.append(f"{msg['role'].capitalize()}: {msg['content']}")
+
+        formatted_transcript = "\n".join(transcript_lines)
+
+        if summary_prompt is not None:
+            messages = [
+                {
+                    'role': 'user',
+                    'content': f"{summary_prompt}\n\nConversation transcript:\n\n{formatted_transcript}"
+                }
+            ]
+        else:
+            messages = [{
+                'role': 'system',
+                'content': (
+                    "You are an expert summarizer. Your job is to provide a concise, "
+                    "bulleted summary of the provided conversation transcript. "
+                    "Focus purely on the core topics discussed and key conclusions. "
+                    "Do not include introductory or concluding conversational filler."
+                )
+            },
+            {
+                'role': 'user',
+                'content': f"Please summarize this conversation transcript:\n\n{formatted_transcript}"
+            }
+        ]
+
+        # Call the provider directly to get the LLM response
+        import time
+        start_time = time.time()
+        
+        try:
+            raw_response = self._provider.chat_completion(
+                messages=messages,
+                model=self._model_name,
+            )
+        except Exception as exc:
+            raise RuntimeError(f"Provider chat request failed: {exc}") from exc
+
+        # Extract just the content string from the response (fixing bug in original)
+        choices = raw_response.get("choices", [])
+        if not choices:
+            return ""
+        
+        message_obj = choices[0].get("message", {})
+        summary_content = message_obj.get("content", "") or ""
+        
+        # Track timing (optional, for future use)
+        end_time = time.time()
+        _duration_ms = (end_time - start_time) * 1000
+
+        return summary_content
 
     # -- context injection ---------------------------------------------------
 

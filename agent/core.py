@@ -83,7 +83,12 @@ class Agent:
         self._task_list: Optional[TaskList] = TaskList()
 
         # Conversation state is now owned by the Session object.
-        self._session = Session(agent_type.system_prompt, self._task_list)
+        self._session = Session(
+            system_prompt=agent_type.system_prompt,
+            task_list=self._task_list,
+            provider=self._provider,
+            model_name=self._agent_type.model_name
+        )
         self._session._agent_type_name = agent_type.name
 
         self._max_loops: int = 30  # Safety ceiling to prevent infinite loops
@@ -387,56 +392,4 @@ or update their status to 'failed' before stopping.
             extra_tools=extra_tools,
         )
 
-    def summarize(self, summary_prompt: Optional[str] = None) -> str:
-        """Ask the LLM to summarise the conversation accumulated so far.
 
-        Builds a temporary message list from recent history and appends a
-        summary prompt.  The resulting turn is *not* persisted in ``self.messages``
-        — the agent's own history remains untouched.
-
-        Args:
-            summary_prompt: Optional override for how to summarise. If provided,
-                this replaces the default "expert summarizer" system message and
-                user instruction, letting the caller specify any custom guidance.
-
-        Returns:
-            A string containing the generated summary, or an empty string on
-            failure.
-        """
-        
-        transcript_lines = []
-        for msg in self._session.get_messages():
-            if msg['role'] == 'system':
-                continue
-            elif msg['role'] == 'tool':
-                # Turn a technical tool response into a simple narrative note
-                transcript_lines.append(f"[The agent received a tool call response.]")
-            else:
-                transcript_lines.append(f"{msg['role'].capitalize()}: {msg['content']}")
-
-        formatted_transcript = "\n".join(transcript_lines)
-    
-        if summary_prompt is not None:
-            messages = [
-                {
-                    'role': 'user',
-                    'content': f"{summary_prompt}\n\nConversation transcript:\n\n{formatted_transcript}"
-                }
-            ]
-        else:
-            messages = [ {
-                'role': 'system',
-                'content': (
-                    "You are an expert summarizer. Your job is to provide a concise, "
-                    "bulleted summary of the provided conversation transcript. "
-                    "Focus purely on the core topics discussed and key conclusions. "
-                    "Do not include introductory or concluding conversational filler."
-                )
-            },
-            {
-                'role': 'user',
-                'content': f"Please summarize this conversation transcript:\n\n{formatted_transcript}"
-            }
-        ]
-        
-        return self._chat(messages)

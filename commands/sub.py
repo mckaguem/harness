@@ -53,7 +53,7 @@ def cmd_sub(rest: str, parent_agent) -> bool | None:
             "Ask the sub-agent to produce a final summary."
         )
         try:
-            summary = agent.summarize()
+            summary = agent._session.summarize()
             print_system("Summary", summary)
             if not summary:
                 raise ValueError("summarize() returned empty content")

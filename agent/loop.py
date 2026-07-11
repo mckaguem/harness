@@ -91,7 +91,7 @@ def user_loop(agent: "Agent", openai_client=None, on_exit=None) -> None:
                 result = handler(rest, agent=agent)
                 if result is True and on_exit is not None:
                     # Let caller do its own exit-time work (e.g. summarize)
-                    on_exit(agent, agent.messages)
+                    on_exit(agent, agent._session.messages)
                     break
                 elif result is True:
                     break
