@@ -31,8 +31,9 @@ When an agent name exists in both, the project version wins.
 
 import json
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 
+from agent.tool_context import ToolContext
 from tools.tool_result import ToolResult
 from tools.utils import _strip_ansi, make_error_result
 
@@ -99,7 +100,7 @@ def _build_function_def() -> dict:
 function_def = _build_function_def()
 
 
-def run_subagent(sub_agent: str, task: str) -> ToolResult:
+def run_subagent(sub_agent: str, task: str, ctx: ToolContext | None = None) -> ToolResult:
     """Spawn a named sub-agent and execute *task* on it.
 
     Args:
@@ -107,6 +108,11 @@ def run_subagent(sub_agent: str, task: str) -> ToolResult:
                    (e.g. ``"analyst"``, ``"coder"``, ``"sysadmin"``).
         task: The task description to run — treated as a user prompt for the
               sub-agent's :meth:`Agent.handle_prompt` loop.
+        ctx: The :class:`~agent.tool_context.ToolContext` for this call (injected
+             automatically by the dispatcher). The parent agent is taken from
+             ``ctx.agent``; if that is absent, ``CURRENT_AGENT`` is used as a
+             legacy fallback. Outside any active agent loop this fails loudly
+             instead of bootstrapping a shared fallback agent (Option B).
 
     Returns:
         A :class:`ToolResult`. On success this contains the parsed JSON payload
@@ -129,18 +135,29 @@ def run_subagent(sub_agent: str, task: str) -> ToolResult:
     """
     from agent.context import CURRENT_AGENT as _CURRENT_AGENT
 
-    # Save the parent's CURRENT_AGENT so we can restore it after spawning.
-    saved_agent = _CURRENT_AGENT.get()
+    # Resolve the parent agent from the explicit context first, then fall back to
+    # the legacy CURRENT_AGENT contextvar. If neither is present we fail loudly
+    # instead of bootstrapping a shared agent (Option B).
+    parent_agent = getattr(ctx, "agent", None) if ctx is not None else None
+    if parent_agent is None:
+        parent_agent = _CURRENT_AGENT.get()
+    if parent_agent is None:
+        return make_error_result(
+            "No active agent context found. run_subagent can only be used by an "
+            "agent running inside a handle_prompt loop (or a sub-agent loop)."
+        )
 
+    # Save the parent's CURRENT_AGENT so we can restore it after spawning.
+    saved_agent = parent_agent
     try:
         from agent import Agent, RESPONSE, TOOL_CALL  # noqa: F401 (explicit guards)
 
         termination_prompt = TERMINATION_PROMPT
 
-        # No explicit parent needed — spawn_subagent falls back to the current
-        # contextvar bound by handle_prompt().
+        # The parent agent is taken from ctx.agent / CURRENT_AGENT (resolved above).
         sub = Agent.spawn_subagent(
             sub_agent,
+            parent_agent=parent_agent,
             extra_tools=[_get_submit_results_def()],  # inject submit_results at runtime
         )
 

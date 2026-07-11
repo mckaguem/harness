@@ -11,6 +11,7 @@ from agent.constants import (
     ERROR,
 )
 from agent.context import CURRENT_AGENT
+from agent.tool_context import ToolContext, current_tool_context
 from agent.utils import filter_tool_schemas
 from agent.loop import user_loop
 from agent.discovery import discover_agents, get_agent_yaml, get_agent_yaml_paths
@@ -24,6 +25,8 @@ except ImportError:
 __all__ = [
     "Agent",
     "CURRENT_AGENT",
+    "ToolContext",
+    "current_tool_context",
     "AgentType",
     "RESPONSE",
     "TOOL_CALL",

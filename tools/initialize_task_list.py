@@ -1,11 +1,12 @@
 """initialize_task_list — Tool for initializing the task execution state machine."""
 
-from agent.core import CURRENT_AGENT
+from agent.context import CURRENT_AGENT
+from agent.tool_context import ToolContext
 from tools.tool_result import ToolResult
 from tools.utils import _strip_ansi, make_error_result
 
 
-def initialize_task_list(tasks: list[str]) -> tuple | ToolResult:
+def initialize_task_list(tasks: list[str], ctx: ToolContext | None = None) -> tuple | ToolResult:
     """Initialize or reset the task list with a new set of tasks.
 
     This tool clears any existing tasks and populates the current agent's TaskList instance
@@ -27,10 +28,14 @@ def initialize_task_list(tasks: list[str]) -> tuple | ToolResult:
         ValueError: If the input is invalid (empty list, empty descriptions),
                     or if there are incomplete tasks remaining in the current list.
     """
-    current_agent = CURRENT_AGENT.get()
-    
-    if not current_agent:
-        return make_error_result("No active agent context found")
+    current_agent = getattr(ctx, "agent", None) if ctx is not None else None
+    if current_agent is None:
+        current_agent = CURRENT_AGENT.get()
+    if current_agent is None:
+        return make_error_result(
+            "No active agent context found. The task list tool can only be used "
+            "by an agent running inside a handle_prompt loop (or a sub-agent loop)."
+        )
 
     try:
         current_agent.task_list.initialize_tasks(tasks)

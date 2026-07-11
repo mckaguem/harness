@@ -372,8 +372,8 @@ or update their status to 'failed' before stopping.
             parent_agent = CURRENT_AGENT.get()
         if parent_agent is None:
             raise RuntimeError(
-                "No sub-agent name provided and no current agent in context. "
-                "Pass sub_name or call run_subagent from within a handle_prompt loop."
+                "No parent agent provided and no current agent in context. "
+                "Pass a `parent_agent` or call run_subagent from within a handle_prompt loop."
             )
 
         # Agent.__init__ resolves its own Provider via the singleton registry.

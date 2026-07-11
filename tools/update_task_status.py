@@ -1,11 +1,12 @@
 """update_task_status — Tool for updating task execution state machine."""
 
 from agent.core import CURRENT_AGENT
+from agent.tool_context import ToolContext
 from tools.tool_result import ToolResult
 from tools.utils import _strip_ansi, make_error_result
 
 
-def update_task_status(task_id: int, status: str) -> tuple | ToolResult:
+def update_task_status(task_id: int, status: str, ctx: ToolContext | None = None) -> tuple | ToolResult:
     """Update the status of a specific task.
 
     Updates the status field of a Task object in the current agent's TaskList instance.
@@ -31,10 +32,17 @@ def update_task_status(task_id: int, status: str) -> tuple | ToolResult:
     Raises:
         ValueError: If the provided status is not in VALID_STATUSES.
     """
-    current_agent = CURRENT_AGENT.get()
-
-    if not current_agent:
-        return make_error_result("No active agent context found")
+    # Resolve the active agent from the explicit context first, then fall back to
+    # the legacy CURRENT_AGENT contextvar. If neither is present we fail loudly
+    # instead of bootstrapping a shared agent (Option B).
+    current_agent = getattr(ctx, "agent", None) if ctx is not None else None
+    if current_agent is None:
+        current_agent = CURRENT_AGENT.get()
+    if current_agent is None:
+        return make_error_result(
+            "No active agent context found. The task list tool can only be used "
+            "by an agent running inside a handle_prompt loop (or a sub-agent loop)."
+        )
 
     try:
         success, next_info = current_agent.task_list.update_status(task_id, status)
