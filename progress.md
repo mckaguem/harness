@@ -314,3 +314,48 @@ the converted input).
 **Test results:** full suite **22 failed / 293 passed** (was 22/287);
 the +6 are the new converter tests; the 22 remaining failures are the
 pre-existing, unrelated `tests/test_agent.py` cases.
+
+---
+
+## Hotfix 3 — persistent `400 invalid prompt` (the REAL cause) 🔧
+**Reported bug:** "Still not correct, getting the same errors. Look at the
+openai-python README." Confirmed in **non-interactive mode**.
+
+**Root cause (two independent conversions were needed):** The harness
+passed the Chat-Completions request schema verbatim into the OpenAI
+**Responses** API. Step 4's first attempt fixed the `messages`→`input`
+half, but the **`tools`** half was still in Chat format and that is
+what was actually 400'ing:
+- Chat tool schema (nested): `{"type":"function","function":{"name":..,"parameters":..}}`
+- Responses tool schema (FLATTENED, `FunctionToolParam`):
+  `{"type":"function","name":..,"parameters":..,"strict":..}`
+The server rejected the nested form with `400 invalid prompt`
+reporting `name`/`parameters` as `received undefined`.
+
+**Fix:** Added `_to_responses_tools()` which flattens each tool
+(name/parameters/`strict` to top level) and applied it in both
+`chat_completion` and `chat_completion_async`. Combined with the
+earlier `_to_responses_input()` (system→`instructions`, `content`
+as a list of parts, tool results→`function_call_output`,
+assistant `tool_calls`→`function_call`), the request now matches the
+canonical openai-python README Responses shape.
+
+**Verified:** ran the real provider against `openrouter.ai`:
+`uv run harness --message "..."` now returns a real completion
+(`38 tok (12 tok/s)`) with **no 400s**; the converted payload
+passes the SDK's own `ResponseCreateParams` validation (the exact
+check `client.responses.create` runs).
+
+**Secondary finding:** a *different* 400 (`no healthy deployments`)
+appears only for the configured `default_model: tencent/hy3:free`
+at the `qut_dell` litellm endpoint — a model-availability /
+config issue, not a code bug. The openrouter provider itself
+works once the schema is correct.
+
+**Files touched:** `harness_core/model/provider.py`; expanded
+`tests/test_provider_responses_input.py` (now 9 tests covering
+input normalisation + tool flattening + SDK validation).
+
+**Test results:** full suite **22 failed / 296 passed** (was 22/287);
+the +9 are the new converter tests; the 22 remaining failures are the
+pre-existing, unrelated `tests/test_agent.py` cases.
