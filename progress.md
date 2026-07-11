@@ -110,11 +110,23 @@ directory/packaging structure were intentionally left untouched.
 
 ---
 
-## Step 2b — Fix context compression ⏳
+## Step 2b — Fix context compression ✅ Complete
 **Goal:** Investigate the current (non-functional) context-compression code
 and make it work both in automatic mode and via the `/compress` command.
 
-**Status:** Pending — to be executed by a `main` sub-agent.
+**Status:** ✅ Complete — implemented by a main sub-agent (commit 4bcc6b1).
+
+**Bugs fixed (Step 2b):**
+
+- **BUG 1 (auto-compression never fired):** `agent/loop.py::_check_and_compress_if_needed` read `agent.messages` and `agent.session` via `getattr(agent, ..., None)`, but the `Agent` class only stores the session as `agent._session` (no `messages`/`session` attributes). Both resolved to `None`, so the guard `if not messages:` returned early and compression silently never triggered. Fixed by (a) adding `Agent.session` and `Agent.messages` `@property` accessors in `agent/core.py` that return `self._session` / `self._session.messages`, and (b) making the loop fall back to `agent._session` when the properties are absent (`getattr(agent, 'messages', None) or (getattr(agent, '_session', None) and getattr(agent, '_session').messages)`, and likewise for `session`). The threshold logic (`_count_approx_tokens` + `> 0.5`) was already sound and is unchanged.
+
+- **BUG 2 (`compress_messages` truncated the system prompt):** `compress_messages` truncated any message with content > 100 chars, including `messages[0]` (the `system` role). Added a `_must_preserve(msg)` guard that protects `role=="system"`, `role=="tool"`, and any message carrying `tool_calls` from truncation (preserving them verbatim) so tool-call sequencing is not broken.
+
+- **BUG 3 (verified, no code change needed):** `compress_session` mutates `session.messages[:] = new_messages` on the same object the agent uses (`agent._session`), so the compressed history is sent on the next turn. Confirmed the real `Session` (`session/messages` index 0 is the system prompt, `filepath` set in `_auto_save_session`) works with `compress_session`. The `/compress` command (`commands/compress.py`) already used `getattr(agent, '_session', None)` and is correct.
+
+**Files changed:** `agent/core.py` (added `session` + `messages` properties), `agent/loop.py` (fixed `_check_and_compress_if_needed` attribute access + fallback), `session/context_compression.py` (`compress_messages` system/tool/tool_calls preservation), `tests/test_context_compression.py` (added `TestProtectedMessages`, `TestCompressCommandE2E`, `TestAutoCompressionLoop`).
+
+**Verification:** `tests/test_context_compression.py` — 35 passed (was 27; +8 new tests: system/tool/tool_calls preservation, `/compress` end-to-end via a `_FakeAgent`/`_FakeSession`, and auto-compression triggers at high utilization while skipping at low utilization). Full suite: **23 failed, 270 passed** — identical to the pre-existing 23-failure baseline (all in `tests/test_agent.py`, unrelated to compression), so no new regressions. `tests/test_commands.py` and `tests/test_noninteractive.py` remain green. `model/provider.py` (Ollama) was intentionally left untouched.
 
 ---
 
