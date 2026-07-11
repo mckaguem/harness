@@ -1,13 +1,74 @@
-"""Entry point — wires up configuration and starts the agent loop."""
+"""Entry point — wires up configuration and starts the agent loop.
 
+The harness can run in two modes:
+
+* **Interactive** (default) — launches the Textual TUI, falling back to the
+  classic Rich/prompt_toolkit REPL. This is the historical behaviour.
+* **Non-interactive** — when ``--message "<prompt>"`` (short ``-m``) is
+  supplied, the harness loads configuration, discovers skills/agents, builds
+  the main :class:`~agent.core.Agent`, runs that single prompt to completion
+  via :meth:`Agent.handle_prompt`, prints the result, and exits cleanly. No
+  TUI or REPL is launched.
+"""
+
+import getopt
 import sys
-from agent import Agent, user_loop
+
+from agent import Agent
 from tools import AGENT_TOOLS
 from skills.discovery import discover_skills
 from config import load_harness_config
 
 
-def main():
+USAGE = """\
+Usage: harness.py [options]
+
+Options:
+  -m, --message <prompt>   Run a single prompt non-interactively and exit.
+  -h, --help               Show this help message and exit.
+"""
+
+
+def parse_args(argv):
+    """Parse CLI arguments with :mod:`getopt`.
+
+    Args:
+        argv: A list of argument strings (typically ``sys.argv[1:]``).
+
+    Returns:
+        dict: ``{"message": str | None, "help": bool}``. ``message`` is the
+        value of ``--message``/``-m`` (or ``None`` when the flag is absent).
+
+    Exits:
+        Calls ``sys.exit(2)`` on an unknown option or a missing required
+        argument, printing usage to stderr first.
+    """
+    try:
+        opts, _args = getopt.getopt(argv, "hm:", ["help", "message="])
+    except getopt.GetoptError as exc:
+        sys.stderr.write(f"[harness] Error: {exc.msg}\n\n{USAGE}")
+        sys.exit(2)
+
+    message = None
+    help_requested = False
+    for opt, arg in opts:
+        if opt in ("-h", "--help"):
+            help_requested = True
+        elif opt in ("-m", "--message"):
+            message = arg
+    return {"message": message, "help": help_requested}
+
+
+def build_agent():
+    """Load config, discover skills/agents, and build the main Agent.
+
+    This is the shared "startup pipeline" used by both the interactive and
+    non-interactive code paths (formerly the inline phases 1, 3, 4, 5 and 6 of
+    ``main``). It returns a fully configured :class:`~agent.core.Agent`.
+
+    Exits:
+        Calls ``sys.exit(1)`` on a fatal configuration/startup error.
+    """
     # ------------------------------------------------------------------
     # Phase 1: Load configuration (caches it globally for downstream modules).
     # ------------------------------------------------------------------
@@ -65,8 +126,122 @@ def main():
         sys.stderr.write(f"\n[harness] FATAL: Failed to create main agent: {exc}\n")
         sys.exit(1)
 
+    return agent
+
+
+def run_non_interactive(agent, message):
+    """Run a single *message* to completion and exit cleanly.
+
+    This drives the same engine as the interactive loop
+    (:meth:`Agent.handle_prompt`) but without any TUI/REPL. It mirrors the
+    slash-command and skill-interception handling of ``user_loop`` for a single
+    prompt, then iterates the generator yielded by ``handle_prompt`` and renders
+    each event with the shared ``terminal_io`` display helpers.
+
+    Args:
+        agent: A configured :class:`~agent.core.Agent`.
+        message: The user prompt to run.
+
+    Returns:
+        int: ``0`` on success (intended to be passed to ``sys.exit``).
+    """
+    # Bind this agent as the current agent for the duration of the run.  Tools
+    # such as the task list and run_subagent are agent-aware via the
+    # CURRENT_AGENT ContextVar; without this binding they would see None and
+    # fail.  (See agent/loop.py for the full rationale.)
+    from agent.context import CURRENT_AGENT
+    CURRENT_AGENT.set(agent)
+
+    from agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
+    from commands import COMMANDS
+    from skills.interceptor import intercept_message, InterceptorKind
+    from terminal_io import (
+        display_tool_call,
+        display_tool_result,
+        display_error,
+        display_agent_response,
+        display_user_message,
+    )
+    from terminal_io.speed import format_speed
+    from rich.console import Console
+
+    _console = Console()
+
+    # --- Slash-command / skill interception (single prompt) ----------------
+    effective_input = message
+    if message.startswith('/'):
+        parts = message[1:].split(' ', 1)
+        command_name = parts[0].lower()
+        rest = parts[1] if len(parts) > 1 else ''
+
+        handler = COMMANDS.get(command_name)
+        if handler:
+            result = handler(rest, agent=agent)
+            # /exit or /quit request termination; other built-in commands are
+            # handled directly and need no LLM call.
+            return 0 if result is True else 0
+
+        # No built-in handler — run the skill-activation interceptor.
+        outcome = intercept_message(message)
+        if outcome.kind == InterceptorKind.ACTIVATED:
+            agent.inject_text(outcome.payload)
+            effective_input = outcome.stripped_message if outcome.stripped_message else message
+        elif outcome.kind == InterceptorKind.RESTRICTED:
+            display_error(outcome.payload)
+            effective_input = outcome.stripped_message if outcome.stripped_message else message
+        else:
+            effective_input = message
+
+    # Echo the prompt for visibility (no TUI to render the typed text).
+    if effective_input.strip():
+        display_user_message(effective_input)
+
+    # --- Drive the agent engine to completion ------------------------------
+    for output in agent.handle_prompt(effective_input):
+        kind = output[0]
+        if kind == RESPONSE:
+            _, content, ollama_response = output
+            display_agent_response(content, ollama_response, agent._context_length)
+        elif kind == TOOL_CALL:
+            _, func_name, args_str, response_data = output
+            display_tool_call(func_name, args_str)
+        elif kind == TOOL_RESULT:
+            _, func_name, result, response_data = output
+            display_tool_result(func_name, result)
+            if response_data and 'usage' in response_data:
+                _console.print(format_speed(response_data, agent._context_length))
+        elif kind == ERROR:
+            _, description = output
+            display_error(description)
+
+    return 0
+
+
+def main(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+
+    args = parse_args(argv)
+    if args["help"]:
+        sys.stdout.write(USAGE)
+        sys.exit(0)
+
+    message = args["message"]
+
     # ------------------------------------------------------------------
-    # Phase 7: Run the interactive user loop with the configured Agent.
+    # Phase 2 (shared): Build the configured Agent.  Both code paths below
+    # use this same pipeline.
+    # ------------------------------------------------------------------
+    agent = build_agent()
+
+    # ------------------------------------------------------------------
+    # Non-interactive mode: run the single prompt and exit.
+    # ------------------------------------------------------------------
+    if message is not None:
+        sys.exit(run_non_interactive(agent, message))
+
+    # ------------------------------------------------------------------
+    # Phase 7: Interactive mode (historical default).
     # The textual TUI owns the screen and drives the classic user_loop on a
     # worker thread; if the TUI cannot run for any reason it falls back to the
     # classic Rich/prompt_toolkit REPL.
