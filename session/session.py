@@ -217,9 +217,6 @@ class Session:
         ]
 
         # Call the provider directly to get the LLM response
-        import time
-        start_time = time.time()
-        
         try:
             raw_response = self._provider.chat_completion(
                 messages=messages,
@@ -235,10 +232,6 @@ class Session:
         
         message_obj = choices[0].get("message", {})
         summary_content = message_obj.get("content", "") or ""
-        
-        # Track timing (optional, for future use)
-        end_time = time.time()
-        _duration_ms = (end_time - start_time) * 1000
 
         return summary_content
 

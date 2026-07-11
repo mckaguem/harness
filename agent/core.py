@@ -31,20 +31,13 @@ class Agent:
         Args:
             agent_type: The agent definition (model, system prompt, tools).
             context_length: Model's context window size.
-            provider: **Deprecated**. Previously required Provider instance. Now optional -
-                      agents resolve their own Provider via singleton registry using
-                      AgentType.provider_config from YAML loading. Tests may still pass mock providers.
+            provider: Optional Provider instance. When given, it is used directly.
+                      Otherwise the provider is resolved via the singleton registry
+                      from ``AgentType.provider_config`` (loaded from YAML).
         """
-        # Backward compatibility: detect legacy test calls like
-        #   Agent(agent_type, mock_client, 4096)
-        # where the second positional is a non-Provider object (e.g. MagicMock).
-        if provider is not None and not isinstance(provider, Provider):
-            context_length, provider = provider, context_length
-
         self._agent_type = agent_type
         self._context_length = int(context_length)
 
-        # Use provided provider if given (backward compat for tests), otherwise resolve via singleton
         if provider is not None and isinstance(provider, Provider):
             self._provider = provider
         elif hasattr(agent_type, 'provider_config') and agent_type.provider_config is not None:
@@ -104,13 +97,6 @@ class Agent:
         """Public accessor for the agent's task list."""
         return self._task_list
 
-    @property
-    def client(self):
-        """Public accessor for the underlying OpenAI client (for backward compatibility)."""
-        # Lazy access to provider's internal client if it has one.
-        if hasattr(self._provider, 'client'):
-            return self._provider.client
-        raise AttributeError("Provider does not expose a direct .client attribute")
     @property
     def provider(self):
         """Public accessor for the Provider instance."""
@@ -324,7 +310,7 @@ or update their status to 'failed' before stopping.
                 yield (TOOL_RESULT, func_name, return_result, response)
 
     @classmethod
-    def spawn_subagent(cls, sub_name: str, parent_agent: Optional["Agent"] = None,
+    def spawn_subagent(cls, sub_name: str,
                        tool_schemas: Optional[List[Dict]] = None,
                        extra_tools: Optional[List[Dict]] = None):
         """Build and return a configured ``Agent`` for the named sub-agent.
@@ -344,10 +330,6 @@ or update their status to 'failed' before stopping.
 
         Args:
             sub_name: The YAML file stem (e.g. ``"analyst"`` from ``/sub analyst``).
-            parent_agent: Retained only for backward-compatible call signatures.
-                          The agent's provider, base URL and context length are now
-                          resolved entirely from its own YAML config, so this is
-                          effectively unused.
             tool_schemas: All available tool schemas passed through to :meth:`filter_tool_schemas`.
                           If ``None``, defaults to all tools (equivalent to ``["*"]``).
             extra_tools: Additional function_def dicts added after filtering. Useful for

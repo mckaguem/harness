@@ -440,7 +440,7 @@ class TestAgentInit:
         )
         
         mock_client = MagicMock()
-        agent = Agent(agent_type, mock_client, 4096)
+        agent = Agent(agent_type, 4096, provider=mock_client)
         
         assert len(agent._session.messages) == 1
         assert agent._session.messages[0]["role"] == "system"
@@ -462,7 +462,7 @@ class TestAgentInit:
             {"function": {"name": "write_file"}},
         ]
         
-        agent = Agent(agent_type, mock_client, 4096, tool_schemas=all_schemas)
+        agent = Agent(agent_type, 4096, provider=mock_client, tool_schemas=all_schemas)
         
         assert len(agent._tools) == 1
         assert agent._tools[0]["function"]["name"] == "execute_bash"
@@ -478,7 +478,7 @@ class TestAgentInit:
         )
         
         mock_client = MagicMock()
-        agent = Agent(agent_type, mock_client, 4096)
+        agent = Agent(agent_type, 4096, provider=mock_client)
         
         assert agent._tools == []
 
@@ -493,7 +493,7 @@ class TestAgentInit:
         )
         
         mock_client = MagicMock()
-        agent = Agent(agent_type, mock_client, 8192)
+        agent = Agent(agent_type, 8192, provider=mock_client)
         
         assert agent._context_length == 8192
 
@@ -526,7 +526,7 @@ class TestAgentHandlePrompt:
         mock_completion.model = "test"
         mock_client.chat.completions.create.return_value = mock_completion
         
-        agent = Agent(agent_type, mock_client, 4096)
+        agent = Agent(agent_type, 4096, provider=mock_client)
         
         outputs = list(agent.handle_prompt("Hi"))
         
@@ -571,7 +571,7 @@ class TestAgentHandlePrompt:
             make_mock_completion("Done!"),
         ]
         
-        agent = Agent(agent_type, mock_client, 4096)
+        agent = Agent(agent_type, 4096, provider=mock_client)
         
         outputs = list(agent.handle_prompt("List files"))
         
@@ -631,7 +631,7 @@ class TestAgentHandlePrompt:
             make_mock_completion("Sorry"),
         ]
         
-        agent = Agent(agent_type, mock_client, 4096)
+        agent = Agent(agent_type, 4096, provider=mock_client)
         
         outputs = list(agent.handle_prompt("Do something"))
         
@@ -660,7 +660,7 @@ class TestAgentHandlePrompt:
         mock_completion.model = "test"
         mock_client.chat.completions.create.return_value = mock_completion
         
-        agent = Agent(agent_type, mock_client, 4096)
+        agent = Agent(agent_type, 4096, provider=mock_client)
         
         list(agent.handle_prompt("Hello"))
         
@@ -689,7 +689,7 @@ class TestAgentHandlePrompt:
         mock_completion.model = "test"
         mock_client.chat.completions.create.return_value = mock_completion
         
-        agent = Agent(agent_type, mock_client, 4096)
+        agent = Agent(agent_type, 4096, provider=mock_client)
         
         list(agent.handle_prompt("Hi"))
         
@@ -734,7 +734,7 @@ class TestAgentHandlePrompt:
             make_mock_completion("Done"),
         ]
         
-        agent = Agent(agent_type, mock_client, 4096)
+        agent = Agent(agent_type, 4096, provider=mock_client)
         
         list(agent.handle_prompt("Run command"))
         
@@ -780,7 +780,7 @@ class TestAgentHandlePrompt:
             make_mock_completion("Done!"),
         ]
         
-        agent = Agent(agent_type, mock_client, 4096)
+        agent = Agent(agent_type, 4096, provider=mock_client)
         
         outputs = list(agent.handle_prompt("Run commands"))
         
@@ -818,7 +818,7 @@ class TestAgentHandlePrompt:
         mock_client.chat.completions.create.return_value = mock_completion
         
         all_schemas = [{"function": {"name": "execute_bash"}}]
-        agent = Agent(agent_type, mock_client, 4096, tool_schemas=all_schemas)
+        agent = Agent(agent_type, 4096, provider=mock_client, tool_schemas=all_schemas)
         
         list(agent.handle_prompt("Test"))
         
@@ -868,7 +868,7 @@ class TestAgentHandlePrompt:
             make_mock_completion("Done"),
         ]
         
-        agent = Agent(agent_type, mock_client, 4096)
+        agent = Agent(agent_type, 4096, provider=mock_client)
         
         # Should yield TOOL_CALL, ERROR, TOOL_RESULT, RESPONSE without raising
         outputs = list(agent.handle_prompt("Test"))

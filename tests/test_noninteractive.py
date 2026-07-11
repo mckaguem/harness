@@ -53,7 +53,7 @@ def _make_agent(provider, content="Hello!", tool_calls=None, model="test"):
         system_prompt="You are a helpful test agent.",
         agent_tools=[],
     )
-    agent = Agent(agent_type, provider, 4096)
+    agent = Agent(agent_type, 4096, provider=provider)
     return agent
 
 
@@ -170,7 +170,7 @@ class TestRunNonInteractive:
             system_prompt="Test",
             agent_tools=["execute_bash"],
         )
-        agent = Agent(agent_type, provider, 4096)
+        agent = Agent(agent_type, 4096, provider=provider)
 
         calls = []
         results = []
@@ -211,7 +211,7 @@ class TestRunNonInteractive:
             system_prompt="Test",
             agent_tools=[],
         )
-        agent = Agent(agent_type, provider, 4096)
+        agent = Agent(agent_type, 4096, provider=provider)
 
         errors = []
         with patch("terminal_io.display_agent_response"), patch(

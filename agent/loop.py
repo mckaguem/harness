@@ -62,12 +62,11 @@ def _check_and_compress_if_needed(agent, display_error) -> None:
     except Exception as e:
         pass  # silently skip on any error
 
-def user_loop(agent: "Agent", openai_client=None, on_exit=None) -> None:
+def user_loop(agent: "Agent", on_exit=None) -> None:
     """Run the interactive chat loop.
 
     Args:
         agent: An initialized :class:`Agent` instance with its configuration.
-        openai_client: The OpenAI client (kept for future use).
         on_exit: Optional callback invoked just before the loop breaks due to 
                  ``/exit`` or ``/quit``. Receives ``(agent, messages)``. Return
                  value is ignored — the callback can mutate whatever it needs.

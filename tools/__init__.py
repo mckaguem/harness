@@ -57,13 +57,3 @@ def _build() -> None:
 
 
 _build()
-
-
-# Backwards-compat re-exports for direct use (tests etc.).
-def __getattr__(name: str):
-    """Allow `from tools import execute_bash` to keep working."""
-    if name in DISPATCH_REGISTRY:
-        fn = getattr(DISPATCH_REGISTRY[name], name)
-        globals()[name] = fn
-        return fn
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

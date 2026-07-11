@@ -88,16 +88,11 @@ def format_session_yaml(messages: list[dict], agent_type_name: str = "main") -> 
     return "\n".join(yaml_lines)
 
 
-def parse_session_yaml(yaml_content: str, agent_type_name: Optional[str] = None) -> tuple[list[dict], Optional[str]]:
+def parse_session_yaml(yaml_content: str) -> tuple[list[dict], Optional[str]]:
     """Parse YAML session data back into a list of message dicts.
 
     Expects the format produced by :func:`format_session_yaml`, which uses
     ``---`` document separators so each message is an independent YAML mapping.
-
-    Args:
-        yaml_content: The YAML string to parse.
-        agent_type_name: Optional override for the agent type name from filename.
-            Not used during parsing — kept for API compatibility.
 
     Returns:
         A tuple of ``(messages_list, error_string)``. If *error* is ``None``,

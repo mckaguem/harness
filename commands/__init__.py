@@ -7,9 +7,6 @@ from commands.load_session import cmd_load_session
 from commands.new import cmd_new
 from commands.compress import compress_handler
 
-# For backward compatibility
-_cmd_exit = cmd_exit
-
 
 def cmd_sub(rest: str, agent=None) -> bool | None:
     """Spawn an interactive sub-agent conversation."""
