@@ -151,6 +151,17 @@ def _to_responses_input(messages: List[Dict]) -> "tuple[str, list]":
     instructions_parts: list = []
     input_items: list = []
 
+    def _text_content(text: object) -> list:
+        """Wrap a message body in the Responses content-part list.
+
+        The OpenAI **Responses** API requires ``content`` on a ``message``
+        item to be a LIST of content parts (e.g. ``[{"type":
+        "input_text", "text": ...}]``), NOT a bare string. Sending a
+        plain string is what produced the persistent `400 invalid
+        prompt / invalid responses api request` error.
+        """
+        return [{"type": "input_text", "text": str(text) if text is not None else ""}]
+
     for msg in messages:
         role = msg.get("role")
         if role == "system":
@@ -165,7 +176,7 @@ def _to_responses_input(messages: List[Dict]) -> "tuple[str, list]":
             input_items.append({
                 "type": "message",
                 "role": "user",
-                "content": msg.get("content") or "",
+                "content": _text_content(msg.get("content")),
             })
             continue
 
@@ -185,7 +196,7 @@ def _to_responses_input(messages: List[Dict]) -> "tuple[str, list]":
                 input_items.append({
                     "type": "message",
                     "role": "assistant",
-                    "content": msg.get("content") or "",
+                    "content": _text_content(msg.get("content")),
                 })
             continue
 
@@ -201,6 +212,42 @@ def _to_responses_input(messages: List[Dict]) -> "tuple[str, list]":
 
     instructions = "\n\n".join(instructions_parts) if instructions_parts else None
     return instructions, input_items
+
+
+def _to_responses_tools(tools: Optional[List[Dict]]) -> Optional[List[Dict]]:
+    """Convert Chat-Completions tool schemas to the Responses API `tools` shape.
+
+    Chat Completions nests the callable under `function`:
+        {"type": "function", "function": {"name": ..., "parameters": ...}}
+    The Responses API requires a FLATTENED shape (name/parameters at the
+    top level), matching ``openai.types.responses.FunctionToolParam``:
+        {"type": "function", "name": ..., "parameters": ..., "strict": ...}
+    Sending the nested Chat shape yields ``400 invalid prompt`` (the
+    server reports `name`/``parameters` as `received undefined`).
+    """
+    if tools is None:
+        return None
+    converted: list = []
+    for tool in tools:
+        if not isinstance(tool, dict):
+            converted.append(tool)
+            continue
+        if "function" in tool and isinstance(tool.get("function"), dict):
+            func = tool["function"]
+            item = {"type": "function"}
+            if "name" in func:
+                item["name"] = func["name"]
+            if "description" in func:
+                item["description"] = func["description"]
+            if "parameters" in func:
+                item["parameters"] = func["parameters"]
+            # Responses API defaults strict to True; mirror that when unspecified.
+            item["strict"] = bool(func.get("strict", True))
+            converted.append(item)
+        else:
+            # Already flat (or an unknown shape) — pass through untouched.
+            converted.append(tool)
+    return converted
 
 
 class OpenAIProvider(Provider):
@@ -244,7 +291,9 @@ class OpenAIProvider(Provider):
         if instructions is not None:
             request_kwargs["instructions"] = instructions
         if tools is not None:
-            request_kwargs["tools"] = tools
+            # Responses API `tools` are FLATTENED (name/parameters at top
+            # level), not nested under `function` like Chat Completions.
+            request_kwargs["tools"] = _to_responses_tools(tools)
 
         try:
             response = self.client.responses.create(**request_kwargs)
@@ -299,7 +348,8 @@ class OpenAIProvider(Provider):
             "max_output_tokens": max_output_tokens,
         }
         if tools is not None:
-            request_kwargs["tools"] = tools
+            # Responses API `tools` are FLATTENED (see _to_responses_tools).
+            request_kwargs["tools"] = _to_responses_tools(tools)
 
         try:
             response = await self.client.responses.create(**request_kwargs)

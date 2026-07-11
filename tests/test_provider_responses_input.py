@@ -1,19 +1,41 @@
-"""Tests for OpenAIProvider Responses-API input normalisation.
+"""Tests for OpenAIProvider Responses-API request normalisation.
 
-The OpenAI **Responses** API rejects the Chat-Completions message schema
-verbatim. In particular it returns 400 ("invalid prompt / invalid
-responses api request") when the `input` array contains:
-  * ``role: "tool"`` items (tool results) — these must be
-    ``function_call_output`` items, and
-  * assistant messages with ``tool_calls`` — these must be
-    ``function_call`` items.
-System messages also must NOT be in `input`; they belong in the
-top-level `instructions` field.
+The OpenAI Responses API rejects the Chat-Completions schema verbatim
+and returns 400 ("invalid prompt / invalid responses api request").
+Two independent conversions were needed:
 
-These tests cover the ``_to_responses_input`` converter and the wiring
-into ``chat_completion`` / ``chat_completion_async``.
+1. `input` (was `messages`): system -> `instructions`; tool
+   results -> `function_call_output`; assistant `tool_calls` ->
+   `function_call`; every `message` item's `content` must be a LIST
+   of content parts (`[{"type": "input_text", "text": ...}]`).
+
+2. `tools` (was nested under `function` like Chat Completions):
+   the Responses API requires a FLATTENED shape with `name`/
+   `parameters` at the top level. Sending the nested Chat shape makes
+   the server report `name`/`parameters` as "received undefined" ->
+   `400 invalid prompt`. THIS was the actual cause of the
+   persistent errors (the harness passed Chat tool schemas straight in).
+
+These tests validate the converted payloads against the REAL openai SDK
+`ResponseCreateParams` request model (which is exactly what
+`client.responses.create(**kwargs)` enforces at request time).
 """
-from harness_core.model.provider import _to_responses_input, OpenAIProvider
+from pydantic import TypeAdapter
+from openai.types.responses import ResponseCreateParams
+from harness_core.model.provider import (
+    _to_responses_input,
+    _to_responses_tools,
+    OpenAIProvider,
+)
+
+
+def _text(text):
+    return [{"type": "input_text", "text": text}]
+
+
+def _validate(model, **kwargs):
+    # Mirrors what client.responses.create does internally.
+    TypeAdapter(ResponseCreateParams).validate_python(kwargs)
 
 
 def test_system_message_moves_to_instructions():
@@ -22,9 +44,8 @@ def test_system_message_moves_to_instructions():
         {"role": "user", "content": "hi"},
     ])
     assert instructions == "You are helpful."
-    # No system item remains in `input`.
     assert all(it.get("type") != "system" for it in items)
-    assert items[0] == {"type": "message", "role": "user", "content": "hi"}
+    assert items[0] == {"type": "message", "role": "user", "content": _text("hi")}
 
 
 def test_multiple_system_blocks_concatenated():
@@ -42,10 +63,8 @@ def test_tool_result_becomes_function_call_output():
         {"role": "tool", "content": "file1.txt", "tool_call_id": "call_1"},
     ])
     assert instructions is None
-    # The tool result must be a function_call_output referencing call_id,
-    # and the preceding user message is preserved as a `message` item.
     assert items == [
-        {"type": "message", "role": "user", "content": "run it"},
+        {"type": "message", "role": "user", "content": _text("run it")},
         {
             "type": "function_call_output",
             "call_id": "call_1",
@@ -73,9 +92,18 @@ def test_assistant_tool_calls_become_function_call_items():
     }]
 
 
+def test_assistant_plain_text_uses_content_list():
+    instructions, items = _to_responses_input([
+        {"role": "assistant", "content": "Here are the files."},
+    ])
+    assert items == [{
+        "type": "message",
+        "role": "assistant",
+        "content": _text("Here are the files."),
+    }]
+
+
 def test_full_tool_turn_round_trip_is_valid():
-    """A user -> assistant(tool_call) -> tool_result history converts to a
-    valid Responses `input` (no role:'tool', tool_calls removed)."""
     messages = [
         {"role": "system", "content": "sys prompt"},
         {"role": "user", "content": "list files"},
@@ -87,13 +115,12 @@ def test_full_tool_turn_round_trip_is_valid():
         {"role": "assistant", "content": "Here are the files."},
     ]
     instructions, items = _to_responses_input(messages)
-
     assert instructions == "sys prompt"
-    # Every item uses the Responses `type` discriminator, never role:'tool'.
     assert all("role" not in it or it["role"] in ("user", "assistant") for it in items)
     assert all(it["type"] in ("message", "function_call", "function_call_output") for it in items)
-
-    # The tool call + its result are paired by call_id.
+    for it in items:
+        if it["type"] == "message":
+            assert isinstance(it["content"], list)
     calls = [i for i in items if i["type"] == "function_call"]
     outputs = [i for i in items if i["type"] == "function_call_output"]
     assert len(calls) == 1 and len(outputs) == 1
@@ -101,15 +128,43 @@ def test_full_tool_turn_round_trip_is_valid():
     assert outputs[0]["output"] == "a.txt\nb.txt"
 
 
-def test_chat_completion_sends_valid_responses_input():
-    """chat_completion must NOT pass raw chat messages to input -- it must
-    normalise them (this is what previously caused 400s)."""
+def test_to_responses_tools_flattens_chat_schema():
+    """The real cause of the 400s: Chat tool schemas nest the callable
+    under `function`; the Responses API needs it FLATTENED."""
+    chat_tools = [{
+        "type": "function",
+        "function": {
+            "name": "execute_bash",
+            "description": "Run a shell command.",
+            "parameters": {"type": "object", "properties": {"command": {"type": "string"}}},
+        },
+    }]
+    resp_tools = _to_responses_tools(chat_tools)
+    assert resp_tools == [{
+        "type": "function",
+        "name": "execute_bash",
+        "description": "Run a shell command.",
+        "parameters": {"type": "object", "properties": {"command": {"type": "string"}}},
+        "strict": True,
+    }]
+    # The flattened shape must satisfy the SDK's FunctionToolParam.
+    _validate("m", input="hi", tools=resp_tools)
+
+
+def test_to_responses_tools_passes_through_flat():
+    flat = [{"type": "function", "name": "x", "parameters": {"type": "object"}, "strict": True}]
+    assert _to_responses_tools(flat) == flat
+    assert _to_responses_tools(None) is None
+
+
+def test_chat_completion_sends_valid_responses_request():
+    """End-to-end: chat_completion normalises BOTH messages and tools
+    into a payload the SDK accepts (this is what previously 400'd)."""
     client = type("C", (), {})()
     captured = {}
 
     def create(**kwargs):
         captured.update(kwargs)
-        # Fake a minimal valid Responses response.
         part = type("P", (), {"text": "ok"})()
         msg = type("M", (), {"type": "message", "content": [part]})()
         usage = type("U", (), {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2})()
@@ -124,11 +179,21 @@ def test_chat_completion_sends_valid_responses_input():
         {"role": "user", "content": "hi"},
         {"role": "tool", "content": "result", "tool_call_id": "call_x"},
     ]
-    prov.chat_completion(messages, "test-model", tools=None)
+    chat_tools = [{
+        "type": "function",
+        "function": {"name": "execute_bash", "parameters": {"type": "object"}},
+    }]
+    prov.chat_completion(messages, "test-model", tools=chat_tools)
 
     assert "instructions" in captured
     assert captured["instructions"] == "be nice"
-    # The role:'tool' item must have been converted.
-    assert all(it.get("type") == "function_call_output" for it in captured["input"]
-               if it.get("type") == "function_call_output")
     assert not any(it.get("role") == "tool" for it in captured["input"])
+    user_item = next(i for i in captured["input"] if i.get("role") == "user")
+    assert isinstance(user_item["content"], list)
+    # Tools must be flattened (name at top level, not under `function`).
+    assert captured["tools"] == [{
+        "type": "function",
+        "name": "execute_bash",
+        "parameters": {"type": "object"},
+        "strict": True,
+    }]
