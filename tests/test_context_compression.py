@@ -367,5 +367,220 @@ class TestPerformance:
         assert times[2] > times[1] * 0.5
 
 
+# ============================================================================
+# Tests for protected (non-truncated) messages (Bug #2)
+# ============================================================================
+
+class TestProtectedMessages:
+    """System / tool / tool_calls messages must never be truncated."""
+
+    def test_system_message_preserved_verbatim(self):
+        """The system prompt (messages[0]) must survive compression unchanged."""
+        long_system = ("You are a very strict assistant. " * 30)  # > 100 chars
+        messages = [
+            {"role": "system", "content": long_system},
+            {"role": "user", "content": "x" * 200},
+            {"role": "assistant", "content": "y" * 200},
+        ]
+        result = compress_messages(messages, fraction=0.1)
+
+        assert result[0]["role"] == "system"
+        assert result[0]["content"] == long_system
+
+    def test_tool_message_preserved_verbatim(self):
+        """Tool-result messages must not be truncated."""
+        long_tool = ("tool output blob " * 30)  # > 100 chars
+        messages = [
+            {"role": "system", "content": "short system"},
+            {"role": "tool", "content": long_tool, "name": "execute_bash"},
+            {"role": "user", "content": "z" * 200},
+        ]
+        result = compress_messages(messages, fraction=0.1)
+
+        tool_msgs = [m for m in result if m.get("role") == "tool"]
+        assert tool_msgs
+        assert tool_msgs[0]["content"] == long_tool
+
+    def test_tool_calls_message_preserved(self):
+        """A message carrying tool_calls must not be truncated."""
+        long_args = ("arg " * 40)  # > 100 chars
+        messages = [
+            {"role": "system", "content": "short system"},
+            {
+                "role": "assistant",
+                "content": long_args,
+                "tool_calls": [
+                    {"id": "call_1", "type": "function",
+                     "function": {"name": "execute_bash", "arguments": long_args}}
+                ],
+            },
+            {"role": "user", "content": "w" * 200},
+        ]
+        result = compress_messages(messages, fraction=0.1)
+
+        tc_msgs = [m for m in result if m.get("tool_calls")]
+        assert tc_msgs
+        assert tc_msgs[0]["content"] == long_args
+        assert tc_msgs[0]["tool_calls"]
+
+
+# ============================================================================
+# Integration tests for /compress command and the auto-compression loop path
+# ============================================================================
+
+class _FakeSession:
+    """Minimal Session stand-in exposing the attributes compress_session needs."""
+
+    def __init__(self, messages, filepath):
+        self.messages = list(messages)
+        self.filepath = filepath
+        self.saved = False
+        self.saved_to = None
+
+    def save(self):
+        self.saved = True
+
+    def _save_impl(self, new_filepath, save_state=True):
+        import json
+        from pathlib import Path
+        Path(new_filepath).parent.mkdir(parents=True, exist_ok=True)
+        with open(new_filepath, "w", encoding="utf-8") as f:
+            json.dump({"messages": self.messages}, f)
+        if save_state:
+            self.filepath = new_filepath
+            self.saved_to = new_filepath
+
+
+class _FakeAgent:
+    """Agent stand-in mirroring the real Agent attribute layout (_session)."""
+
+    def __init__(self, session, context_length):
+        self._session = session
+        self._context_length = context_length
+
+    @property
+    def session(self):
+        return self._session
+
+    @property
+    def messages(self):
+        return self._session.messages
+
+
+class TestCompressCommandE2E:
+    """End-to-end coverage of the /compress slash command."""
+
+    def test_compress_handler_end_to_end(self, tmp_path):
+        """/compress compresses messages and preserves the system prompt."""
+        from commands.compress import compress_handler
+
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant." * 5},
+        ]
+        for i in range(20):
+            messages.append({"role": "user", "content": f"long message number {i} " * 15})
+        messages.append({"role": "assistant", "content": "short answer"})
+
+        session = _FakeSession(messages, str(tmp_path / "session.json"))
+        agent = _FakeAgent(session, context_length=1 << 17)
+
+        original_len = len(session.messages)
+        result = compress_handler("0.5", agent=agent)
+
+        assert result is False
+        # Some prefix messages should have been truncated.
+        truncated = [
+            m for m in session.messages
+            if "[truncated for context compression" in m.get("content", "")
+        ]
+        assert truncated, "expected at least one message to be truncated"
+        # System prompt preserved verbatim.
+        assert session.messages[0]["role"] == "system"
+        assert session.messages[0]["content"] == "You are a helpful assistant." * 5
+        # Compressed count must be <= original count.
+        assert len(session.messages) == original_len
+
+    def test_compress_handler_invalid_fraction(self):
+        """Out-of-range fraction should be rejected without crashing."""
+        from commands.compress import compress_handler
+
+        session = _FakeSession([{"role": "system", "content": "x"}], "x.json")
+        agent = _FakeAgent(session, context_length=1 << 17)
+        result = compress_handler("2.0", agent=agent)
+
+        assert result is False
+
+
+class TestAutoCompressionLoop:
+    """Coverage of agent/loop.py::_check_and_compress_if_needed (Bug #1)."""
+
+    def _build_agent(self, tmp_path, context_length):
+        long_system = "system prompt " * 20  # long, must be preserved
+        messages = [{"role": "system", "content": long_system}]
+        # Long user messages to push utilization up.
+        for i in range(60):
+            messages.append({"role": "user", "content": "x" * 200})
+        session = _FakeSession(messages, str(tmp_path / "session.json"))
+        return _FakeAgent(session, context_length=context_length), long_system
+
+    def test_auto_compress_triggers_when_high_utilization(self, tmp_path):
+        from agent.loop import _check_and_compress_if_needed
+
+        agent, long_system = self._build_agent(tmp_path, context_length=4000)
+        # ~60 * 200 chars // 4 = ~3000 tokens over a 4000 window => > 50%
+        _check_and_compress_if_needed(agent, display_error=lambda m: None)
+
+        # System prompt preserved verbatim.
+        assert agent.session.messages[0]["content"] == long_system
+        # Some prefix messages were truncated.
+        truncated = [
+            m for m in agent.session.messages
+            if "[truncated for context compression" in m.get("content", "")
+        ]
+        assert truncated, "expected auto-compression to truncate some messages"
+
+    def test_auto_compress_skips_when_low_utilization(self, tmp_path):
+        from agent.loop import _check_and_compress_if_needed
+
+        agent, long_system = self._build_agent(tmp_path, context_length=10_000_000)
+        # Utilization far below 50% -> no compression.
+        _check_and_compress_if_needed(agent, display_error=lambda m: None)
+
+        truncated = [
+            m for m in agent.session.messages
+            if "[truncated for context compression" in m.get("content", "")
+        ]
+        assert not truncated, "compression should NOT trigger at low utilization"
+        assert agent.session.messages[0]["content"] == long_system
+
+    def test_auto_compress_uses_real_agent_properties(self, tmp_path):
+        """Loop must find the session via agent._session when no properties exist."""
+        from agent.loop import _check_and_compress_if_needed
+
+        # A bare agent exposing ONLY the private `_session` attribute (no
+        # `messages`/`session` properties) — this is exactly the pre-fix
+        # layout that silently disabled auto-compression.
+        class _BareAgent:
+            def __init__(self, session, context_length):
+                self._session = session
+                self._context_length = context_length
+
+        long_system = "system prompt " * 20
+        messages = [{"role": "system", "content": long_system}]
+        for i in range(60):
+            messages.append({"role": "user", "content": "x" * 200})
+        session = _FakeSession(messages, str(tmp_path / "session.json"))
+        agent = _BareAgent(session, context_length=4000)
+
+        _check_and_compress_if_needed(agent, display_error=lambda m: None)
+        truncated = [
+            m for m in agent._session.messages
+            if "[truncated for context compression" in m.get("content", "")
+        ]
+        assert truncated, (
+            "loop must fall back to agent._session when no properties exist"
+        )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

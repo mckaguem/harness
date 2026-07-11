@@ -38,7 +38,7 @@ def _check_and_compress_if_needed(agent, display_error) -> None:
         display_error: Error display callback from terminal_io.
     """
     try:
-        messages = getattr(agent, 'messages', None)
+        messages = getattr(agent, 'messages', None) or (getattr(agent, '_session', None) and getattr(agent, '_session').messages)
         context_length = getattr(agent, '_context_length', 1 << 17)  # default ~131072
         
         if not messages or not context_length:
@@ -53,7 +53,7 @@ def _check_and_compress_if_needed(agent, display_error) -> None:
             print(f"⚠️ Context utilization at {utilization:.1%} — auto-compressing...")
             try:
                 from session.context_compression import compress_session
-                session = getattr(agent, 'session', None)
+                session = getattr(agent, 'session', None) or getattr(agent, '_session', None)
                 if session is not None:
                     compress_session(session, fraction=0.5)
                     print(f"✅ Auto-compressed: {len(messages)} → {len(session.messages)} messages")

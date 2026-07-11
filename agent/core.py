@@ -106,6 +106,16 @@ class Agent:
     def context_length(self) -> int:
         """Public accessor for the model's context window size."""
         return self._context_length
+
+    @property
+    def session(self) -> "Session":
+        """Public accessor for the underlying Session object."""
+        return self._session
+
+    @property
+    def messages(self) -> list[dict]:
+        """Public accessor for the session's message list."""
+        return self._session.messages
     
     # -- injection API -------------------------------------------------------
 

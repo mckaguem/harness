@@ -53,9 +53,27 @@ def compress_messages(messages: list[dict], fraction: float) -> list[dict]:
     if not prefix_to_compress:
         return list(messages)
 
-    # Compress the prefix by truncating long content
+    # Messages whose content MUST be preserved verbatim. Truncating these
+    # would corrupt the conversation: the `system` prompt defines agent
+    # behaviour, while `tool` results and messages carrying `tool_calls`
+    # participate in strict tool-call sequencing required by the LLM APIs.
+    def _must_preserve(msg: dict) -> bool:
+        if msg.get("role") == "system":
+            return True
+        if msg.get("role") == "tool":
+            return True
+        if msg.get("tool_calls"):
+            return True
+        return False
+
+    # Compress the prefix by truncating long content (but never the
+    # system/tool/tool_calls messages, which are preserved verbatim).
     compressed_prefix = []
     for msg in prefix_to_compress:
+        if _must_preserve(msg):
+            compressed_prefix.append(dict(msg))
+            continue
+
         new_msg = dict(msg)  # shallow copy to preserve role
         content = new_msg.get("content")
 
