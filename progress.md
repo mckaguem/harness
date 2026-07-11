@@ -171,7 +171,7 @@ and make it work both in automatic mode and via the `/compress` command.
  --help` exits 0; `uv run harness --message "hello"` builds the agent and runs
  to completion (exit 0).
 
-## Step 4 — OpenAI `responses` interface & drop Ollama ⏳
+## Step 4 — OpenAI `responses` interface & drop Ollama ✅ Complete
 **Goal:** Adapt `OpenAIProvider` to use the OpenAI **Responses** API instead of
 the legacy Completions/Chat Completions interface. Remove Ollama support
 (low priority).
