@@ -2,7 +2,7 @@
 
 import pytest
 
-from agent.task_list import Task, VALID_STATUSES, TaskList
+from harness_core.agent.task_list import Task, VALID_STATUSES, TaskList
 
 
 # ── Task dataclass ──────────────────────────────────────────────────────

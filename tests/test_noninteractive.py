@@ -16,9 +16,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
-from agent import Agent, AgentType, RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
-from model.provider import Provider
-from harness import parse_args, run_non_interactive
+from harness_core.agent import Agent, AgentType, RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
+from harness_core.model.provider import Provider
+from harness_core.__main__ import parse_args, run_non_interactive
 
 
 class _FakeProvider(Provider):
@@ -112,12 +112,12 @@ class TestRunNonInteractive:
         agent = _make_agent(provider)
 
         captured = {}
-        with patch("terminal_io.display_agent_response",
+        with patch("harness_core.terminal_io.display_agent_response",
                    side_effect=lambda c, r, cl: captured.setdefault("content", c)), patch(
-            "terminal_io.display_user_message"), patch(
-            "terminal_io.display_tool_call"), patch(
-            "terminal_io.display_tool_result"), patch(
-            "terminal_io.display_error"):
+            "harness_core.terminal_io.display_user_message"), patch(
+            "harness_core.terminal_io.display_tool_call"), patch(
+            "harness_core.terminal_io.display_tool_result"), patch(
+            "harness_core.terminal_io.display_error"):
             rc = run_non_interactive(agent, "hello")
 
         assert rc == 0
@@ -127,16 +127,16 @@ class TestRunNonInteractive:
 
     def test_sets_current_agent_contextvar(self):
         """CURRENT_AGENT must be bound so agent-aware tools work."""
-        from agent.context import CURRENT_AGENT
+        from harness_core.agent.context import CURRENT_AGENT
 
         provider = _FakeProvider([_simple_response("Hi")])
         agent = _make_agent(provider)
 
-        with patch("terminal_io.display_agent_response"), patch(
-            "terminal_io.display_user_message"), patch(
-            "terminal_io.display_tool_call"), patch(
-            "terminal_io.display_tool_result"), patch(
-            "terminal_io.display_error"):
+        with patch("harness_core.terminal_io.display_agent_response"), patch(
+            "harness_core.terminal_io.display_user_message"), patch(
+            "harness_core.terminal_io.display_tool_call"), patch(
+            "harness_core.terminal_io.display_tool_result"), patch(
+            "harness_core.terminal_io.display_error"):
             run_non_interactive(agent, "hello")
 
         # After the run, the ContextVar should resolve to our agent on this
@@ -174,13 +174,13 @@ class TestRunNonInteractive:
 
         calls = []
         results = []
-        with patch("terminal_io.display_agent_response"), patch(
-            "terminal_io.display_user_message"), patch(
-            "terminal_io.display_tool_call",
+        with patch("harness_core.terminal_io.display_agent_response"), patch(
+            "harness_core.terminal_io.display_user_message"), patch(
+            "harness_core.terminal_io.display_tool_call",
             side_effect=lambda fn, a: calls.append(fn)), patch(
-            "terminal_io.display_tool_result",
+            "harness_core.terminal_io.display_tool_result",
             side_effect=lambda fn, r: results.append(fn)), patch(
-            "terminal_io.display_error"):
+            "harness_core.terminal_io.display_error"):
             rc = run_non_interactive(agent, "list files")
 
         assert rc == 0
@@ -214,11 +214,11 @@ class TestRunNonInteractive:
         agent = Agent(agent_type, 4096, provider=provider)
 
         errors = []
-        with patch("terminal_io.display_agent_response"), patch(
-            "terminal_io.display_user_message"), patch(
-            "terminal_io.display_tool_call"), patch(
-            "terminal_io.display_tool_result"), patch(
-            "terminal_io.display_error",
+        with patch("harness_core.terminal_io.display_agent_response"), patch(
+            "harness_core.terminal_io.display_user_message"), patch(
+            "harness_core.terminal_io.display_tool_call"), patch(
+            "harness_core.terminal_io.display_tool_result"), patch(
+            "harness_core.terminal_io.display_error",
             side_effect=lambda d: errors.append(d)):
             rc = run_non_interactive(agent, "do something")
 
@@ -230,21 +230,21 @@ class TestRunNonInteractive:
         provider = _FakeProvider([_simple_response("")])
         agent = _make_agent(provider)
 
-        with patch("terminal_io.display_agent_response"), patch(
-            "terminal_io.display_user_message"), patch(
-            "terminal_io.display_tool_call"), patch(
-            "terminal_io.display_tool_result"), patch(
-            "terminal_io.display_error"):
+        with patch("harness_core.terminal_io.display_agent_response"), patch(
+            "harness_core.terminal_io.display_user_message"), patch(
+            "harness_core.terminal_io.display_tool_call"), patch(
+            "harness_core.terminal_io.display_tool_result"), patch(
+            "harness_core.terminal_io.display_error"):
             rc = run_non_interactive(agent, "")
 
         assert rc == 0
 
     def test_main_help_path_exits_zero(self, capsys):
         """main(['--help']) prints usage and exits 0 without building an agent."""
-        with patch("harness.build_agent") as mock_build:
+        with patch("harness_core.__main__.build_agent") as mock_build:
             with pytest.raises(SystemExit) as exc:
                 # Imported lazily to avoid side effects at module load.
-                from harness import main
+                from harness_core.__main__ import main
                 main(["--help"])
         assert exc.value.code == 0
         # build_agent must NOT be invoked in help mode.

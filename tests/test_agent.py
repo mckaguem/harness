@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from agent import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
-from utils import project_root
+from harness_core.agent import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
+from harness_core.utils import project_root
 
 
 class TestAgentTypeFromFile:
@@ -16,19 +16,19 @@ class TestAgentTypeFromFile:
 
     def test_loads_valid_yaml(self, tmp_path):
         """Should load a valid YAML file correctly with inline system_prompt."""
-        from agent import AgentType
+        from harness_core.agent import AgentType
         
         yaml_content = """
 model_name: "llama3"
 system_prompt: "You are a helpful assistant."
 agent_tools: [execute_bash, write_file]
 """
-        (tmp_path / "config.yaml").write_text(yaml_content)
+        (tmp_path / "harness_core.config.yaml").write_text(yaml_content)
         
         old_cwd = os.getcwd()
         os.chdir(tmp_path)
         try:
-            agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
+            agent_type = AgentType.from_file(str(tmp_path / "harness_core.config.yaml"))
             assert agent_type.model_name == "llama3"
             # System prompt should start with base text and include cwd name injection.
             assert agent_type.system_prompt.startswith("You are a helpful assistant.")
@@ -40,19 +40,19 @@ agent_tools: [execute_bash, write_file]
 
     def test_uses_inline_system_prompt(self, tmp_path):
         """Should use inline system_prompt from YAML."""
-        from agent import AgentType
+        from harness_core.agent import AgentType
         
         yaml_content = """
 model_name: "mistral"
 system_prompt: "You are Mistral."
 agent_tools: ["*"]
 """
-        (tmp_path / "config.yaml").write_text(yaml_content)
+        (tmp_path / "harness_core.config.yaml").write_text(yaml_content)
         
         old_cwd = os.getcwd()
         os.chdir(tmp_path)
         try:
-            agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
+            agent_type = AgentType.from_file(str(tmp_path / "harness_core.config.yaml"))
             assert agent_type.model_name == "mistral"
             # Should be augmented with cwd name.
             assert agent_type.system_prompt.startswith("You are Mistral.")
@@ -64,15 +64,15 @@ agent_tools: ["*"]
 
     def test_raises_file_not_found(self, tmp_path):
         """Should raise FileNotFoundError for missing YAML."""
-        from agent import AgentType
+        from harness_core.agent import AgentType
         
         with pytest.raises(FileNotFoundError):
             AgentType.from_file(str(tmp_path / "nonexistent.yaml"))
 
-    @patch("config.get_default_model", return_value=None)
+    @patch("harness_core.config.get_default_model", return_value=None)
     def test_raises_value_error_missing_model_name(self, mock_default_model, tmp_path):
         """Should raise ValueError if model_name is missing."""
-        from agent import AgentType
+        from harness_core.agent import AgentType
         
         yaml_content = """
 system_prompt: "Test"
@@ -88,28 +88,28 @@ agent_tools: []
         finally:
             os.chdir(old_cwd)
 
-    @patch("config.get_default_model", return_value="fallback-model")
+    @patch("harness_core.config.get_default_model", return_value="fallback-model")
     def test_uses_default_model_when_missing(self, mock_default_model, tmp_path):
         """Should fall back to configured default model when YAML has no model_name."""
-        from agent import AgentType
+        from harness_core.agent import AgentType
 
         yaml_content = """
 system_prompt: "Test"
 agent_tools: []
 """
-        (tmp_path / "config.yaml").write_text(yaml_content)
+        (tmp_path / "harness_core.config.yaml").write_text(yaml_content)
 
         old_cwd = os.getcwd()
         os.chdir(tmp_path)
         try:
-            agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
+            agent_type = AgentType.from_file(str(tmp_path / "harness_core.config.yaml"))
             assert agent_type.model_name == "fallback-model"
         finally:
             os.chdir(old_cwd)
 
     def test_raises_value_error_invalid_tools(self, tmp_path):
         """Should raise ValueError if agent_tools is not a list."""
-        from agent import AgentType
+        from harness_core.agent import AgentType
         
         yaml_content = """
 model_name: "test"
@@ -127,25 +127,25 @@ agent_tools: "not_a_list"
 
     def test_defaults_agent_tools_to_empty(self, tmp_path):
         """Should default agent_tools to empty list if not specified."""
-        from agent import AgentType
+        from harness_core.agent import AgentType
         
         yaml_content = """
 model_name: "test"
 system_prompt: "Test prompt"
 """
-        (tmp_path / "config.yaml").write_text(yaml_content)
+        (tmp_path / "harness_core.config.yaml").write_text(yaml_content)
         
         old_cwd = os.getcwd()
         os.chdir(tmp_path)
         try:
-            agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
+            agent_type = AgentType.from_file(str(tmp_path / "harness_core.config.yaml"))
             assert agent_type.agent_tools == []
         finally:
             os.chdir(old_cwd)
 
     def test_raises_value_error_missing_system_prompt(self, tmp_path):
         """Should raise ValueError if system_prompt is missing from YAML."""
-        from agent import AgentType
+        from harness_core.agent import AgentType
         
         yaml_content = """
 model_name: "test"
@@ -163,19 +163,19 @@ agent_tools: []
 
     def test_system_prompt_only_includes_cwd_name(self, tmp_path):
         """Should only inject cwd name — not full listing or AGENTS.md."""
-        from agent import AgentType
+        from harness_core.agent import AgentType
         
         yaml_content = """
 model_name: "test"
 system_prompt: "Hello world."
 agent_tools: []
 """
-        (tmp_path / "config.yaml").write_text(yaml_content)
+        (tmp_path / "harness_core.config.yaml").write_text(yaml_content)
         
         old_cwd = os.getcwd()
         os.chdir(tmp_path)
         try:
-            agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
+            agent_type = AgentType.from_file(str(tmp_path / "harness_core.config.yaml"))
             # Should NOT contain full cwd listing.
             assert "Current working directory contents:" not in agent_type.system_prompt
             # Should NOT contain AGENTS.md.
@@ -187,7 +187,7 @@ agent_tools: []
 
     def test_name_defaults_to_stem(self, tmp_path):
         """Should fall back to YAML filename stem if 'name' is not specified."""
-        from agent import AgentType
+        from harness_core.agent import AgentType
         
         yaml_content = """
 model_name: "test"
@@ -206,19 +206,19 @@ agent_tools: []
 
     def test_builds_system_prompt_with_cwd_variable(self, tmp_path):
         """Should substitute $CWD with the absolute cwd path."""
-        from agent import AgentType
+        from harness_core.agent import AgentType
         
         yaml_content = (
             'model_name: "test"\n'
             'system_prompt: "You are in $CWD. Be helpful."\n'
             'agent_tools: []\n'
         )
-        (tmp_path / "config.yaml").write_text(yaml_content)
+        (tmp_path / "harness_core.config.yaml").write_text(yaml_content)
         
         old_cwd = os.getcwd()
         os.chdir(tmp_path)
         try:
-            agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
+            agent_type = AgentType.from_file(str(tmp_path / "harness_core.config.yaml"))
             # $CWD is replaced with the absolute path.
             assert str(tmp_path.resolve()) in agent_type.system_prompt
             # No legacy cwd-name footer because template variables were used.
@@ -228,19 +228,19 @@ agent_tools: []
 
     def test_builds_system_prompt_with_skills_variable(self, tmp_path):
         """Should substitute $SKILLS with one-line-per-skill catalog."""
-        from agent import AgentType
+        from harness_core.agent import AgentType
         
         yaml_content = (
             'model_name: "test"\n'
             'system_prompt: "Available skills:\n${SKILLS}"\n'
             'agent_tools: []\n'
         )
-        (tmp_path / "config.yaml").write_text(yaml_content)
+        (tmp_path / "harness_core.config.yaml").write_text(yaml_content)
         
         old_cwd = os.getcwd()
         os.chdir(tmp_path)
         try:
-            agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
+            agent_type = AgentType.from_file(str(tmp_path / "harness_core.config.yaml"))
             # With no skills discovered, $SKILLS is replaced with an empty string.
             assert "Available skills:" in agent_type.system_prompt
             assert "Current working directory name:" not in agent_type.system_prompt
@@ -249,19 +249,19 @@ agent_tools: []
 
     def test_builds_system_prompt_with_agents_variable(self, tmp_path):
         """Should substitute $AGENTS with one-line-per-agent catalog."""
-        from agent import AgentType
+        from harness_core.agent import AgentType
         
         yaml_content = (
             'model_name: "test"\n'
             'system_prompt: "Sub-agents:\n${AGENTS}"\n'
             'agent_tools: []\n'
         )
-        (tmp_path / "config.yaml").write_text(yaml_content)
+        (tmp_path / "harness_core.config.yaml").write_text(yaml_content)
         
         old_cwd = os.getcwd()
         os.chdir(tmp_path)
         try:
-            agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
+            agent_type = AgentType.from_file(str(tmp_path / "harness_core.config.yaml"))
             # $AGENTS is replaced; if no agents discovered, the section is empty.
             assert "Sub-agents:" in agent_type.system_prompt
         finally:
@@ -269,19 +269,19 @@ agent_tools: []
 
     def test_builds_system_prompt_with_tools_variable(self, tmp_path):
         """Should substitute $TOOLS with one-line-per-tool catalog."""
-        from agent import AgentType
+        from harness_core.agent import AgentType
         
         yaml_content = (
             'model_name: "test"\n'
             'system_prompt: "Tools:\n${TOOLS}"\n'
             'agent_tools: []\n'
         )
-        (tmp_path / "config.yaml").write_text(yaml_content)
+        (tmp_path / "harness_core.config.yaml").write_text(yaml_content)
         
         old_cwd = os.getcwd()
         os.chdir(tmp_path)
         try:
-            agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
+            agent_type = AgentType.from_file(str(tmp_path / "harness_core.config.yaml"))
             # $TOOLS is replaced with the list of available tools.
             assert "Tools:" in agent_type.system_prompt
             # At least one tool description should appear (e.g., execute_bash).
@@ -291,19 +291,19 @@ agent_tools: []
 
     def test_unknown_variable_left_intact(self, tmp_path):
         """Should leave unknown $UNLIKELY_NAME placeholders untouched."""
-        from agent import AgentType
+        from harness_core.agent import AgentType
         
         yaml_content = (
             'model_name: "test"\n'
             'system_prompt: "Hello $UNKNOWN_PLACEHOLDER_42 world"\n'
             'agent_tools: []\n'
         )
-        (tmp_path / "config.yaml").write_text(yaml_content)
+        (tmp_path / "harness_core.config.yaml").write_text(yaml_content)
         
         old_cwd = os.getcwd()
         os.chdir(tmp_path)
         try:
-            agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
+            agent_type = AgentType.from_file(str(tmp_path / "harness_core.config.yaml"))
             # Unknown placeholders are preserved literally so typos surface visibly.
             assert "$UNKNOWN_PLACEHOLDER_42" in agent_type.system_prompt
         finally:
@@ -311,19 +311,19 @@ agent_tools: []
 
     def test_no_legacy_footer_when_template_used(self, tmp_path):
         """When template variables are present, the legacy cwd-name footer is not appended."""
-        from agent import AgentType
+        from harness_core.agent import AgentType
         
         yaml_content = (
             'model_name: "test"\n'
             'system_prompt: "Working in $CWD with $TOOLS"\n'
             'agent_tools: []\n'
         )
-        (tmp_path / "config.yaml").write_text(yaml_content)
+        (tmp_path / "harness_core.config.yaml").write_text(yaml_content)
         
         old_cwd = os.getcwd()
         os.chdir(tmp_path)
         try:
-            agent_type = AgentType.from_file(str(tmp_path / "config.yaml"))
+            agent_type = AgentType.from_file(str(tmp_path / "harness_core.config.yaml"))
             assert "Current working directory name:" not in agent_type.system_prompt
             # But $CWD must have been substituted with the resolved path.
             assert str(tmp_path.resolve()) in agent_type.system_prompt
@@ -336,7 +336,7 @@ class TestFilterToolSchemas:
 
     def test_wildcard_returns_all(self):
         """Should return all schemas when agent_tools contains '*']."""
-        from agent import AgentType, filter_tool_schemas
+        from harness_core.agent import AgentType, filter_tool_schemas
         
         agent_type = AgentType(
             model_name="test",
@@ -354,7 +354,7 @@ class TestFilterToolSchemas:
 
     def test_filters_by_name_list(self):
         """Should filter schemas to only include requested names."""
-        from agent import AgentType, filter_tool_schemas
+        from harness_core.agent import AgentType, filter_tool_schemas
         
         agent_type = AgentType(
             model_name="test",
@@ -374,7 +374,7 @@ class TestFilterToolSchemas:
 
     def test_raises_value_error_for_missing_tools(self):
         """Should raise ValueError if requested tools don't exist."""
-        from agent import AgentType, filter_tool_schemas
+        from harness_core.agent import AgentType, filter_tool_schemas
         
         agent_type = AgentType(
             model_name="test",
@@ -391,7 +391,7 @@ class TestFilterToolSchemas:
 
     def test_empty_agent_tools_returns_empty(self):
         """Should return empty list when agent_tools is empty."""
-        from agent import AgentType, filter_tool_schemas
+        from harness_core.agent import AgentType, filter_tool_schemas
         
         agent_type = AgentType(
             model_name="test",
@@ -408,7 +408,7 @@ class TestFilterToolSchemas:
 
     def test_preserves_order_of_requested_names(self):
         """Should preserve the order of names as requested."""
-        from agent import AgentType, filter_tool_schemas
+        from harness_core.agent import AgentType, filter_tool_schemas
         
         agent_type = AgentType(
             model_name="test",
@@ -431,7 +431,7 @@ class TestAgentInit:
 
     def test_initializes_with_system_message(self):
         """Should initialize messages list with system message."""
-        from agent import Agent, AgentType
+        from harness_core.agent import Agent, AgentType
         
         agent_type = AgentType(
             model_name="test",
@@ -448,7 +448,7 @@ class TestAgentInit:
 
     def test_filters_tool_schemas(self):
         """Should filter tool schemas based on AgentType."""
-        from agent import Agent, AgentType
+        from harness_core.agent import Agent, AgentType
         
         agent_type = AgentType(
             model_name="test",
@@ -469,7 +469,7 @@ class TestAgentInit:
 
     def test_empty_tools_when_none_provided(self):
         """Should set empty tools list when tool_schemas is None."""
-        from agent import Agent, AgentType
+        from harness_core.agent import Agent, AgentType
         
         agent_type = AgentType(
             model_name="test",
@@ -484,7 +484,7 @@ class TestAgentInit:
 
     def test_stores_context_length(self):
         """Should store context length for use in handle_prompt."""
-        from agent import Agent, AgentType
+        from harness_core.agent import Agent, AgentType
         
         agent_type = AgentType(
             model_name="test",
@@ -508,7 +508,7 @@ class TestAgentHandlePrompt:
 
     def test_yields_response_on_simple_chat(self):
         """Should yield RESPONSE tuple when no tool calls are needed."""
-        from agent import Agent, AgentType, RESPONSE
+        from harness_core.agent import Agent, AgentType, RESPONSE
         
         agent_type = AgentType(
             model_name="test",
@@ -537,7 +537,7 @@ class TestAgentHandlePrompt:
 
     def test_yields_tool_call_and_result(self):
         """Should yield TOOL_CALL and TOOL_RESULT for function calls."""
-        from agent import Agent, AgentType, TOOL_CALL, TOOL_RESULT
+        from harness_core.agent import Agent, AgentType, TOOL_CALL, TOOL_RESULT
         
         agent_type = AgentType(
             model_name="test",
@@ -587,7 +587,7 @@ class TestAgentHandlePrompt:
         kind, func_name, result, _response_data = outputs[1]
         assert kind == TOOL_RESULT
         assert func_name == "execute_bash"
-        from tools.tool_result import ToolResult
+        from harness_core.tools.tool_result import ToolResult
         assert isinstance(result, ToolResult)
         
         # Third: RESPONSE
@@ -597,7 +597,7 @@ class TestAgentHandlePrompt:
 
     def test_yields_error_on_unknown_tool(self):
         """Should yield ERROR when dispatch raises KeyError."""
-        from agent import Agent, AgentType, ERROR
+        from harness_core.agent import Agent, AgentType, ERROR
         
         agent_type = AgentType(
             model_name="test",
@@ -643,7 +643,7 @@ class TestAgentHandlePrompt:
 
     def test_appends_user_message_to_history(self):
         """Should append user message to conversation history."""
-        from agent import Agent, AgentType
+        from harness_core.agent import Agent, AgentType
         
         agent_type = AgentType(
             model_name="test",
@@ -672,7 +672,7 @@ class TestAgentHandlePrompt:
 
     def test_appends_assistant_message_to_history(self):
         """Should append assistant message to conversation history."""
-        from agent import Agent, AgentType
+        from harness_core.agent import Agent, AgentType
         
         agent_type = AgentType(
             model_name="test",
@@ -700,7 +700,7 @@ class TestAgentHandlePrompt:
 
     def test_appends_tool_result_to_history(self):
         """Should append tool result to conversation history."""
-        from agent import Agent, AgentType
+        from harness_core.agent import Agent, AgentType
         
         agent_type = AgentType(
             model_name="test",
@@ -745,7 +745,7 @@ class TestAgentHandlePrompt:
 
     def test_handles_multiple_tool_calls(self):
         """Should handle multiple tool calls in one response."""
-        from agent import Agent, AgentType, TOOL_CALL, TOOL_RESULT
+        from harness_core.agent import Agent, AgentType, TOOL_CALL, TOOL_RESULT
         
         agent_type = AgentType(
             model_name="test",
@@ -800,7 +800,7 @@ class TestAgentHandlePrompt:
 
     def test_calls_chat_with_correct_params(self):
         """Should call ollama chat with correct model, messages, tools."""
-        from agent import Agent, AgentType
+        from harness_core.agent import Agent, AgentType
         
         agent_type = AgentType(
             model_name="llama3",
@@ -834,7 +834,7 @@ class TestAgentHandlePrompt:
 
     def test_handles_tool_call_with_unexpected_args(self):
         """Should yield ERROR when dispatch fails with unexpected args."""
-        from agent import Agent, AgentType
+        from harness_core.agent import Agent, AgentType
         
         agent_type = AgentType(
             model_name="test",

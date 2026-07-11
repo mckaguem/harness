@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from terminal_io import format_speed
+from harness_core.terminal_io import format_speed
 
 
 # ── Speed formatting ────────────────────────────────────────────────────

@@ -13,7 +13,7 @@ class TestConfigIntegration:
 
     def test_config_cache_is_used(self):
         """Verify that get_default_provider uses the cached config."""
-        from config import _reset_config_cache, get_default_provider, load_harness_config
+        from harness_core.config import _reset_config_cache, get_default_provider, load_harness_config
 
         # Reset cache to ensure fresh state
         _reset_config_cache()
@@ -29,7 +29,7 @@ class TestConfigIntegration:
 
     def test_reset_config_cache(self):
         """Verify _reset_config_cache clears the cache."""
-        from config import _reset_config_cache, load_harness_config
+        from harness_core.config import _reset_config_cache, load_harness_config
 
         # Load config first
         cfg = load_harness_config()

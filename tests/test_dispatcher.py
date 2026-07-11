@@ -8,7 +8,7 @@ class TestDispatch:
 
     def test_dispatch_calls_valid_tool(self):
         """dispatch should call the correct tool implementation."""
-        from tools.dispatcher import dispatch
+        from harness_core.tools.dispatcher import dispatch
 
         # Call execute_bash with a simple command
         result = dispatch("execute_bash", {"command": "echo hello"})
@@ -18,14 +18,14 @@ class TestDispatch:
 
     def test_dispatch_raises_keyerror_for_unknown_tool(self):
         """dispatch should raise KeyError when tool name is not registered."""
-        from tools.dispatcher import dispatch
+        from harness_core.tools.dispatcher import dispatch
 
         with pytest.raises(KeyError):
             dispatch("nonexistent_tool", {})
 
     def test_dispatch_returns_string_from_tool(self):
         """dispatch should return a ToolResult from the called tool."""
-        from tools.dispatcher import dispatch
+        from harness_core.tools.dispatcher import dispatch
 
         # write_file returns a ToolResult with JSON status
         with open("test_dispatcher.txt", "w") as f:
@@ -47,7 +47,7 @@ class TestDispatch:
 
     def test_dispatch_forwards_args_correctly(self):
         """dispatch should pass kwargs from args dict to the tool function."""
-        from tools.dispatcher import dispatch
+        from harness_core.tools.dispatcher import dispatch
 
         # write_file expects filename and content parameters
         with open("test_kwargs.txt", "w") as f:

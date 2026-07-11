@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from session.context_compression import (
+from harness_core.session.context_compression import (
     compress_messages,
     should_auto_compress,
     build_compressed_filepath,
@@ -220,20 +220,20 @@ class TestCompressCommand:
 
     def test_command_registered(self):
         """Verify /compress is registered in COMMANDS dict."""
-        from commands import COMMANDS
+        from harness_core.commands import COMMANDS
         
         assert "compress" in COMMANDS
 
     def test_compress_handler_exists(self):
         """Handler should be callable with agent parameter."""
         # Just verify the function exists - we can't easily mock the full call chain
-        from commands import compress_handler
+        from harness_core.commands import compress_handler
         
         assert callable(compress_handler)
 
     def test_compress_with_no_agent(self):
         """Command should handle missing agent gracefully."""
-        from commands import compress_handler
+        from harness_core.commands import compress_handler
         
         # Should not crash, should print error and return False
         result = compress_handler("", agent=None)  # No agent parameter
@@ -254,7 +254,7 @@ class TestSessionCompression:
         # For now, just verify the import path is accessible
         
         try:
-            from session.context_compression import compress_session
+            from harness_core.session.context_compression import compress_session
             assert callable(compress_session)
         except ImportError:
             pytest.skip("compress_session not yet implemented")
@@ -264,7 +264,7 @@ class TestSessionCompression:
         # This would require mocking the full Session object
         
         try:
-            from session.context_compression import compress_session
+            from harness_core.session.context_compression import compress_session
             
             mock_session = Mock()
             mock_session.filepath = None
@@ -472,7 +472,7 @@ class TestCompressCommandE2E:
 
     def test_compress_handler_end_to_end(self, tmp_path):
         """/compress compresses messages and preserves the system prompt."""
-        from commands.compress import compress_handler
+        from harness_core.commands.compress import compress_handler
 
         messages = [
             {"role": "system", "content": "You are a helpful assistant." * 5},
@@ -481,7 +481,7 @@ class TestCompressCommandE2E:
             messages.append({"role": "user", "content": f"long message number {i} " * 15})
         messages.append({"role": "assistant", "content": "short answer"})
 
-        session = _FakeSession(messages, str(tmp_path / "session.json"))
+        session = _FakeSession(messages, str(tmp_path / "harness_core.session.json"))
         agent = _FakeAgent(session, context_length=1 << 17)
 
         original_len = len(session.messages)
@@ -502,7 +502,7 @@ class TestCompressCommandE2E:
 
     def test_compress_handler_invalid_fraction(self):
         """Out-of-range fraction should be rejected without crashing."""
-        from commands.compress import compress_handler
+        from harness_core.commands.compress import compress_handler
 
         session = _FakeSession([{"role": "system", "content": "x"}], "x.json")
         agent = _FakeAgent(session, context_length=1 << 17)
@@ -520,11 +520,11 @@ class TestAutoCompressionLoop:
         # Long user messages to push utilization up.
         for i in range(60):
             messages.append({"role": "user", "content": "x" * 200})
-        session = _FakeSession(messages, str(tmp_path / "session.json"))
+        session = _FakeSession(messages, str(tmp_path / "harness_core.session.json"))
         return _FakeAgent(session, context_length=context_length), long_system
 
     def test_auto_compress_triggers_when_high_utilization(self, tmp_path):
-        from agent.loop import _check_and_compress_if_needed
+        from harness_core.agent.loop import _check_and_compress_if_needed
 
         agent, long_system = self._build_agent(tmp_path, context_length=4000)
         # ~60 * 200 chars // 4 = ~3000 tokens over a 4000 window => > 50%
@@ -540,7 +540,7 @@ class TestAutoCompressionLoop:
         assert truncated, "expected auto-compression to truncate some messages"
 
     def test_auto_compress_skips_when_low_utilization(self, tmp_path):
-        from agent.loop import _check_and_compress_if_needed
+        from harness_core.agent.loop import _check_and_compress_if_needed
 
         agent, long_system = self._build_agent(tmp_path, context_length=10_000_000)
         # Utilization far below 50% -> no compression.
@@ -555,7 +555,7 @@ class TestAutoCompressionLoop:
 
     def test_auto_compress_uses_real_agent_properties(self, tmp_path):
         """Loop must find the session via agent._session when no properties exist."""
-        from agent.loop import _check_and_compress_if_needed
+        from harness_core.agent.loop import _check_and_compress_if_needed
 
         # A bare agent exposing ONLY the private `_session` attribute (no
         # `messages`/`session` properties) — this is exactly the pre-fix
@@ -569,7 +569,7 @@ class TestAutoCompressionLoop:
         messages = [{"role": "system", "content": long_system}]
         for i in range(60):
             messages.append({"role": "user", "content": "x" * 200})
-        session = _FakeSession(messages, str(tmp_path / "session.json"))
+        session = _FakeSession(messages, str(tmp_path / "harness_core.session.json"))
         agent = _BareAgent(session, context_length=4000)
 
         _check_and_compress_if_needed(agent, display_error=lambda m: None)

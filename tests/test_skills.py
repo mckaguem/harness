@@ -9,7 +9,7 @@ import pytest
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from utils import project_root
+from harness_core.utils import project_root
 
 
 class TestSkillsDiscovery:
@@ -52,7 +52,7 @@ description: This should fail validation.
     
     def test_discover_valid_skills(self):
         """Test that valid skills are discovered correctly."""
-        from skills.discovery import discover_skills
+        from harness_core.skills.discovery import discover_skills
         
         skills = discover_skills([Path(self.temp_dir)])
         
@@ -65,7 +65,7 @@ description: This should fail validation.
     
     def test_skip_invalid_name_mismatch(self):
         """Test that skills with mismatched names are skipped."""
-        from skills.discovery import discover_skills
+        from harness_core.skills.discovery import discover_skills
         
         skills = discover_skills([Path(self.temp_dir)])
         
@@ -75,7 +75,7 @@ description: This should fail validation.
     
     def test_format_skill_catalog(self):
         """Test catalog formatting for system prompt injection."""
-        from skills.discovery import discover_skills, format_skill_catalog
+        from harness_core.skills.discovery import discover_skills, format_skill_catalog
         
         skills = discover_skills([Path(self.temp_dir)])
         catalog = format_skill_catalog(skills)
@@ -86,7 +86,7 @@ description: This should fail validation.
     
     def test_missing_skil_md(self):
         """Test handling of missing SKILL.md."""
-        from skills.discovery import parse_skill_metadata
+        from harness_core.skills.discovery import parse_skill_metadata
         
         bad_dir = Path(self.temp_dir) / "no-skil-md"
         bad_dir.mkdir(parents=True, exist_ok=True)
@@ -135,7 +135,7 @@ Step 2: Run the script in scripts/"""
     
     def test_activate_valid_skill(self):
         """Test activating a valid skill."""
-        from tools.activate_skill import activate_skill
+        from harness_core.tools.activate_skill import activate_skill
         
         result = activate_skill("test-activation")
         
@@ -147,7 +147,7 @@ Step 2: Run the script in scripts/"""
     
     def test_activate_nonexistent_skill(self):
         """Test activating a skill that doesn't exist."""
-        from tools.activate_skill import activate_skill
+        from harness_core.tools.activate_skill import activate_skill
         
         result = activate_skill("nonexistent")
         
@@ -202,8 +202,8 @@ description: Full integration test skill with scripts and references.
     
     def test_full_workflow(self):
         """Test complete discovery → activation workflow."""
-        from skills.discovery import discover_skills, format_skill_catalog
-        from tools.activate_skill import activate_skill
+        from harness_core.skills.discovery import discover_skills, format_skill_catalog
+        from harness_core.tools.activate_skill import activate_skill
         
         # Phase 1: Discovery
         discovered = discover_skills([project_root() / ".harness_py" / "skills"])

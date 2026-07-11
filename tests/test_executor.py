@@ -4,8 +4,8 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from agent.executor import ToolExecutor
-from tools.tool_result import ToolResult
+from harness_core.agent.executor import ToolExecutor
+from harness_core.tools.tool_result import ToolResult
 
 
 # ── execute() ───────────────────────────────────────────────────────────
@@ -17,7 +17,7 @@ class TestToolExecutorExecute:
     def test_successful_dispatch(self):
         mock_result = ToolResult(llm_text="ok", display_text="ok")
         
-        with patch("tools.dispatcher.dispatch", return_value=mock_result) as mock_dispatch:
+        with patch("harness_core.tools.dispatcher.dispatch", return_value=mock_result) as mock_dispatch:
             executor = ToolExecutor(agent_name="test-agent")
             result = executor.execute("echo_tool", {"message": "hello"})
 
@@ -25,7 +25,7 @@ class TestToolExecutorExecute:
             assert result == mock_result
 
     def test_unknown_tool_raises_keyerror(self):
-        with patch("tools.dispatcher.dispatch", side_effect=KeyError("tool not registered")):
+        with patch("harness_core.tools.dispatcher.dispatch", side_effect=KeyError("tool not registered")):
             executor = ToolExecutor()
             
             with pytest.raises(KeyError, match="tool not registered"):
@@ -34,7 +34,7 @@ class TestToolExecutorExecute:
     def test_execute_passes_args_correctly(self):
         mock_result = ToolResult(llm_text="", display_text="")
         
-        with patch("tools.dispatcher.dispatch", return_value=mock_result) as mock_dispatch:
+        with patch("harness_core.tools.dispatcher.dispatch", return_value=mock_result) as mock_dispatch:
             executor = ToolExecutor()
             args = {"file_path": "/tmp/test.txt", "content": "test content"}
             

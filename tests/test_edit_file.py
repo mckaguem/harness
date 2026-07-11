@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.edit_file import edit_file
+from harness_core.tools.edit_file import edit_file
 
 
 def _unwrap(result):

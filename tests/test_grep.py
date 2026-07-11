@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-from tools.grep import grep
-from utils import project_root
+from harness_core.tools.grep import grep
+from harness_core.utils import project_root
 
 
 def _result_text(result) -> str:

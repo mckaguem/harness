@@ -2,7 +2,7 @@
 
 import sys
 from unittest.mock import Mock, patch
-from commands.tasks import cmd_tasks
+from harness_core.commands.tasks import cmd_tasks
 
 
 def test_tasks_command_with_agent():
@@ -10,7 +10,7 @@ def test_tasks_command_with_agent():
     # Create mock tasks
     mock_agent = Mock()
     # Set task_list to a TaskList instance (not _task_list, since we now use the public property)
-    from agent.task_list import TaskList
+    from harness_core.agent.task_list import TaskList
     
     # Test 1: with tasks
     task_list = TaskList()
@@ -24,7 +24,7 @@ def test_tasks_command_with_agent():
     mock_agent.task_list = task_list
     
     # Capture the display output by patching display_message_panel at the usage site
-    with patch("commands.tasks.display_message_panel") as mock_display:
+    with patch("harness_core.commands.tasks.display_message_panel") as mock_display:
         cmd_tasks("", mock_agent)
         
         # Verify display was called
@@ -39,9 +39,9 @@ def test_tasks_command_with_agent():
 
 def test_tasks_command_without_agent():
     """Test that /tasks handles missing agent gracefully."""
-    from agent.context import CURRENT_AGENT
+    from harness_core.agent.context import CURRENT_AGENT
     CURRENT_AGENT.set(None)  # Reset context to simulate no running agent
-    with patch("commands.tasks.display_message_panel") as mock_display:
+    with patch("harness_core.commands.tasks.display_message_panel") as mock_display:
         cmd_tasks("", None)
         
         assert mock_display.called
@@ -51,14 +51,14 @@ def test_tasks_command_without_agent():
 
 def test_tasks_command_empty_list():
     """Test that /tasks handles empty task list."""
-    from agent.task_list import TaskList
+    from harness_core.agent.task_list import TaskList
     
     mock_agent = Mock()
     # Create a TaskList but don't initialize any tasks in it
-    from agent.task_list import TaskList
+    from harness_core.agent.task_list import TaskList
     mock_agent.task_list = TaskList()
     
-    with patch("commands.tasks.display_message_panel") as mock_display:
+    with patch("harness_core.commands.tasks.display_message_panel") as mock_display:
         cmd_tasks("", mock_agent)
         
         assert mock_display.called

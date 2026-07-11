@@ -15,15 +15,13 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest"]
 
+[project.scripts]
+harness = "harness_core.__main__:main"
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = [
-    "agent",
-    "commands",
-    "terminal_io",
-    "tools",
-    "session",
-]
+where = ["."]
+include = ["harness_core*"]

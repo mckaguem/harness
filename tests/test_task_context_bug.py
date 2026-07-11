@@ -13,10 +13,10 @@ restore the parent's context.
 import sys
 import pytest
 from unittest.mock import Mock, patch, MagicMock
-from tools.update_task_status import update_task_status
-from tools.tool_result import ToolResult
-from agent.task_list import TaskList, NextTaskInfo
-from agent.context import CURRENT_AGENT
+from harness_core.tools.update_task_status import update_task_status
+from harness_core.tools.tool_result import ToolResult
+from harness_core.agent.task_list import TaskList, NextTaskInfo
+from harness_core.agent.context import CURRENT_AGENT
 
 
 class TestTaskContextIsolation:

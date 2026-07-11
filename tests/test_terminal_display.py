@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock, call
 
 import pytest
 
-from terminal_io.display import (
+from harness_core.terminal_io.display import (
     print_system,
     display_tool_call,
     _theme_border,
@@ -49,7 +49,7 @@ class TestThemeBorder:
 class TestPrintSystem:
     """Tests for `print_system()` — system message panel rendering."""
 
-    @patch("terminal_io.display.console")
+    @patch("harness_core.terminal_io.display.console")
     def test_calls_console_print(self, mock_console):
         print_system("Test Title", "Test Message")
         
@@ -60,21 +60,21 @@ class TestPrintSystem:
         from rich.panel import Panel
         assert isinstance(call_args, Panel)
 
-    @patch("terminal_io.display.console")
+    @patch("harness_core.terminal_io.display.console")
     def test_panel_has_correct_title(self, mock_console):
         print_system("My Title", "Message body")
         
         call_args = mock_console.print.call_args[0][0]
         assert call_args.title == "My Title"
 
-    @patch("terminal_io.display.console")
+    @patch("harness_core.terminal_io.display.console")
     def test_panel_has_correct_message(self, mock_console):
         print_system("Title", "Hello world")
         
         call_args = mock_console.print.call_args[0][0]
         assert call_args.renderable is not None
 
-    @patch("terminal_io.display.console")
+    @patch("harness_core.terminal_io.display.console")
     def test_border_style_is_magenta(self, mock_console):
         print_system("Title", "Message")
         
@@ -89,7 +89,7 @@ class TestPrintSystem:
 class TestDisplayToolCall:
     """Tests for `display_tool_call()` — tool call panel rendering."""
 
-    @patch("terminal_io.display.console")
+    @patch("harness_core.terminal_io.display.console")
     def test_basic_json_args(self, mock_console):
         args_str = '{"key": "value"}'
         
@@ -98,7 +98,7 @@ class TestDisplayToolCall:
         # Should call console.print exactly once.
         assert mock_console.print.call_count == 1
 
-    @patch("terminal_io.display.console")
+    @patch("harness_core.terminal_io.display.console")
     def test_args_with_list_values(self, mock_console):
         args_str = '{"items": ["a", "b", "c"]}'
         
@@ -106,14 +106,14 @@ class TestDisplayToolCall:
         
         assert mock_console.print.call_count == 1
 
-    @patch("terminal_io.display.console")
+    @patch("harness_core.terminal_io.display.console")
     def test_non_json_args_fallback(self, mock_console):
         # Invalid JSON should fall through to raw string rendering.
         display_tool_call("raw_cmd", "not json at all")
         
         assert mock_console.print.call_count == 1
 
-    @patch("terminal_io.display.console")
+    @patch("harness_core.terminal_io.display.console")
     def test_title_includes_function_name(self, mock_console):
         args_str = '{"a": 1}'
         
@@ -123,7 +123,7 @@ class TestDisplayToolCall:
         panel = mock_console.print.call_args[0][0]
         assert "Tool: my_tool_func" in str(panel.title)
 
-    @patch("terminal_io.display.console")
+    @patch("harness_core.terminal_io.display.console")
     def test_empty_string_args(self, mock_console):
         display_tool_call("empty_tool", "")
         
@@ -137,20 +137,20 @@ class TestDisplayToolCall:
 class TestDisplayMessagePanel:
     """Tests for `display_message_panel()` — shared rendering logic."""
 
-    @patch("terminal_io.display.console")
+    @patch("harness_core.terminal_io.display.console")
     def test_default_theme_status(self, mock_console):
         display_message_panel("Test text", theme="status")
         
         assert mock_console.print.call_count == 1
 
-    @patch("terminal_io.display.console")
+    @patch("harness_core.terminal_io.display.console")
     def test_error_theme_red_text(self, mock_console):
         display_message_panel("Error occurred!", theme="error", title="Problem")
         
         panel = mock_console.print.call_args[0][0]
         assert panel.border_style == "red"
 
-    @patch("terminal_io.display.console")
+    @patch("harness_core.terminal_io.display.console")
     def test_markdown_result_type(self, mock_console):
         display_message_panel("**Bold text**", theme="info", result_type="markdown")
         
@@ -159,7 +159,7 @@ class TestDisplayMessagePanel:
         from rich.markdown import Markdown
         assert isinstance(panel.renderable, Markdown)
 
-    @patch("terminal_io.display.console")
+    @patch("harness_core.terminal_io.display.console")
     def test_text_result_type(self, mock_console):
         display_message_panel("plain text", theme="info", result_type="text")
         
@@ -168,7 +168,7 @@ class TestDisplayMessagePanel:
         from rich.syntax import Syntax
         assert isinstance(panel.renderable, Syntax)
 
-    @patch("terminal_io.display.console")
+    @patch("harness_core.terminal_io.display.console")
     def test_truncation_for_long_text(self, mock_console):
         long_text = "\n".join([f"Line {i}" for i in range(10)])
         
@@ -177,7 +177,7 @@ class TestDisplayMessagePanel:
         # Should still call print once.
         assert mock_console.print.call_count == 1
 
-    @patch("terminal_io.display.console")
+    @patch("harness_core.terminal_io.display.console")
     def test_no_truncation_for_status_theme(self, mock_console):
         long_text = "\n".join([f"Line {i}" for i in range(10)])
         
@@ -188,7 +188,7 @@ class TestDisplayMessagePanel:
         # Verify console was called (panel created successfully)
         assert mock_console.print.called
 
-    @patch("terminal_io.display.console")
+    @patch("harness_core.terminal_io.display.console")
     def test_custom_title(self, mock_console):
         display_message_panel("Text", title="Custom Title Here")
         
@@ -202,7 +202,7 @@ class TestDisplayMessagePanel:
 class TestThemeBorderIntegration:
     """Verify that all themes in _theme_border are properly handled."""
 
-    @patch("terminal_io.display.console")
+    @patch("harness_core.terminal_io.display.console")
     def test_all_themes_have_borders(self, mock_console):
         themes = ["error", "status", "info", "read", "write", "command"]
         

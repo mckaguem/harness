@@ -130,14 +130,46 @@ and make it work both in automatic mode and via the `/compress` command.
 
 ---
 
-## Step 3 — Standard Python project layout (+ `uv` CLI) ⏳
-**Goal:** Rearrange the directory structure to conform to standard Python
-project conventions so the program can be installed/run as a CLI tool with
-`uv`. Update code, imports, tests, and packaging accordingly.
+## Step 3 — Standard Python project layout (+ `uv` CLI) ✅ Complete
+ **Goal:** Rearrange the directory structure to conform to standard Python
+ project conventions so the program can be installed/run as a CLI tool with
+ `uv`. Update code, imports, tests, and packaging accordingly.
 
-**Status:** Pending — to be executed by a `main` sub-agent.
+ **Status:** ✅ Complete — executed by a `main` sub-agent (Step 3 of `big_plan.md`).
 
----
+ **New layout / package name:** All application code now lives in a single
+ import package `harness_core/` at the repo root. Source subpackages moved in:
+ `agent/`, `commands/`, `terminal_io/`, `tools/`, `session/`, `model/`,
+ `skills/`, plus `config.py` and `utils.py`. `harness.py` was moved to
+ `harness_core/__main__.py` (so `python -m harness_core` works). A thin
+ editable install + console-script entry point is provided.
+
+ **Entry point:** `[project.scripts] harness = "harness_core.__main__:main"`
+ in `pyproject.toml`. Run via `uv run harness --message "..."` (or
+ `uv run harness --help`). Packaging uses
+ `[tool.setuptools.packages.find] where = ["."], include = ["harness_core*"]`.
+
+ **Imports:** Every internal `from agent import …` / `from config import …` etc.
+ was rewritten to the `harness_core.`-prefixed form across
+ `harness_core/` and `tests/` (56 `.py` files), including dynamic
+ `unittest.mock.patch("…")` string targets. Relative intra-package imports
+ were preserved. `utils.project_root()` still resolves via the repo-root
+ `pyproject.toml` marker, so `.harness_py/` bootstrap is unaffected.
+
+ **Files moved:** `agent/`, `commands/`, `terminal_io/`, `tools/`, `session/`,
+ `model/`, `skills/`, `config.py`, `utils.py` → `harness_core/`; `harness.py` →
+ `harness_core/__main__.py`; added `harness_core/__init__.py`. Untouched:
+ `pyproject.toml` (rewritten), `tests/` (imports updated), `.harness_py/`,
+ `uv.lock`, `requirements.txt`, `docs/`, `sample_config/`.
+
+ **Test results:** `uv run pytest -q` → **270 passed, 23 failed**. The only
+ failures are the 23 pre-existing `tests/test_agent.py` cases (unrelated
+ provider/model changes from Step 4); the restructure fixed the import errors
+ that previously broke `test_terminal_display`, `test_commands`,
+ `test_discovery`, `test_executor`, `test_harness`, `test_noninteractive`,
+ `test_tasks_command`, `test_run_subagent`, and `test_tools`. `uv run harness
+ --help` exits 0; `uv run harness --message "hello"` builds the agent and runs
+ to completion (exit 0).
 
 ## Step 4 — OpenAI `responses` interface & drop Ollama ⏳
 **Goal:** Adapt `OpenAIProvider` to use the OpenAI **Responses** API instead of

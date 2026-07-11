@@ -18,8 +18,8 @@ import pytest
 
 from textual.widgets import Footer, Header, RichLog, TextArea
 
-from terminal_io.tui import TextualHarnessApp, HarnessTUI, get_tui
-from terminal_io import display
+from harness_core.terminal_io.tui import TextualHarnessApp, HarnessTUI, get_tui
+from harness_core.terminal_io import display
 
 
 @pytest.fixture
@@ -233,7 +233,7 @@ class TestStatusSpinner:
     """The busy spinner sits at the bottom of the message panel and toggles."""
 
     def test_spinner_widget_present_and_hidden_by_default(self, tui_app):
-        from terminal_io.tui import StatusSpinner
+        from harness_core.terminal_io.tui import StatusSpinner
 
         async def _body():
             async with tui_app.run_test():
@@ -245,7 +245,7 @@ class TestStatusSpinner:
         _drive(_body())
 
     def test_spinner_render_animates(self, tui_app):
-        from terminal_io.tui import StatusSpinner
+        from harness_core.terminal_io.tui import StatusSpinner
 
         async def _body():
             async with tui_app.run_test():

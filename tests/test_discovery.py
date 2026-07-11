@@ -6,7 +6,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from agent.discovery import (
+from harness_core.agent.discovery import (
     _merge_agent_discoveries,
     discover_agents,
     get_agent_yaml,
@@ -222,7 +222,7 @@ class TestGetAgentYamlPaths:
     """Tests for `get_agent_yaml_paths()` — returns discovery directories."""
 
     def test_returns_list_of_paths(self, tmp_path):
-        with patch("config.get_discovery_dirs") as mock_cfg:
+        with patch("harness_core.config.get_discovery_dirs") as mock_cfg:
             d1 = tmp_path / "project_agents"
             d2 = tmp_path / "global_agents"
             d1.mkdir()
@@ -233,7 +233,7 @@ class TestGetAgentYamlPaths:
             assert paths == [d1, d2]
 
     def test_calls_config_once(self):
-        with patch("config.get_discovery_dirs") as mock_cfg:
+        with patch("harness_core.config.get_discovery_dirs") as mock_cfg:
             mock_cfg.return_value = []
             get_agent_yaml_paths()
             get_agent_yaml_paths()

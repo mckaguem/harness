@@ -6,14 +6,14 @@ from unittest.mock import patch, mock_open
 
 import pytest
 
-from tools import (
+from harness_core.tools import (
     AGENT_TOOLS,
 )
-from tools.execute_bash import execute_bash as _execute_bash_impl
-from tools.write_file import write_file as _write_file_impl
-from tools.read_file import read_file as _read_file_impl
-from tools.utils import is_safe_path
-from tools.tool_result import ToolResult
+from harness_core.tools.execute_bash import execute_bash as _execute_bash_impl
+from harness_core.tools.write_file import write_file as _write_file_impl
+from harness_core.tools.read_file import read_file as _read_file_impl
+from harness_core.tools.utils import is_safe_path
+from harness_core.tools.tool_result import ToolResult
 
 # Re-export for backward compat with tests that call these directly.
 execute_bash = _execute_bash_impl
@@ -51,7 +51,7 @@ class TestIsSafePath:
     """Tests for `is_safe_path()` — path traversal guard."""
 
     def test_relative_filename_in_cwd(self):
-        assert is_safe_path("harness.py") is True
+        assert is_safe_path("harness_core.__main__.py") is True
 
     def test_dot_prefix_stays_in_cwd(self):
         assert is_safe_path("./main.py") is True
