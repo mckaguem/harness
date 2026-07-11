@@ -275,3 +275,42 @@ propagates; a normal turn still drives end-to-end).
 **Test results:** full suite now **22 failed / 287 passed** — the +2 vs the
 previous 285 are the new regression tests; the 22 failures remain the
 pre-existing, unrelated `tests/test_agent.py` cases.
+
+---
+
+## Hotfix 2 — `400 invalid prompt / invalid responses api request` 🔧
+**Reported bug:** "Now it's dumping a bunch of errors when it makes the
+request: `400 invalid prompt invalid responses api request`." Confirmed in
+**non-interactive mode** (`uv run harness --message "..."`).
+
+**Root cause:** `OpenAIProvider.chat_completion` passed the harness's
+accumulated conversation **verbatim** as the Responses API `input` array.
+That conversation uses the *Chat-Completions* schema: it contains
+`role: "tool"` items (tool results) and assistant messages carrying
+`tool_calls`. The OpenAI **Responses** API rejects both:
+- `role: "tool"` items → must be `function_call_output` items, and
+- assistant messages with `tool_calls` → must be `function_call` items;
+- `system` messages → belong in the top-level `instructions` field, not `input`.
+So once a single tool call/result occurred, **every subsequent request
+400'd** — exactly the "bunch of errors" observed. Reproduced by recording
+the exact `input` payload: it contained `['system','user','assistant',
+'tool','assistant']` with the invalid elements flagged.
+
+**Fix:** Added `_to_responses_input(messages)` which normalises the chat
+schema into a valid Responses `input`:
+- `system` → concatenated `instructions` (top-level field)
+- `user` / `assistant`-text → `message` items
+- `assistant` with `tool_calls` → `function_call` items (id/name/arguments)
+- `tool` → `function_call_output` items referencing the same `call_id`
+Both `chat_completion` and `chat_completion_async` now convert before
+sending, so tool-using turns no longer 400.
+
+**Files touched:** `harness_core/model/provider.py`; new
+`tests/test_provider_responses_input.py` (6 tests: system→instructions,
+multi-system concat, tool→function_call_output, assistant tool_calls→
+function_call, full tool-turn round-trip validity, chat_completion wires
+the converted input).
+
+**Test results:** full suite **22 failed / 293 passed** (was 22/287);
+the +6 are the new converter tests; the 22 remaining failures are the
+pre-existing, unrelated `tests/test_agent.py` cases.
