@@ -127,6 +127,82 @@ class Provider(ABC):
         return create_provider(client, provider_type=config.provider_type)
 
 
+def _to_responses_input(messages: List[Dict]) -> "tuple[str, list]":
+    """Convert chat-style ``messages`` into a valid Responses API request.
+
+    The OpenAI **Responses** API does not accept the Chat-Completions
+    message schema verbatim.  In particular it rejects ``role: "tool"`` items
+    (tool results must be ``function_call_output`` items) and requires assistant
+    tool calls to be ``function_call`` items.  This helper normalises the
+    harness's accumulated conversation (which uses the chat schema, including
+    ``role: "tool"`` results and ``tool_calls`` on assistant messages) into
+    the shape the Responses API expects.
+
+    Args:
+        messages: List of chat-schema dicts (``role`` + ``content``,
+            optionally ``tool_calls`` on assistant and ``tool_call_id`` on tool).
+
+    Returns:
+        A ``(instructions, input_items)`` tuple where ``instructions`` is the
+        concatenated system prompt (or ``None``) and ``input_items`` is the list
+        of Responses input items (``message`` / ``function_call`` /
+        ``function_call_output``).
+    """
+    instructions_parts: list = []
+    input_items: list = []
+
+    for msg in messages:
+        role = msg.get("role")
+        if role == "system":
+            # System prompts go in the top-level `instructions` field, not the
+            # `input` array (the Responses API rejects them there).
+            content = msg.get("content")
+            if content:
+                instructions_parts.append(content)
+            continue
+
+        if role == "user":
+            input_items.append({
+                "type": "message",
+                "role": "user",
+                "content": msg.get("content") or "",
+            })
+            continue
+
+        if role == "assistant":
+            tool_calls = msg.get("tool_calls")
+            if tool_calls:
+                # Each assistant tool call becomes a `function_call` input item.
+                for tc in tool_calls:
+                    func = tc.get("function", {}) or {}
+                    input_items.append({
+                        "type": "function_call",
+                        "call_id": tc.get("id"),
+                        "name": func.get("name"),
+                        "arguments": func.get("arguments") or "",
+                    })
+            else:
+                input_items.append({
+                    "type": "message",
+                    "role": "assistant",
+                    "content": msg.get("content") or "",
+                })
+            continue
+
+        if role == "tool":
+            # Tool results must be `function_call_output` items referencing
+            # the originating `function_call` via `call_id`.
+            input_items.append({
+                "type": "function_call_output",
+                "call_id": msg.get("tool_call_id"),
+                "output": msg.get("content") or "",
+            })
+            continue
+
+    instructions = "\n\n".join(instructions_parts) if instructions_parts else None
+    return instructions, input_items
+
+
 class OpenAIProvider(Provider):
     """OpenAI provider implementation."""
 
@@ -153,11 +229,20 @@ class OpenAIProvider(Provider):
         tools = kwargs.get('tools')
         max_output_tokens = kwargs.pop('max_tokens', 16384) if 'max_tokens' in kwargs else 16384
 
+        # The Responses API does NOT accept the chat-completions message
+        # schema directly (it rejects role:"tool" items and assistant
+        # tool_calls). Normalise the accumulated conversation into the
+        # Responses input shape (system -> instructions, tool results ->
+        # function_call_output, assistant tool_calls -> function_call).
+        instructions, input_items = _to_responses_input(messages)
+
         request_kwargs = {
             "model": model,
-            "input": messages,
+            "input": input_items,
             "max_output_tokens": max_output_tokens,
         }
+        if instructions is not None:
+            request_kwargs["instructions"] = instructions
         if tools is not None:
             request_kwargs["tools"] = tools
 
