@@ -7,7 +7,7 @@ from agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from terminal_io import (
     print_system, prompt_user,
     display_tool_call, display_tool_result, display_error,
-    display_agent_response, format_speed,
+    display_agent_response, display_user_message, format_speed,
 )
 from commands import COMMANDS
 from skills.interceptor import intercept_message, InterceptorKind
@@ -79,6 +79,12 @@ def user_loop(agent: "Agent", openai_client=None, on_exit=None) -> None:
 
     while True:
         user_input = prompt_user()
+
+        # Echo the user's own message into the output pane so it appears
+        # alongside the agent's response.  (The classic REPL renders the typed
+        # text via prompt_toolkit; the TUI does not, so we echo it here.)
+        if user_input.strip():
+            display_user_message(user_input)
 
         # Check for slash commands first.
         if user_input.startswith('/'):

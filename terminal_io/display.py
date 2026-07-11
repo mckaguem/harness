@@ -1,4 +1,12 @@
-"""High-level display helpers using Rich for rendering."""
+"""High-level display helpers using Rich for rendering.
+
+These helpers build Rich renderables (``Panel`` / ``Markdown`` / ``Syntax``)
+exactly as before.  When a textual TUI is active the renderable is written to
+the app's ``RichLog`` pane via :func:`terminal_io.tui.get_tui().write`; when no
+TUI is active it falls back to the module-level :data:`console` so that callers
+outside the TUI (and the existing test-suite, which patches this ``console``)
+keep working unchanged.
+"""
 
 from __future__ import annotations
 
@@ -6,16 +14,38 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.syntax import Syntax
+from rich.text import Text
 import json
 
 from .speed import format_speed, format_tool_elapsed
+from . import tui as _tui
+
 
 console = Console()
 
 
+def _tui_write(renderable) -> None:
+    """Route a renderable to the active TUI, or fall back to ``console``.
+
+    When a textual TUI owns the screen the renderable is emitted into the
+    ``RichLog`` output pane (thread-safe).  Otherwise we print it on the
+    classic console — preserving the original behaviour and keeping the
+    ``@patch("terminal_io.display.console")`` tests valid.
+    """
+    controller = _tui.get_tui()
+    if controller.is_active():
+        # RichLog renders Rich renderables directly.  Plain markup strings
+        # (e.g. the speed summary) are converted so tags like [dim] apply.
+        if isinstance(renderable, str):
+            renderable = Text.from_markup(renderable)
+        controller.write(renderable)
+    else:
+        console.print(renderable)
+
+
 def print_system(title: str, message: str) -> None:
     """Print a system-level notification panel."""
-    console.print(Panel(message, title=title, border_style="magenta"))
+    _tui_write(Panel(message, title=title, border_style="magenta"))
 
 
 def display_tool_call(func_name: str, args_str: str) -> None:
@@ -83,7 +113,7 @@ def display_message_panel(text: str, theme: str = "status", title: str = "",
         text: The content to display inside the panel. Truncated after 5 lines
               unless ``theme == "status"`` (e.g. task lists).
         theme: One of ``"error"``, ``"status"``, ``"info"``, ``"read"``,
-               ``"write"``, ``"command"`` — selects the panel border color.
+                ``"write"``, ``"command"`` — selects the panel border color.
         title: Custom panel title. Falls back to a default if empty.
         result_type: The syntax-highlighting language tag (e.g. ``"markdown"``,
                      ``"json"``, ``"text"``).
@@ -101,7 +131,7 @@ def display_message_panel(text: str, theme: str = "status", title: str = "",
     # Choose between Markdown rendering and Syntax highlighting based on result_type.
     if theme == "error":
         # Render errors distinctly — red border, red text, no syntax highlight.
-        console.print(Panel(
+        _tui_write(Panel(
             f"[red]{display_content}[/red]",
             title=panel_title,
             border_style=border_style
@@ -109,11 +139,11 @@ def display_message_panel(text: str, theme: str = "status", title: str = "",
     elif result_type == "markdown":
         # Render as actual Markdown (supports bold, code blocks, etc.) for user-friendly display.
         md_obj = Markdown(display_content)
-        console.print(Panel(md_obj, title=panel_title, border_style=border_style))
+        _tui_write(Panel(md_obj, title=panel_title, border_style=border_style))
     else:
         # Apply Rich Syntax highlighting for the appropriate format.
         syntax = Syntax(display_content, result_type, theme="monokai")
-        console.print(Panel(syntax, title=panel_title, border_style=border_style))
+        _tui_write(Panel(syntax, title=panel_title, border_style=border_style))
 
 
 def display_tool_result(func_name: str, result) -> None:
@@ -140,7 +170,27 @@ def display_tool_result(func_name: str, result) -> None:
 
 def display_error(message: str) -> None:
     """Print an error message in red."""
-    console.print(f"[red bold]Error:[/red bold] {message}")
+    _tui_write(f"[red bold]Error:[/red bold] {message}")
+
+
+def display_user_message(message: str) -> None:
+    """Echo the user's own typed message into the output pane.
+
+    In the classic (non-TUI) REPL, ``prompt_toolkit`` renders the typed text
+    directly onto the terminal, so the user sees what they entered.  In the
+    textual TUI the input lives in a separate ``TextArea`` that is cleared on
+    submit and never copied into the ``RichLog`` output pane — without this
+    echo, the user's messages never appear alongside the agent's responses.
+
+    The message is wrapped in a :class:`~rich.text.Text` (not a markup string)
+    so any ``[tag]``-style characters the user types are rendered verbatim
+    rather than interpreted as Rich markup.
+    """
+    _tui_write(Panel(
+        Text(message),
+        title="🧑 You",
+        border_style="cyan",
+    ))
 
 
 def display_agent_response(content: str | None, response: dict = {}, context_length: int = 0,
@@ -163,9 +213,8 @@ def display_agent_response(content: str | None, response: dict = {}, context_len
     # Guard against None content – treat as empty string.
     safe_content = content if content is not None else ""
     markdown_obj = Markdown(safe_content)
-    console.print(Panel(markdown_obj, title="🤖 Agent Response", border_style="green"))
+    _tui_write(Panel(markdown_obj, title="🤖 Agent Response", border_style="green"))
 
     speed_info = format_speed(response, context_length)
     if speed_info:
-        console.print(speed_info)
-
+        _tui_write(speed_info)

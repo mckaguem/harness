@@ -67,8 +67,19 @@ def main():
 
     # ------------------------------------------------------------------
     # Phase 7: Run the interactive user loop with the configured Agent.
+    # The textual TUI owns the screen and drives the classic user_loop on a
+    # worker thread; if the TUI cannot run for any reason it falls back to the
+    # classic Rich/prompt_toolkit REPL.
     # ------------------------------------------------------------------
-    user_loop(agent)
+    from terminal_io.tui import launch
+    try:
+        launch(agent)
+    except Exception as exc:  # pragma: no cover - defensive fallback path
+        sys.stderr.write(
+            f"\n[harness] WARNING: TUI failed to start ({exc}); using classic REPL.\n"
+        )
+        from agent.loop import user_loop
+        user_loop(agent)
 
 
 if __name__ == "__main__":

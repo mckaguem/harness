@@ -3,3 +3,4 @@ pyyaml
 rich
 openai
 ddgs
+textual>=0.80.0
