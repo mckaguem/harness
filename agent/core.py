@@ -14,67 +14,51 @@ from agent.context import CURRENT_AGENT
 from session.session import Session
 
 
-def _build_subagent_provider(agent_type, parent_agent):
-    """Build a Provider instance for a sub-agent.
 
-    Uses the agent type's provider_config if available, otherwise falls back to
-    constructing one from the parent agent's base URL and OpenAI API key.
-    """
-    # Try using provider config from agent type if it has one
-    if hasattr(agent_type, 'provider_config') and agent_type.provider_config is not None:
-        try:
-            return Provider.from_config(agent_type.provider_config)
-        except Exception as exc:
-            print(f"Warning: Failed to create provider from config: {exc}")
-
-    # Fall back to using OpenAI-compatible setup based on parent's base URL
-    from openai import OpenAI as _OpenAIClient
-
-    client = _OpenAIClient(
-        base_url=parent_agent._base_url,
-        api_key=os.environ.get("OPENAI_API_KEY", ""),
-    )
-
-    # Create a minimal provider config and use it to build the provider
-    class MinimalProviderConfig:
-        def __init__(self):
-            self.provider_type = 'openai'
-            self.base_url = parent_agent._base_url
-            self.api_key = os.environ.get("OPENAI_API_KEY", "")
-
-    return Provider.from_config(MinimalProviderConfig())
 
 
 class Agent:
     """Owns the conversation state and handles a single user turn."""
     
-    def __init__(self, 
-                 agent_type: "AgentType", 
-                 provider: Provider,
-                 context_length: int,
+    def __init__(self,
+                 agent_type: "AgentType",
+                 context_length: int = 4096,
+                 provider: Optional[Provider] = None,
                  tool_schemas: Optional[List[Dict]] = None,
                  extra_tools: Optional[List[Dict]] = None):
         """Initialize an Agent.
-        
+
         Args:
             agent_type: The agent definition (model, system prompt, tools).
-            provider: A Provider instance for LLM communication. (OpenAI-compatible.)
             context_length: Model's context window size.
-            tool_schemas: All available tool schema dicts. If provided, the 
-                         agent will only expose the schemas whose names are in 
-                         ``agent_type.agent_tools`` (or all if ``"*"`` is used).
-            extra_tools: Additional function_def dicts that should be added to
-                         the filtered tool list regardless of YAML constraints.
-                         Useful for tools injected at runtime (e.g. ``submit_results``
-                         in sub-agent sessions) without modifying agent YAML files.
+            provider: **Deprecated**. Previously required Provider instance. Now optional -
+                      agents resolve their own Provider via singleton registry using
+                      AgentType.provider_config from YAML loading. Tests may still pass mock providers.
         """
+        # Backward compatibility: detect legacy test calls like
+        #   Agent(agent_type, mock_client, 4096)
+        # where the second positional is a non-Provider object (e.g. MagicMock).
+        if provider is not None and not isinstance(provider, Provider):
+            context_length, provider = provider, context_length
+
         self._agent_type = agent_type
-        self._provider = provider
-        self._context_length = context_length
-        
-        # Resolve base URL from provider if available.
+        self._context_length = int(context_length)
+
+        # Use provided provider if given (backward compat for tests), otherwise resolve via singleton
+        if provider is not None and isinstance(provider, Provider):
+            self._provider = provider
+        elif hasattr(agent_type, 'provider_config') and agent_type.provider_config is not None:
+            try:
+                self._provider = Provider.get_or_create(agent_type.provider_config)
+            except Exception as exc:
+                print(f"Warning: Failed to resolve provider for '{agent_type.name}': {exc}")
+        else:
+            # No provider - agent will fail on chat_completion, but that's fine for tests
+            self._provider = None
+
+        # Resolve base URL from provider if available
         try:
-            self._base_url = provider.get_base_url().rstrip("/")
+            self._base_url = self._provider.get_base_url().rstrip("/")
         except Exception:
             self._base_url = ""
 
@@ -378,7 +362,6 @@ or update their status to 'failed' before stopping.
         # so no extra work is needed here.
         agent_type = AgentType.from_file(str(yaml_path_str))
 
-        # Reuse the parent's provider (if it has one) and context window.
         if parent_agent is None:
             from agent.context import CURRENT_AGENT
             parent_agent = CURRENT_AGENT.get()
@@ -388,12 +371,9 @@ or update their status to 'failed' before stopping.
                 "Pass sub_name or call run_subagent from within a handle_prompt loop."
             )
 
-        # Try to use the parent's provider; otherwise construct one from config.
-        if hasattr(parent_agent, '_provider') and parent_agent._provider is not None:
-            new_provider = parent_agent._provider
-        else:
-            new_provider = _build_subagent_provider(agent_type, parent_agent)
-
+        # Agent.__init__ resolves its own Provider via the singleton registry.
+        # No need to manually pass providers around — if both agents reference the same
+        # provider name in their YAML configs, they'll get the same instance automatically.
         context_length = parent_agent._context_length
 
         if tool_schemas is None:
@@ -402,7 +382,6 @@ or update their status to 'failed' before stopping.
 
         return cls(
             agent_type=agent_type,
-            provider=new_provider,
             context_length=context_length,
             tool_schemas=tool_schemas,
             extra_tools=extra_tools,

@@ -75,10 +75,6 @@ def main():
         )
         sys.exit(1)
 
-    # Create a Provider from the resolved ProviderConfig.
-    from model.provider import Provider
-    provider = Provider.from_config(agent_type.provider_config)
-
     # Phase 2: Discover skills and inject their catalog into the system prompt.
     discovered_skills = discover_skills()
     if discovered_skills:
@@ -90,9 +86,11 @@ def main():
             catalog = format_skill_catalog(visible_skills)
             agent_type.inject_extra_system_prompt(catalog)
 
-    # ------------------------------------------------------------------
-    # Build context_length from the provider (try to detect, fall back to default).
-    # ------------------------------------------------------------------
+    # Agent.__init__ now resolves its own Provider via the singleton registry.
+    # We just need to determine context_length here (fallback logic).
+    from model.provider import Provider
+    provider = Provider.get_or_create(agent_type.provider_config)
+    
     try:
         context_length = provider.get_context_length(agent_type.model_name) or 2**17
     except Exception:
@@ -100,7 +98,6 @@ def main():
 
     agent = Agent(
         agent_type=agent_type,
-        provider=provider,
         context_length=context_length,
         tool_schemas=AGENT_TOOLS,  # pass all schemas so filter_tool_schemas can work
     )
