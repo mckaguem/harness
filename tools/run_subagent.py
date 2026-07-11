@@ -33,7 +33,6 @@ import json
 from pathlib import Path
 from typing import List, Dict, Optional
 
-from agent.tool_context import ToolContext
 from tools.tool_result import ToolResult
 from tools.utils import _strip_ansi, make_error_result
 
@@ -100,7 +99,7 @@ def _build_function_def() -> dict:
 function_def = _build_function_def()
 
 
-def run_subagent(sub_agent: str, task: str, ctx: ToolContext | None = None) -> ToolResult:
+def run_subagent(sub_agent: str, task: str) -> ToolResult:
     """Spawn a named sub-agent and execute *task* on it.
 
     Args:
@@ -108,11 +107,6 @@ def run_subagent(sub_agent: str, task: str, ctx: ToolContext | None = None) -> T
                    (e.g. ``"analyst"``, ``"coder"``, ``"sysadmin"``).
         task: The task description to run — treated as a user prompt for the
               sub-agent's :meth:`Agent.handle_prompt` loop.
-        ctx: The :class:`~agent.tool_context.ToolContext` for this call (injected
-             automatically by the dispatcher). The parent agent is taken from
-             ``ctx.agent``; if that is absent, ``CURRENT_AGENT`` is used as a
-             legacy fallback. Outside any active agent loop this fails loudly
-             instead of bootstrapping a shared fallback agent (Option B).
 
     Returns:
         A :class:`ToolResult`. On success this contains the parsed JSON payload
@@ -122,42 +116,28 @@ def run_subagent(sub_agent: str, task: str, ctx: ToolContext | None = None) -> T
     NOTE on CURRENT_AGENT context isolation:
 
     Each :class:`Agent.__init__` calls ``CURRENT_AGENT.set(self)``, which means
-    spawning a sub-agent temporarily overwrites the parent's entry in this
+    spawning a sub-agent temporarily overwrites the active agent's entry in this
     module-level ``contextvars.ContextVar``.  If we don't restore it before
-    returning, any subsequent tool call inside the *parent's* handle_prompt loop
-    (such as ``update_task_status`` or ``initialize_task_list``) would look at
-    the sub-agent's empty task list and report "Task with ID X not found" —
-    even though the parent clearly has a task with that ID.
+    returning, any subsequent tool call inside the *calling* agent's
+    handle_prompt loop (such as ``update_task_status`` or ``initialize_task_list``)
+    would look at the sub-agent's empty task list and report "Task with ID X not
+    found" — even though the calling agent clearly has a task with that ID.
 
-    To prevent this, we save the parent's CURRENT_AGENT value before spawning
-    and restore it via a ``finally`` block that covers **every** possible exit
-    path (early returns inside the loop, exceptions during spawn, etc.).
+    To prevent this, we save the active CURRENT_AGENT value before spawning and
+    restore it via a ``finally`` block that covers **every** possible exit path
+    (early returns inside the loop, exceptions during spawn, etc.).
     """
     from agent.context import CURRENT_AGENT as _CURRENT_AGENT
 
-    # Resolve the parent agent from the explicit context first, then fall back to
-    # the legacy CURRENT_AGENT contextvar. If neither is present we fail loudly
-    # instead of bootstrapping a shared agent (Option B).
-    parent_agent = getattr(ctx, "agent", None) if ctx is not None else None
-    if parent_agent is None:
-        parent_agent = _CURRENT_AGENT.get()
-    if parent_agent is None:
-        return make_error_result(
-            "No active agent context found. run_subagent can only be used by an "
-            "agent running inside a handle_prompt loop (or a sub-agent loop)."
-        )
-
-    # Save the parent's CURRENT_AGENT so we can restore it after spawning.
-    saved_agent = parent_agent
+    # Save the active CURRENT_AGENT so we can restore it after spawning.
+    saved_agent = _CURRENT_AGENT.get()
     try:
         from agent import Agent, RESPONSE, TOOL_CALL  # noqa: F401 (explicit guards)
 
         termination_prompt = TERMINATION_PROMPT
 
-        # The parent agent is taken from ctx.agent / CURRENT_AGENT (resolved above).
         sub = Agent.spawn_subagent(
             sub_agent,
-            parent_agent=parent_agent,
             extra_tools=[_get_submit_results_def()],  # inject submit_results at runtime
         )
 
@@ -205,11 +185,11 @@ def run_subagent(sub_agent: str, task: str, ctx: ToolContext | None = None) -> T
     except Exception as exc:
         return make_error_result(f"Error running sub-agent '{sub_agent}': {exc}")
     finally:
-        # Always restore the parent's CURRENT_AGENT, even on early returns
+        # Always restore the active CURRENT_AGENT, even on early returns
         # (submit_results dispatch, parse errors), exceptions during spawn, or
         # normal exit.  This prevents the bug where subsequent tool calls in the
-        # parent loop operate on the empty task list of the sub-agent because
-        # CURRENT_AGENT still points at it.
+        # calling agent's loop operate on the empty task list of the sub-agent
+        # because CURRENT_AGENT still points at it.
         _CURRENT_AGENT.set(saved_agent)
 
 

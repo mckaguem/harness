@@ -335,14 +335,19 @@ or update their status to 'failed' before stopping.
 
         The sub-agent is looked up via :func:`agent.discovery.get_agent_yaml`, which
         searches project and global config paths (``cwd/.harness_py/agents/`` then
-        ``~/.harness_py/agents/``, with project taking precedence). It inherits the parent's
-        base URL and context length, gets an augmented system prompt (cwd listing +
-        AGENTS.md) from :meth:`AgentType._build_system_prompt`, and has its tool schemas
-        filtered by its own ``agent_tools``.
+        ``~/.harness_py/agents/``, with project taking precedence). It gets an
+        augmented system prompt (cwd listing + AGENTS.md) from
+        :meth:`AgentType._build_system_prompt` and has its tool schemas filtered by
+        its own ``agent_tools``. The context length is resolved by :meth:`from_file`
+        from the sub-agent's own model/provider configuration — it is no longer
+        copied from the parent agent.
 
         Args:
             sub_name: The YAML file stem (e.g. ``"analyst"`` from ``/sub analyst``).
-            parent_agent: The calling agent — used for the base URL and context length.
+            parent_agent: Retained only for backward-compatible call signatures.
+                          The agent's provider, base URL and context length are now
+                          resolved entirely from its own YAML config, so this is
+                          effectively unused.
             tool_schemas: All available tool schemas passed through to :meth:`filter_tool_schemas`.
                           If ``None``, defaults to all tools (equivalent to ``["*"]``).
             extra_tools: Additional function_def dicts added after filtering. Useful for
@@ -355,45 +360,23 @@ or update their status to 'failed' before stopping.
         Raises:
             FileNotFoundError: If no matching agent YAML is found in any configured discovery path.
         """
-        from pathlib import Path
-        from agent.types import AgentType
         from agent.discovery import get_agent_yaml
 
         yaml_path_str, error_msg = get_agent_yaml(sub_name)
         if yaml_path_str is None:
             raise FileNotFoundError(error_msg)
         
-        # ``AgentType.from_file`` now builds the augmented system prompt internally,
-        # so no extra work is needed here.
-        agent_type = AgentType.from_file(str(yaml_path_str))
-
-        if parent_agent is None:
-            from agent.context import CURRENT_AGENT
-            parent_agent = CURRENT_AGENT.get()
-        if parent_agent is None:
-            raise RuntimeError(
-                "No parent agent provided and no current agent in context. "
-                "Pass a `parent_agent` or call run_subagent from within a handle_prompt loop."
-            )
-
-        # Agent.__init__ resolves its own Provider via the singleton registry.
-        # No need to manually pass providers around — if both agents reference the same
-        # provider name in their YAML configs, they'll get the same instance automatically.
-        context_length = parent_agent._context_length
-
-        if tool_schemas is None:
-            from tools import AGENT_TOOLS
-            tool_schemas = AGENT_TOOLS
-
-        return cls(
-            agent_type=agent_type,
-            context_length=context_length,
+        # from_file resolves the model/provider config and sets the context
+        # length internally — there is no need to copy it from a parent agent.
+        return cls.from_file(
+            str(yaml_path_str),
             tool_schemas=tool_schemas,
             extra_tools=extra_tools,
         )
 
     @classmethod
-    def from_file(cls, path: str, tool_schemas: Optional[List[Dict]] = None) -> "Agent":
+    def from_file(cls, path: str, tool_schemas: Optional[List[Dict]] = None,
+                extra_tools: Optional[List[Dict]] = None) -> "Agent":
         """Create an Agent directly from a YAML agent config file.
 
         This is the recommended entry point for creating agents. It handles:
@@ -406,6 +389,9 @@ or update their status to 'failed' before stopping.
         Args:
             path: Path to the agent YAML file (e.g., ``".harness_py/agents/main.yaml"``).
             tool_schemas: All available tool schemas. If None, uses AGENT_TOOLS from tools module.
+            extra_tools: Additional function_def dicts added after filtering. Useful for
+                         runtime-injected tools like ``submit_results`` without modifying
+                         agent YAML files.
 
         Returns:
             A fully-constructed Agent instance ready for prompting.
@@ -432,5 +418,6 @@ or update their status to 'failed' before stopping.
             agent_type=agent_type,
             context_length=context_length,
             tool_schemas=tool_schemas,
+            extra_tools=extra_tools,
         )
 

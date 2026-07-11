@@ -31,7 +31,7 @@ def cmd_sub(rest: str, parent_agent) -> bool | None:
 
     try:
         sub_agent = Agent.spawn_subagent(
-            sub_name, parent_agent, tool_schemas=AGENT_TOOLS
+            sub_name, tool_schemas=AGENT_TOOLS
         )
     except FileNotFoundError as exc:
         print_system("Error", str(exc))
