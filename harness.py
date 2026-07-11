@@ -87,14 +87,9 @@ def main():
             agent_type.inject_extra_system_prompt(catalog)
 
     # Agent.__init__ now resolves its own Provider via the singleton registry.
-    # We just need to determine context_length here (fallback logic).
-    from model.provider import Provider
-    provider = Provider.get_or_create(agent_type.provider_config)
-    
-    try:
-        context_length = provider.get_context_length(agent_type.model_name) or 2**17
-    except Exception:
-        context_length = 2**17
+    # context_length is read from config.yaml (not detected at runtime).
+    from config import load_harness_config
+    context_length = int(load_harness_config().get("context_length", 8192))
 
     agent = Agent(
         agent_type=agent_type,

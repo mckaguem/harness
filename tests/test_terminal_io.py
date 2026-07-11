@@ -1,4 +1,4 @@
-"""Tests for terminal_io.py — speed formatting, context length."""
+"""Tests for terminal_io.py — speed formatting."""
 
 import os
 from unittest.mock import patch
@@ -6,8 +6,6 @@ from unittest.mock import patch
 import pytest
 
 from terminal_io import format_speed
-
-from model.utils import get_context_length
 
 
 # ── Speed formatting ────────────────────────────────────────────────────
@@ -55,59 +53,3 @@ class TestFormatSpeed:
         resp = {"eval_count": None, "prompt_eval_count": None}
         assert format_speed(resp, 1024) == ""
 
-
-# ── Context length ──────────────────────────────────────────────────────
-
-
-class TestGetContextLength:
-    """Tests for `get_context_length()` with a mock ollama client."""
-
-    def test_flat_context_length_key(self):
-        class FakeClient:
-            def show(self, model_name):
-                return {"model_info": {"context_length": 8192}}
-
-        result = get_context_length(FakeClient(), "fake-model")
-        assert result == 8192
-
-    def test_nested_dotted_key(self):
-        class FakeClient:
-            def show(self, model_name):
-                return {
-                    "model_info": {
-                        "tokenizer.ggml.context-length": 4096,
-                    }
-                }
-
-        result = get_context_length(FakeClient(), "fake-model")
-        assert result == 4096
-
-    def test_nested_in_list(self):
-        class FakeClient:
-            def show(self, model_name):
-                return {
-                    "model_info": [
-                        {"tokenizer.ggml.context-length": 2048},
-                    ]
-                }
-
-        result = get_context_length(FakeClient(), "fake-model")
-        assert result == 2048
-
-    def test_no_matching_key_returns_default(self):
-        class FakeClient:
-            def show(self, model_name):
-                return {"model_info": {}}
-
-        # Falls back to a sensible default (8192) so the UI always shows ctx %.
-        result = get_context_length(FakeClient(), "fake-model")
-        assert result == 8192
-
-    def test_client_exception_returns_default(self):
-        class BadClient:
-            def show(self, model_name):
-                raise ConnectionError("offline")
-
-        # Same fallback on complete failure.
-        result = get_context_length(BadClient(), "x")
-        assert result == 8192

@@ -71,18 +71,6 @@ class Provider(ABC):
         pass
 
     @abstractmethod
-    def get_context_length(self, model: str) -> int:
-        """Get context length for a model.
-
-        Args:
-            model: Model name
-
-        Returns:
-            Context length in tokens
-        """
-        pass
-
-    @abstractmethod
     def tokenize(self, text: str, model: str) -> Optional[List[int]]:
         """Tokenize text using the provider's tokenizer.
 
@@ -169,15 +157,6 @@ class OpenAIProvider(Provider):
             }
         }
 
-    def get_context_length(self, model: str) -> int:
-        """Get context length for OpenAI model.
-
-        Note: OpenAI doesn't expose context length via API, so we use
-        model.utils.get_context_length as fallback.
-        """
-        from .utils import get_context_length
-        return get_context_length(self.client, model)
-
     def tokenize(self, text: str, model: str) -> Optional[List[int]]:
         """Tokenize text using OpenAI tokenizer."""
         from .utils import tokenize_prompt
@@ -231,11 +210,6 @@ class OllamaProvider(Provider):
                 "total_tokens": response.usage.total_tokens if response.usage else 0
             }
         }
-
-    def get_context_length(self, model: str) -> int:
-        """Get context length for Ollama model."""
-        from .utils import get_context_length
-        return get_context_length(self.client, model)
 
     def tokenize(self, text: str, model: str) -> Optional[List[int]]:
         """Tokenize text using Ollama tokenizer."""

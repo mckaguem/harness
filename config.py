@@ -130,6 +130,29 @@ def _build_providers_dict(raw_provs: list[dict]) -> dict[str, ProviderConfig]:
         )
     return providers
 
+
+def _build_models_dict(raw_models: list[dict]) -> dict[str, ModelConfig]:
+    """Build a models dict from a raw YAML model list.
+
+    Returns a dictionary keyed by model ``name`` with :class:`ModelConfig`
+    instances as values. Only entries that are dicts containing a ``name`` key
+    are included.
+    """
+    models: dict[str, ModelConfig] = {}
+    for model in raw_models:
+        if not isinstance(model, dict) or "name" not in model:
+            continue
+        name = model["name"]
+        models[name] = ModelConfig(
+            name=name,
+            provider=model.get("provider", "openai"),
+            context_length=int(model.get("context_length", DEFAULT_CONTEXT_LENGTH)),
+            base_url=model.get("base_url"),
+            api_key=model.get("api_key"),
+        )
+    return models
+
+
 # ---------------------------------------------------------------------------
 # Module-level configuration cache — loaded once on first access.
 # ---------------------------------------------------------------------------
@@ -156,8 +179,10 @@ def load_harness_config() -> dict:
 
     Returns a dictionary with keys:
     - "providers": Dict[str, ProviderConfig] keyed by provider name
+    - "models": Dict[str, ModelConfig] keyed by model name (with context_length)
     - "default_provider": Optional[str]
     - "default_model": Optional[str]
+    - "context_length": int (global default context length fallback)
     """
     project_dir, global_dir = get_harness_py_dir()
     global_cfg_path = global_dir / CONFIG_FILENAME
@@ -171,14 +196,26 @@ def load_harness_config() -> dict:
     providers = _build_providers_dict(global_cfg.get("providers", []))
     providers.update(_build_providers_dict(project_cfg.get("providers", [])))
 
+    # Build models dict similarly — explicit model entries take priority over global default
+    models = _build_models_dict(global_cfg.get("models", []))
+    models.update(_build_models_dict(project_cfg.get("models", [])))
+
     default_provider = project_cfg.get("default_provider") or global_cfg.get("default_provider")
     default_model = project_cfg.get("default_model") or global_cfg.get("default_model")
 
+    # context_length can be specified at the top level (global fallback) OR on each model entry.
+    # The per-model value is stored in ModelConfig.context_length; this field serves as a
+    # default when no explicit model entry exists for the requested model name.
+    context_length = int(project_cfg.get("context_length") or global_cfg.get("context_length", DEFAULT_CONTEXT_LENGTH))
+
     return {
         "providers": providers,
+        "models": models,
         "default_provider": default_provider,
         "default_model": default_model,
+        "context_length": context_length,
     }
+
 
 def get_provider_config(name: str) -> ProviderConfig | None:
     """Retrieve a ProviderConfig by its identifier name.
@@ -189,6 +226,18 @@ def get_provider_config(name: str) -> ProviderConfig | None:
     cfg = _get_cached_config()
     return cfg["providers"].get(name)
 
+
+def get_model_config(model_name: str) -> ModelConfig | None:
+    """Retrieve a ModelConfig by its name.
+
+    Looks up the model in the models dictionary using the exact ``name`` field.
+    Returns ``None`` if no explicit entry exists for that model. The caller can
+    then fall back to the global ``context_length`` from load_harness_config().
+    """
+    cfg = _get_cached_config()
+    return cfg["models"].get(model_name)
+
+
 def get_default_provider() -> ProviderConfig | None:
     """Return the default provider configuration, if specified."""
     cfg = _get_cached_config()
@@ -197,10 +246,12 @@ def get_default_provider() -> ProviderConfig | None:
         return None
     return cfg["providers"].get(name)
 
+
 def get_default_model() -> str | None:
     """Return the default model name, if specified."""
     cfg = _get_cached_config()
     return cfg.get("default_model")
+
 
 # Exported symbols.
 __all__ = [
@@ -210,7 +261,7 @@ __all__ = [
     "get_discovery_dirs",
     "load_harness_config",
     "get_provider_config",
+    "get_model_config",
     "get_default_provider",
     "get_default_model",
 ]
-
