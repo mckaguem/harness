@@ -29,12 +29,43 @@ self-improvement loop. Sub-problems addressed by the plan:
 
 ---
 
-## Step 1 — Non-interactive mode (`--message` flag) ⏳
+## Step 1 — Non-interactive mode (`--message` flag) ✅
 **Goal:** Add a `--message "<prompt>"` flag to `harness.py` (parsed with
 `getopt` / `getopts`) so the agent can run a single prompt to completion and
 exit without any interactive TUI/REPL.
 
-**Status:** Pending — to be executed by a `main` sub-agent.
+**Status:** ✅ Complete — implemented by a `main` sub-agent (commit `47f9e54`).
+
+**Files changed:**
+- `harness.py` — added `getopt` parsing via `parse_args()` (supports `-m`/`--message`
+  and `-h`/`--help`, exiting 2 on bad args); extracted the shared startup
+  pipeline into `build_agent()`; added `run_non_interactive(agent, message)`
+  which binds `CURRENT_AGENT`, performs slash-command/skill interception for the
+  single prompt, then drives `Agent.handle_prompt` to completion, rendering each
+  `(RESPONSE/TOOL_CALL/TOOL_RESULT/ERROR)` event via the `terminal_io` display
+  helpers and exiting 0 on success. `main()` now routes to non-interactive mode
+  when `--message` is supplied and otherwise launches the TUI (with REPL
+  fallback) exactly as before.
+- `tests/test_noninteractive.py` (new, 14 tests) — coverage for `parse_args()`
+  (short/long flags, absent flag, help, unknown-option and missing-arg errors)
+  and `run_non_interactive()` (drives `handle_prompt` to a RESPONSE, sets
+  `CURRENT_AGENT`, renders TOOL_CALL/TOOL_RESULT, surfaces ERROR, handles an
+  empty message, and a `--help` path that exits 0 without building an agent).
+  The provider is a mocked in-memory fake, so no network/LLM calls occur.
+
+**How to invoke:**
+```
+python harness.py --message "<your prompt>"   # runs one prompt, prints result, exits 0
+python harness.py -m "<your prompt>"          # short form
+python harness.py --help                       # prints usage, exits 0
+python harness.py                              # unchanged: interactive TUI / REPL
+```
+
+**Verification:** `tests/test_noninteractive.py` passes (14/14). `python harness.py
+--help` exits 0; `python harness.py --message "hello"` builds the agent and runs
+to completion (exiting 0). The full suite shows no new regressions — the 23
+pre-existing failures are confined to `tests/test_agent.py` (`TestAgentHandlePrompt`
+and system-prompt template-variable tests) and are unrelated to this change.
 
 ---
 
