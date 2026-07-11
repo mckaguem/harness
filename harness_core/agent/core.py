@@ -260,6 +260,11 @@ or update their status to 'failed' before stopping.
                     yield (RESPONSE, content, response)
                     break
             
+            pending_parallel = []
+            use_parallel = (
+                len([tc for tc in message["tool_calls"] if tc["function"]["name"] == "run_subagent"]) > 1
+            )
+
             for tool_call in message["tool_calls"]:
                 func_name = tool_call["function"]["name"]
                 raw_args = tool_call["function"]["arguments"]
@@ -302,6 +307,12 @@ or update their status to 'failed' before stopping.
                 
                 yield (TOOL_CALL, func_name, args_str, response)
 
+                # Defer execution of multiple run_subagent calls to a single
+                # concurrent batch after this loop (keeps them in parallel).
+                if use_parallel and func_name == "run_subagent":
+                    pending_parallel.append((tool_call, args))
+                    continue
+
                 # Execute the tool via the executor and handle its result.
                 try:
                     return_result = self._executor.execute(func_name, args)
@@ -318,6 +329,22 @@ or update their status to 'failed' before stopping.
                 # Use session.add_tool_result instead of self.messages.append({"role":"tool",...})
                 self._session.add_tool_result(func_name, return_result.llm_text, tool_call_id)
                 yield (TOOL_RESULT, func_name, return_result, response)
+
+            # Run any deferred run_subagent calls concurrently and feed each
+            # result back into the conversation for the next model round.
+            if pending_parallel:
+                from harness_core.tools.run_subagent import run_subagents_parallel
+
+                parallel_calls = [
+                    (args.get("sub_agent", ""), args.get("task", ""))
+                    for _tc, args in pending_parallel
+                ]
+                parallel_results = run_subagents_parallel(parallel_calls)
+                for (tool_call, _args), result in zip(pending_parallel, parallel_results):
+                    self._session.add_tool_result(
+                        "run_subagent", result.llm_text, tool_call["id"]
+                    )
+                    yield (TOOL_RESULT, "run_subagent", result, response)
 
     @classmethod
     def spawn_subagent(cls, sub_name: str,

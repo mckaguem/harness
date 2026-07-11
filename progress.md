@@ -188,12 +188,56 @@ the legacy Completions/Chat Completions interface. Remove Ollama support
 
 ---
 
-## Step 5 — Parallel sub-agents (async) ⏳
+## Step 5 — Parallel sub-agents (async) ✅ Complete
 **Goal:** Make provider calls async and make `run_subagent` non-blocking so
 the parent agent and sub-agents run concurrently; when a sub-agent returns,
 insert its response into the calling agent's next round of messages.
 
-**Status:** Pending — to be executed by a `main` sub-agent.
+**Status:** ✅ Complete (executed by the `main` orchestrator, delegating the
+provider async method and the `run_subagent` concurrency refactor to `coder`
+sub-agents, and verifying thread-safety via an `analyst` sub-agent).
+
+**Design chosen (protocol-compatible, low-risk):** A full async rewrite of the
+loop + TUI was rejected as high-risk. Instead, parallelism is achieved
+**within a single agent turn**: when the model emits >1 `run_subagent` tool
+call in one turn, `handle_prompt` executes them **concurrently** and feeds all
+results back as tool results in the next model round. Single tool calls and
+all other tools keep their exact sequential behavior.
+
+**Additive vs breaking changes:**
+- `provider.py`: added `OpenAIProvider.chat_completion_async` (awaits
+  `client.responses.create`, identical normalization) and a default
+  `Provider.chat_completion_async` that raises `NotImplementedError`. The sync
+  `chat_completion` and the normalized `choices[].message` + `usage` shape are
+  UNCHANGED.
+- `run_subagent.py`: split the worker body into `_run_one` (thread-safe,
+preserves the `CURRENT_AGENT` save/restore `finally`); `run_subagent` is now a
+  thin sync wrapper delegating to `_run_one` (backward compatible); added
+  `run_subagent_async` (`asyncio.to_thread(_run_one, ...)`) and
+  `run_subagents_parallel` (`asyncio.gather` + `asyncio.run`).
+- `core.py`: `handle_prompt` stays a **synchronous generator** (TUI/
+  `user_loop`/`__main__` untouched). It detects multiple `run_subagent` calls,
+  defers them, runs `run_subagents_parallel`, and yields the `TOOL_RESULT`s.
+
+**Concurrency / isolation:** Each sub-agent runs in its own worker thread via
+`asyncio.to_thread`, so each gets a private copy of the `CURRENT_AGENT`
+ContextVar (ContextVars are copied per thread) — sub-agents cannot clobber
+each other's or the caller's agent binding. The caller thread's context is
+never mutated by workers; `add_tool_result` runs sequentially post-return.
+Analyst review confirmed SAFE for >1 concurrent sub-agents (latent caveat:
+`asyncio.run` must not be invoked from inside an already-running event loop —
+currently untriggered since the loop is fully synchronous).
+
+**Files touched:** `harness_core/model/provider.py`, `harness_core/tools/run_subagent.py`,
+`harness_core/agent/core.py`, new `tests/test_parallel_subagents.py`.
+
+**Test results:** Baseline **22 failed / 275 passed** (pre-existing
+`TestAgentTypeFromFile` + `TestAgentHandlePrompt` failures, unrelated). After:
+**22 failed / 285 passed** — the +10 are new tests in
+`tests/test_parallel_subagents.py` (parallel concurrency + ordering, single-
+call sequential path, non-subagent not parallelized, async provider shape).
+`tests/test_run_subagent.py` stays green (4 passed). `uv run harness --help`
+exits 0. No new regressions; failure count unchanged at 22.
 
 ---
 

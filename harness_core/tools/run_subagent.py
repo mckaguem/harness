@@ -29,9 +29,10 @@ Sub-agents are discovered from two config paths (see :mod:`agents_discovery`):
 When an agent name exists in both, the project version wins.
 """
 
+import asyncio
 import json
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
 from harness_core.tools.tool_result import ToolResult
 from harness_core.tools.utils import _strip_ansi, make_error_result
@@ -99,19 +100,14 @@ def _build_function_def() -> dict:
 function_def = _build_function_def()
 
 
-def run_subagent(sub_agent: str, task: str) -> ToolResult:
-    """Spawn a named sub-agent and execute *task* on it.
+def _run_one(sub_agent: str, task: str) -> ToolResult:
+    """Spawn a single named sub-agent and execute *task* on it (worker body).
 
-    Args:
-        sub_agent: Name of the agent definition in ``agents/<sub_agent>.yaml``
-                   (e.g. ``"analyst"``, ``"coder"``, ``"sysadmin"``).
-        task: The task description to run — treated as a user prompt for the
-              sub-agent's :meth:`Agent.handle_prompt` loop.
-
-    Returns:
-        A :class:`ToolResult`. On success this contains the parsed JSON payload
-        from ``submit_results`` (the structured findings) or the final RESPONSE
-        text. On failure it contains an error message with theme="error".
+    Contains the exact synchronous work previously done by :func:`run_subagent`.
+    Designed to run inside its own worker thread (via ``asyncio.to_thread``) so
+    that each sub-agent gets its OWN copy of the ``CURRENT_AGENT`` contextvar —
+    ContextVars are copied per thread, so concurrent sub-agents cannot clobber
+    each other's or the caller's agent binding.
 
     NOTE on CURRENT_AGENT context isolation:
 
@@ -125,7 +121,9 @@ def run_subagent(sub_agent: str, task: str) -> ToolResult:
 
     To prevent this, we save the active CURRENT_AGENT value before spawning and
     restore it via a ``finally`` block that covers **every** possible exit path
-    (early returns inside the loop, exceptions during spawn, etc.).
+    (early returns inside the loop, exceptions during spawn, etc.).  Because this
+    runs inside a worker thread, the restore only affects that thread's context;
+    the caller's thread context is untouched.
     """
     from harness_core.agent.context import CURRENT_AGENT as _CURRENT_AGENT
 
@@ -191,6 +189,51 @@ def run_subagent(sub_agent: str, task: str) -> ToolResult:
         # calling agent's loop operate on the empty task list of the sub-agent
         # because CURRENT_AGENT still points at it.
         _CURRENT_AGENT.set(saved_agent)
+
+
+def run_subagent(sub_agent: str, task: str) -> ToolResult:
+    """Spawn a named sub-agent and execute *task* on it (synchronous, single call).
+
+    Preserves the original synchronous behavior used by the tool dispatcher.
+    Delegates the actual work to :func:`_run_one` so the single-call path and the
+    parallel path share identical logic.
+    """
+    return _run_one(sub_agent, task)
+
+
+async def run_subagent_async(sub_agent: str, task: str) -> ToolResult:
+    """Run a single sub-agent off the event loop, returning a :class:`ToolResult`.
+
+    Offloads the synchronous :func:`_run_one` to a worker thread via
+    ``asyncio.to_thread`` so that multiple sub-agents can run concurrently
+    (each in its own thread/context) when gathered.
+    """
+    return await asyncio.to_thread(_run_one, sub_agent, task)
+
+
+def run_subagents_parallel(calls: List[Tuple[str, str]]) -> List[ToolResult]:
+    """Run several ``(sub_agent, task)`` pairs concurrently and return results in order.
+
+    Each call runs in its own worker thread (via :func:`run_subagent_async` /
+    ``asyncio.to_thread``), giving every sub-agent an isolated ``CURRENT_AGENT``
+    context.  Results are returned in the same order as *calls*.
+
+    Args:
+        calls: A list of ``(sub_agent, task)`` tuples.
+
+    Returns:
+        A list of :class:`ToolResult` matching the order of *calls* (empty list
+        if *calls* is empty).
+    """
+    if not calls:
+        return []
+
+    async def _gather():
+        return await asyncio.gather(
+            *(run_subagent_async(sa, tk) for sa, tk in calls)
+        )
+
+    return list(asyncio.run(_gather()))
 
 
 def _get_submit_results_def() -> Dict:

@@ -70,6 +70,12 @@ class Provider(ABC):
         """
         pass
 
+    async def chat_completion_async(self, messages, model, **kwargs):
+        """Async chat completion; optional for providers. Default raises NotImplementedError."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement chat_completion_async"
+        )
+
     @abstractmethod
     def tokenize(self, text: str, model: str) -> Optional[List[int]]:
         """Tokenize text using the provider's tokenizer.
@@ -157,6 +163,61 @@ class OpenAIProvider(Provider):
 
         try:
             response = self.client.responses.create(**request_kwargs)
+        except Exception as exc:
+            raise RuntimeError(f"Provider chat request failed: {exc}") from exc
+
+        content_text = ""
+        tool_calls = []
+        for item in response.output:
+            if item.type == "message":
+                parts = []
+                for part in item.content:
+                    parts.append(part.text)
+                content_text = "".join(parts)
+            elif item.type == "function_call":
+                tool_calls.append({
+                    "id": item.call_id,
+                    "type": "function",
+                    "function": {
+                        "name": item.name,
+                        "arguments": item.arguments,
+                    },
+                })
+
+        message = {"role": "assistant", "content": content_text or None}
+        if tool_calls:
+            message["tool_calls"] = tool_calls
+
+        usage = response.usage
+        usage_dict = {
+            "prompt_tokens": usage.input_tokens if usage else 0,
+            "completion_tokens": usage.output_tokens if usage else 0,
+            "total_tokens": usage.total_tokens if usage else 0,
+        }
+
+        return {
+            "choices": [{"message": message}],
+            "usage": usage_dict,
+        }
+
+    async def chat_completion_async(self, messages: List[Dict], model: str, **kwargs) -> Dict:
+        """Get chat completion from OpenAI via the Responses API (async).
+
+        Mirrors :meth:`chat_completion` but awaits the SDK call.
+        """
+        tools = kwargs.get('tools')
+        max_output_tokens = kwargs.pop('max_tokens', 16384) if 'max_tokens' in kwargs else 16384
+
+        request_kwargs = {
+            "model": model,
+            "input": messages,
+            "max_output_tokens": max_output_tokens,
+        }
+        if tools is not None:
+            request_kwargs["tools"] = tools
+
+        try:
+            response = await self.client.responses.create(**request_kwargs)
         except Exception as exc:
             raise RuntimeError(f"Provider chat request failed: {exc}") from exc
 
