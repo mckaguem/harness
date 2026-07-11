@@ -129,22 +129,32 @@ def user_loop(agent: "Agent", openai_client=None, on_exit=None) -> None:
         else:
             effective_input = user_input
 
-        for output in agent.handle_prompt(effective_input):
-            kind = output[0]
-            if kind == RESPONSE:
-                _, content, ollama_response = output
-                display_agent_response(content, ollama_response, agent._context_length)
-            elif kind == TOOL_CALL:
-                _, func_name, args_str, response_data = output
-                display_tool_call(func_name, args_str)
-            elif kind == TOOL_RESULT:
-                _, func_name, result, response_data = output
-                display_tool_result(func_name, result)
-                if response_data and 'usage' in response_data:
-                    _console.print(format_speed(response_data, agent._context_length))
-            elif kind == ERROR:
-                _, description = output
-                display_error(description)
+        # Show a spinner at the bottom of the messages panel while the agent is
+        # actively working through its handle_prompt loop (LLM calls, tool
+        # dispatches, etc.).  show/hide are no-ops when no textual TUI is active,
+        # so the classic REPL keeps its original behaviour.
+        from terminal_io.tui import get_tui
+        _tui = get_tui()
+        _tui.show_spinner()
+        try:
+            for output in agent.handle_prompt(effective_input):
+                kind = output[0]
+                if kind == RESPONSE:
+                    _, content, ollama_response = output
+                    display_agent_response(content, ollama_response, agent._context_length)
+                elif kind == TOOL_CALL:
+                    _, func_name, args_str, response_data = output
+                    display_tool_call(func_name, args_str)
+                elif kind == TOOL_RESULT:
+                    _, func_name, result, response_data = output
+                    display_tool_result(func_name, result)
+                    if response_data and 'usage' in response_data:
+                        _console.print(format_speed(response_data, agent._context_length))
+                elif kind == ERROR:
+                    _, description = output
+                    display_error(description)
+        finally:
+            _tui.hide_spinner()
         
         # Auto-compression check: after each agent response to a user message,
         # if context utilization exceeds 50%, trigger compression.

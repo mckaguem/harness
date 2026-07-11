@@ -27,7 +27,7 @@ from typing import Optional
 
 from textual.app import App
 from textual.containers import Vertical
-from textual.widgets import Footer, Header, RichLog, TextArea
+from textual.widgets import Footer, Header, RichLog, Static, TextArea
 
 import sys
 import time
@@ -35,6 +35,35 @@ import traceback
 
 from rich.panel import Panel
 from rich.text import Text
+
+
+class StatusSpinner(Static):
+    """A non-blocking animated "thinking" indicator for the message panel.
+
+    Unlike Textual's built-in :class:`~textual.widgets.LoadingIndicator` this
+    widget does *not* swallow input events, so the user's ``TextArea`` stays
+    fully interactive while the agent is working.  It is docked to the bottom
+    of the messages panel and simply cycles through a small set of glyphs.
+    """
+
+    # Frames for the animation (braille spinner + a trailing "thinking" hint).
+    FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+    LABEL = "agent is thinking"
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._frame_index = 0
+        # 16 fps keeps the animation smooth without saturating the message pump.
+        self.auto_refresh = 1 / 16
+
+    def render(self) -> Text:
+        glyph = self.FRAMES[self._frame_index % len(self.FRAMES)]
+        self._frame_index += 1
+        # Plain, unstyled text: ``Static`` (``markup=False``) would otherwise
+        # try to resolve the ``[accent]``/``[dim]`` span styles through Rich's
+        # color parser, which does not understand Textual theme variables and
+        # raises ``MissingStyle``.  The widget's own ``color`` CSS paints it.
+        return Text(f"{glyph} {self.LABEL}\u2026")
 
 
 class HarnessTUI:
@@ -51,6 +80,7 @@ class HarnessTUI:
         # Guarded by ``_lock``; only touched from the app thread.
         self._input: Optional[TextArea] = None
         self._output: Optional[RichLog] = None
+        self._spinner: Optional[StatusSpinner] = None
         self._write_count = 0
         self._lock = threading.Lock()
         # True once bind() has been called in on_mount.  We treat the TUI as
@@ -68,11 +98,14 @@ class HarnessTUI:
 
     # ── lifecycle ───────────────────────────────────────────────────────
 
-    def bind(self, app: "TextualHarnessApp", output: RichLog, input: TextArea) -> None:
+    def bind(self, app: "TextualHarnessApp", output: RichLog, input: TextArea, spinner: "StatusSpinner") -> None:
         """Attach a running app and its widgets (called from ``on_mount``)."""
         self._app = app
         self._output = output
         self._input = input
+        self._spinner = spinner
+        # Keep the spinner hidden until the agent is actually running.
+        spinner.display = False
         self._bound = True
 
     def is_active(self) -> bool:
@@ -101,6 +134,40 @@ class HarnessTUI:
         """
         with self._lock:
             return self._write_count
+
+    # ── agent busy indicator (used by user_loop around handle_prompt) ────
+
+    def show_spinner(self) -> None:
+        """Reveal the spinner so the user knows the agent is working.
+
+        Thread-safe: the loop/worker thread may call this while the spinner
+        widget lives on the app thread; the visibility change is marshalled
+        through ``app.call_from_thread``.
+        """
+        if not self.is_active() or self._spinner is None:
+            return
+        app = self._app
+
+        def _do() -> None:
+            assert self._spinner is not None
+            self._spinner.display = True
+
+        app.call_from_thread(_do)
+
+    def hide_spinner(self) -> None:
+        """Hide the spinner once the agent has produced its response.
+
+        Thread-safe (see :meth:`show_spinner`).
+        """
+        if not self.is_active() or self._spinner is None:
+            return
+        app = self._app
+
+        def _do() -> None:
+            assert self._spinner is not None
+            self._spinner.display = False
+
+        app.call_from_thread(_do)
 
     # ── blocking prompt (used by prompt_user inside the TUI) ────────────
 
@@ -172,6 +239,7 @@ class HarnessTUI:
         self._app = None
         self._input = None
         self._output = None
+        self._spinner = None
         self._pending = None
         self._pending_value = ""
         self._pending_prompt = "You> "
@@ -208,6 +276,13 @@ class TextualHarnessApp(App):
         height: 1fr;
         border: round $primary;
     }
+    StatusSpinner {
+        height: 1;
+        dock: bottom;
+        background: $panel;
+        color: $accent;
+        content-align: left middle;
+    }
     """
 
     BINDINGS = [
@@ -226,6 +301,9 @@ class TextualHarnessApp(App):
         yield Vertical(
             RichLog(id="output", markup=False, wrap=True, highlight=False),
             TextArea(id="input", language=None, soft_wrap=True),
+            # Sits at the bottom of the messages panel and animates while the
+            # main agent's handle_prompt loop is running (see user_loop).
+            StatusSpinner(id="spinner", classes="--busy"),
         )
         yield Footer()
 
@@ -235,6 +313,7 @@ class TextualHarnessApp(App):
             self,
             self.query_one("#output", RichLog),
             self.query_one("#input", TextArea),
+            self.query_one("#spinner", StatusSpinner),
         )
         # NOTE: ``app.is_running`` only becomes True *after* on_mount (once the
         # message pump starts).  If we started the loop worker here it would

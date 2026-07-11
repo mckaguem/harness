@@ -227,3 +227,60 @@ class TestControllerLifecycle:
 
         with _pytest.raises(RuntimeError):
             controller.prompt("You> ")
+
+
+class TestStatusSpinner:
+    """The busy spinner sits at the bottom of the message panel and toggles."""
+
+    def test_spinner_widget_present_and_hidden_by_default(self, tui_app):
+        from terminal_io.tui import StatusSpinner
+
+        async def _body():
+            async with tui_app.run_test():
+                spinner = tui_app.query_one("#spinner", StatusSpinner)
+                assert spinner is not None
+                # The controller hides the spinner until the agent is running.
+                assert spinner.display is False
+
+        _drive(_body())
+
+    def test_spinner_render_animates(self, tui_app):
+        from terminal_io.tui import StatusSpinner
+
+        async def _body():
+            async with tui_app.run_test():
+                spinner = tui_app.query_one("#spinner", StatusSpinner)
+                first = spinner.render()
+                second = spinner.render()
+                # Each frame advances the glyph index, so two renders differ.
+                assert first != second
+                assert "thinking" in first.plain
+
+        _drive(_body())
+
+    def test_show_hide_spinner_toggles_display(self, tui_app):
+        import threading
+
+        async def _body():
+            async with tui_app.run_test() as pilot:
+                controller = get_tui()
+                spinner = tui_app.query_one("#spinner")
+                # Hidden initially (set by bind()).
+                assert spinner.display is False
+
+                # show_spinner is called from the worker/loop thread.
+                t = threading.Thread(target=controller.show_spinner, daemon=True)
+                t.start()
+                t.join(timeout=2.0)
+                await pilot.pause()
+                assert spinner.display is True
+
+                # hide_spinner clears it again.
+                t2 = threading.Thread(target=controller.hide_spinner, daemon=True)
+                t2.start()
+                t2.join(timeout=2.0)
+                await pilot.pause()
+                assert spinner.display is False
+
+        _drive(_body())
+
