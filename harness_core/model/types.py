@@ -7,7 +7,7 @@ from dataclasses import dataclass
 class ModelConfig(TypedDict, total=False):
     """Configuration for a model."""
     name: str
-    provider: str  # "openai", "ollama", etc.
+    provider: str  # "openai" (Ollama support was removed)
     context_length: int
     base_url: Optional[str]
     api_key: Optional[str]
@@ -17,7 +17,7 @@ class ModelConfig(TypedDict, total=False):
 class ProviderConfig:
     """Configuration for a provider."""
     name: str  # unique identifier for the provider
-    provider_type: str  # "openai", "ollama", etc.
+    provider_type: str  # "openai" (Ollama support was removed)
     base_url: str
     api_key: Optional[str] = None
     default_model: Optional[str] = None

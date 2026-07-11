@@ -798,40 +798,6 @@ class TestAgentHandlePrompt:
         # Final response
         assert outputs[4][0] == RESPONSE
 
-    def test_calls_chat_with_correct_params(self):
-        """Should call ollama chat with correct model, messages, tools."""
-        from harness_core.agent import Agent, AgentType
-        
-        agent_type = AgentType(
-            model_name="llama3",
-            system_prompt="Test",
-            agent_tools=["execute_bash"]
-        )
-        
-        mock_client = MagicMock()
-        mock_completion = MagicMock()
-        mock_choice = MagicMock()
-        mock_message = MagicMock(content="Hi", role="assistant", tool_calls=None)
-        mock_choice.message = mock_message
-        mock_completion.choices = [mock_choice]
-        mock_completion.model = "test"
-        mock_client.chat.completions.create.return_value = mock_completion
-        
-        all_schemas = [{"function": {"name": "execute_bash"}}]
-        agent = Agent(agent_type, 4096, provider=mock_client, tool_schemas=all_schemas)
-        
-        list(agent.handle_prompt("Test"))
-        
-        # Verify chat.completions.create was called with correct parameters
-        call_args = mock_client.chat.completions.create.call_args
-        assert call_args.kwargs["model"] == "llama3"
-        assert call_args.kwargs["messages"] is not None
-        assert len(call_args.kwargs["messages"]) > 0
-        
-        # Should pass tools since they exist
-        assert call_args.kwargs["tools"] is not None
-        assert len(call_args.kwargs["tools"]) == 1
-
     def test_handles_tool_call_with_unexpected_args(self):
         """Should yield ERROR when dispatch fails with unexpected args."""
         from harness_core.agent import Agent, AgentType

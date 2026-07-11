@@ -176,7 +176,15 @@ and make it work both in automatic mode and via the `/compress` command.
 the legacy Completions/Chat Completions interface. Remove Ollama support
 (low priority).
 
-**Status:** Pending — to be executed by a `main` sub-agent.
+**Status:** ✅ Complete — implemented by a `coder` sub-agent; verified by orchestrator.
+
+**Changes:** `OpenAIProvider.chat_completion` now calls `self.client.responses.create(model=, input=messages, tools=, max_output_tokens=16384)` (Responses API) instead of `self.client.chat.completions.create(...)`. `OllamaProvider` class deleted; `create_provider()` simplified so "openai"/"auto"/any value returns `OpenAIProvider` (auto-detect/ollama branches removed). `OllamaProvider` removed from `provider.py __all__` and `model/__init__.py`; `types.py` comments updated (fields unchanged); module docstrings updated.
+
+**Responses→normalized mapping:** Scan `response.output` items — `type=="message"` items contribute concatenated `part.text` to `content` (→`None` if empty); `type=="function_call"` items map to `{"id": call_id, "type":"function", "function":{"name":name, "arguments":arguments}}`. Usage maps `input_tokens→prompt_tokens`, `output_tokens→completion_tokens`, `total_tokens→total_tokens` (0 if usage is None). Exact normalized shape (`choices[0].message.{role,content,tool_calls}`, `usage.{prompt,completion,total}_tokens`) preserved so `core.py`/`session.py`/`loop.py` are untouched. Call wrapped in try/except raising `RuntimeError("Provider chat request failed: ...")`.
+
+**Files touched:** `harness_core/model/provider.py`, `harness_core/model/__init__.py`, `harness_core/model/types.py`, new `tests/test_provider.py` (5 tests: text normalization, function-call normalization, factory→OpenAIProvider for openai/auto, OllamaProvider unimportable, error wrapping), `tests/test_agent.py` (deleted `test_calls_chat_with_correct_params`, which referenced the removed chat.completions API).
+
+**Test results:** Before baseline 23 failed / 270 passed. After: **22 failed / 275 passed**. The 22 remaining failures are the pre-existing `TestAgentTypeFromFile` (14, /tmp `project_root()` lookup) and `TestAgentHandlePrompt` (8, None provider) — unrelated to this change. The single net reduction is the deleted Ollama-flavored test (already failing pre-change); 5 new provider tests pass. `uv run harness --help` exits 0. No new regressions.
 
 ---
 

@@ -1,9 +1,9 @@
 """Provider abstraction for AI model backends with singleton registry.
 
-This module defines a common interface for different AI providers (OpenAI, Ollama, etc.)
-so that the rest of the codebase can work with any provider interchangeably. All Provider
-instances are registered by name and retrieved via get_or_create() to ensure there is only
-one instance per unique configuration.
+This module defines a common interface for different AI model backends via the
+OpenAI-compatible/Responses API so that the rest of the codebase can work with any
+provider interchangeably. All Provider instances are registered by name and retrieved
+via get_or_create() to ensure there is only one instance per unique configuration.
 """
 
 from abc import ABC, abstractmethod
@@ -101,7 +101,7 @@ class Provider(ABC):
                     and optional api_key fields.
 
         Returns:
-            An appropriate subclass of Provider (e.g. OpenAIProvider or OllamaProvider).
+            An OpenAIProvider instance (Ollama support was removed).
 
         Raises:
             ValueError: If required fields are missing from the configuration.
@@ -133,29 +133,65 @@ class OpenAIProvider(Provider):
         self.client = client
 
     def chat_completion(self, messages: List[Dict], model: str, **kwargs) -> Dict:
-        """Get chat completion from OpenAI."""
-        kwargs.setdefault('max_tokens', 16384)
-        response = self.client.chat.completions.create(
-            model=model,
-            messages=messages,
-            **kwargs
-        )
-        msg = {
-            "content": response.choices[0].message.content,
-            "role": response.choices[0].message.role
+        """Get chat completion from OpenAI via the Responses API.
+
+        Args:
+            messages: List of message dictionaries with 'role' and 'content'
+            model: Model name to use
+            **kwargs: Additional provider-specific parameters (currently only
+                ``tools`` is ever passed, and may be None).
+
+        Returns:
+            Normalized completion response with ``choices`` and ``usage``.
+        """
+        tools = kwargs.get('tools')
+        max_output_tokens = kwargs.pop('max_tokens', 16384) if 'max_tokens' in kwargs else 16384
+
+        request_kwargs = {
+            "model": model,
+            "input": messages,
+            "max_output_tokens": max_output_tokens,
         }
-        if response.choices[0].message.tool_calls:
-            msg["tool_calls"] = [
-                {"id": tc.id, "type": tc.type, "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
-                for tc in response.choices[0].message.tool_calls
-            ]
+        if tools is not None:
+            request_kwargs["tools"] = tools
+
+        try:
+            response = self.client.responses.create(**request_kwargs)
+        except Exception as exc:
+            raise RuntimeError(f"Provider chat request failed: {exc}") from exc
+
+        content_text = ""
+        tool_calls = []
+        for item in response.output:
+            if item.type == "message":
+                parts = []
+                for part in item.content:
+                    parts.append(part.text)
+                content_text = "".join(parts)
+            elif item.type == "function_call":
+                tool_calls.append({
+                    "id": item.call_id,
+                    "type": "function",
+                    "function": {
+                        "name": item.name,
+                        "arguments": item.arguments,
+                    },
+                })
+
+        message = {"role": "assistant", "content": content_text or None}
+        if tool_calls:
+            message["tool_calls"] = tool_calls
+
+        usage = response.usage
+        usage_dict = {
+            "prompt_tokens": usage.input_tokens if usage else 0,
+            "completion_tokens": usage.output_tokens if usage else 0,
+            "total_tokens": usage.total_tokens if usage else 0,
+        }
+
         return {
-            "choices": [{"message": msg}],
-            "usage": {
-                "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
-                "completion_tokens": response.usage.completion_tokens if response.usage else 0,
-                "total_tokens": response.usage.total_tokens if response.usage else 0
-            }
+            "choices": [{"message": message}],
+            "usage": usage_dict,
         }
 
     def tokenize(self, text: str, model: str) -> Optional[List[int]]:
@@ -176,89 +212,17 @@ class OpenAIProvider(Provider):
         return get_base_url(self.client)
 
 
-class OllamaProvider(Provider):
-    """Ollama provider implementation."""
-
-    def __init__(self, client):
-        """Initialize with an Ollama client.
-
-        Args:
-            client: Ollama client instance (OpenAI-compatible client configured for Ollama)
-        """
-        self.client = client
-
-    def chat_completion(self, messages: List[Dict], model: str, **kwargs) -> Dict:
-        """Get chat completion from Ollama."""
-        kwargs.setdefault('max_tokens', 16384)
-        response = self.client.chat.completions.create(
-            model=model,
-            messages=messages,
-            **kwargs
-        )
-        msg = {
-            "content": response.choices[0].message.content,
-            "role": response.choices[0].message.role
-        }
-        if response.choices[0].message.tool_calls:
-            msg["tool_calls"] = [
-                {"id": tc.id, "type": tc.type, "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
-                for tc in response.choices[0].message.tool_calls
-            ]
-        return {
-            "choices": [{"message": msg}],
-            "usage": {
-                "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
-                "completion_tokens": response.usage.completion_tokens if response.usage else 0,
-                "total_tokens": response.usage.total_tokens if response.usage else 0
-            }
-        }
-
-    def tokenize(self, text: str, model: str) -> Optional[List[int]]:
-        """Tokenize text using Ollama tokenizer."""
-        from .utils import tokenize_prompt
-        messages = [{"role": "user", "content": text}]
-        count = tokenize_prompt(self.client, messages, model)
-        if count is not None:
-            # We don't have actual token IDs, just count
-            # Return a dummy list for compatibility
-            return list(range(count))
-        return None
-
-    def get_base_url(self) -> str:
-        """Get Ollama base URL."""
-        from .utils import get_base_url
-        return get_base_url(self.client)
-
-
 def create_provider(client, provider_type: str = "auto") -> Provider:
-    """Create a provider instance based on client configuration.
+    """Create a provider instance.
 
-    Args:
-        client: AI client instance (OpenAI, etc.)
-        provider_type: Provider type ("openai", "ollama", or "auto" for auto-detection)
-
-    Returns:
-        Provider instance
+    Ollama support was removed; all provider types ("openai", "auto", or any
+    other value) resolve to OpenAIProvider, which now uses the OpenAI Responses API.
     """
-    if provider_type == "openai":
-        return OpenAIProvider(client)
-    elif provider_type == "ollama":
-        return OllamaProvider(client)
-    elif provider_type == "auto":
-        # Auto-detect based on base_url
-        from .utils import get_base_url
-        base_url = get_base_url(client)
-        if "localhost" in base_url or "127.0.0.1" in base_url or "ollama" in base_url:
-            return OllamaProvider(client)
-        else:
-            return OpenAIProvider(client)
-    else:
-        raise ValueError(f"Unknown provider type: {provider_type}")
+    return OpenAIProvider(client)
 
 
 __all__ = [
     "Provider",
     "OpenAIProvider",
-    "OllamaProvider",
     "create_provider",
 ]
