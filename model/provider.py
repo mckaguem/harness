@@ -134,6 +134,7 @@ class OpenAIProvider(Provider):
 
     def chat_completion(self, messages: List[Dict], model: str, **kwargs) -> Dict:
         """Get chat completion from OpenAI."""
+        kwargs.setdefault('max_tokens', 16384)
         response = self.client.chat.completions.create(
             model=model,
             messages=messages,
@@ -188,6 +189,7 @@ class OllamaProvider(Provider):
 
     def chat_completion(self, messages: List[Dict], model: str, **kwargs) -> Dict:
         """Get chat completion from Ollama."""
+        kwargs.setdefault('max_tokens', 16384)
         response = self.client.chat.completions.create(
             model=model,
             messages=messages,
