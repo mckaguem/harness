@@ -69,12 +69,44 @@ and system-prompt template-variable tests) and are unrelated to this change.
 
 ---
 
-## Step 2a — General cleanup & dead-code removal ⏳
+## Step 2a — General cleanup & dead-code removal ✅
 **Goal:** Several passes of removing dead code and dropping backwards-compat
 workarounds (where comments indicate backwards-compat shims, update callers
 and remove the shim).
 
-**Status:** Pending — to be executed by a `main` sub-agent.
+**Status:** ✅ Complete — executed by a `main` sub-agent (commit `ae1277b`).
+
+**Removed (genuinely dead / never called, verified via repo-wide grep):**
+- `agent/core.py` — removed the `Agent.__init__` backwards-compat positional
+  arg-swap branch (`if provider is not None and not isinstance(provider, Provider):
+  context_length, provider = provider, context_length`) and updated its docstring;
+  removed the `Agent.client` property (backward-compat shim — the only consumer
+  was `commands/sub.py`, now updated to drop the `.client` argument); removed the
+  unused `parent_agent` parameter of `Agent.spawn_subagent` (and its doc text).
+- `agent/loop.py` — removed the unused `openai_client` parameter from `user_loop`
+  (`"kept for future use"`, never read in the body); updated its docstring.
+- `commands/__init__.py` — removed the `# For backward compatibility` `_cmd_exit`
+  alias (only used by tests); updated `tests/test_commands.py` to import `cmd_exit`.
+- `session/session.py` — removed dead timing block in `summarize()`
+  (`import time`, `start_time`, `end_time`, `_duration_ms` — never read/returned).
+- `session/session_utils.py` — removed the unused `agent_type_name` parameter of
+  `parse_session_yaml` (never passed or read; kept for "API compatibility").
+- `tools/__init__.py` — removed the `__getattr__` backwards-compat re-export
+  shim (no code anywhere imported tools via `from tools import <ToolName>` or
+  `tools.<ToolName>`; all usage goes through submodules or `DISPATCH_REGISTRY`).
+
+**Files changed:** `agent/core.py`, `agent/loop.py`, `commands/__init__.py`,
+`commands/sub.py`, `session/session.py`, `session/session_utils.py`,
+`tools/__init__.py`, plus caller-update edits to `tests/test_agent.py` (13
+constructors), `tests/test_noninteractive.py` (3 constructors — fixed to the
+clean `Agent(agent_type, context_length=4096, provider=...)` signature),
+and `tests/test_commands.py` (alias removed).
+
+**Verification:** Full suite — **23 failed, 262 passed** (identical to the
+pre-change baseline of 23 failures, all confined to `tests/test_agent.py`
+`TestAgentHandlePrompt` + footer tests, unrelated to this step). No new
+regressions introduced. `model/provider.py` (Ollama), context compression, and
+directory/packaging structure were intentionally left untouched.
 
 ---
 
