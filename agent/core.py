@@ -392,4 +392,45 @@ or update their status to 'failed' before stopping.
             extra_tools=extra_tools,
         )
 
+    @classmethod
+    def from_file(cls, path: str, tool_schemas: Optional[List[Dict]] = None) -> "Agent":
+        """Create an Agent directly from a YAML agent config file.
+
+        This is the recommended entry point for creating agents. It handles:
+        - Loading the agent YAML definition (model_name, system_prompt, agent_tools)
+        - Discovering skills and agents to inject into the system prompt
+        - Resolving provider configuration from config.py defaults
+        - Getting context_length from the model/provider config
+        - Building the fully-injected system prompt
+
+        Args:
+            path: Path to the agent YAML file (e.g., ``".harness_py/agents/main.yaml"``).
+            tool_schemas: All available tool schemas. If None, uses AGENT_TOOLS from tools module.
+
+        Returns:
+            A fully-constructed Agent instance ready for prompting.
+        """
+        # Load the agent type — handles YAML parsing, provider resolution,
+        # and system prompt template substitution (CWD, SKILLS, AGENTS, TOOLS).
+        from agent.types import AgentType
+        agent_type = AgentType.from_file(path)
+
+        if tool_schemas is None:
+            from tools import AGENT_TOOLS
+            tool_schemas = AGENT_TOOLS
+
+        # Resolve context_length: prefer model-specific config, fall back to global default.
+        from config import get_model_config, load_harness_config
+        model_cfg = get_model_config(agent_type.model_name)
+        if model_cfg is not None and hasattr(model_cfg, 'context_length'):
+            context_length = int(model_cfg.context_length)
+        else:
+            _cfg = load_harness_config()
+            context_length = int(_cfg["context_length"])
+
+        return cls(
+            agent_type=agent_type,
+            context_length=context_length,
+            tool_schemas=tool_schemas,
+        )
 

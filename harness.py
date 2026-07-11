@@ -1,64 +1,49 @@
 """Entry point — wires up configuration and starts the agent loop."""
 
 import sys
-from pathlib import Path
-
-from terminal_io import (
-    print_system, prompt_user,
-    display_tool_call, display_tool_result, display_error,
-    display_agent_response,
-)
-from commands import COMMANDS
-from agent import Agent, AgentType, user_loop
+from agent import Agent, user_loop
 from tools import AGENT_TOOLS
-from skills.discovery import discover_skills, format_skill_catalog
-from config import resolve_config_path
-
-
-def check_command_skill_collision() -> list[str]:
-    """Check for name collisions between built-in commands and discovered skills.
-
-    Returns:
-        A list of human-readable collision messages (empty if there are none).
-    """
-    # Get all built-in command names
-    command_names = set(COMMANDS.keys())
-    
-    # Discover all valid skills
-    discovered_skills = discover_skills()
-    skill_names = {name for name, _ in discovered_skills}
-    
-    # Find intersection - names that exist in both sets
-    collisions = command_names & skill_names
-    
-    # Generate collision messages
-    messages: list[str] = []
-    for name in sorted(collisions):
-        messages.append(
-            f"Command '/{name}' and skill '{name}' both exist. "
-            f"Cannot reliably route — aborting startup."
-        )
-    return messages
+from skills.discovery import discover_skills
+from config import load_harness_config
 
 
 def main():
     # ------------------------------------------------------------------
-    # Pre-flight: check for command/skill name collisions.
-    # If a built-in slash command and a skill share the same name, we can't
-    # reliably route "/name" to either one — abort before anything else loads.
+    # Phase 1: Load configuration (caches it globally for downstream modules).
     # ------------------------------------------------------------------
-    collisions = check_command_skill_collision()
-    if collisions:
-        sys.stderr.write(
-            "\n[skills] FATAL: Command/skill collision detected. Aborting startup.\n"
-        )
-        for msg in collisions:
-            sys.stderr.write(f"  - {msg}\n")
+    try:
+        load_harness_config()
+    except RuntimeError as exc:
+        sys.stderr.write(f"\n[harness] FATAL: {exc}\n")
         sys.exit(1)
 
     # ------------------------------------------------------------------
-    # Resolve the absolute path to agents/main.yaml (project dir preferred over global).
+    # Phase 3: Discover skills (validates they're loadable and checks for
+    # command/skill collisions — if any skill name matches a command name,
+    # we can't reliably route "/name" to either one, so abort).
     # ------------------------------------------------------------------
+    from commands import COMMANDS
+    try:
+        discover_skills(command_names=set(COMMANDS.keys()))
+    except RuntimeError as exc:
+        sys.stderr.write(f"\n[skills] FATAL: {exc}\n")
+        sys.exit(1)
+    except Exception as exc:
+        sys.stderr.write(f"\n[harness] WARNING: Skill discovery failed: {exc}\n")
+
+    # ------------------------------------------------------------------
+    # Phase 4: Discover agents (side-effect: validates agent YAML files).
+    # ------------------------------------------------------------------
+    try:
+        from agent.discovery import discover_agents as _discover_agents
+        _discover_agents()
+    except Exception as exc:
+        sys.stderr.write(f"\n[harness] WARNING: Agent discovery failed: {exc}\n")
+
+    # ------------------------------------------------------------------
+    # Phase 5: Resolve the main agent YAML path.
+    # ------------------------------------------------------------------
+    from config import resolve_config_path
     main_agent_path = resolve_config_path("agents/main.yaml")
     if main_agent_path is None:
         sys.stderr.write(
@@ -66,42 +51,23 @@ def main():
         )
         sys.exit(1)
 
-    # Build the agent definition from YAML (this also resolves provider_config).
-    agent_type = AgentType.from_file(str(main_agent_path))
-
-    if not agent_type.provider_config:
-        sys.stderr.write(
-            "\n[harness] FATAL: No provider configuration found for agent 'main'. Aborting startup.\n"
-        )
+    # ------------------------------------------------------------------
+    # Phase 6: Create the main Agent from its YAML definition.
+    # Agent.from_file handles all initialization internally:
+    #   - Loads agent type (model, system_prompt, tools config)
+    #   - Discovers skills & agents to inject into system prompt
+    #   - Resolves provider configuration
+    #   - Gets context_length from model/provider config
+    # ------------------------------------------------------------------
+    try:
+        agent = Agent.from_file(str(main_agent_path), tool_schemas=AGENT_TOOLS)
+    except Exception as exc:
+        sys.stderr.write(f"\n[harness] FATAL: Failed to create main agent: {exc}\n")
         sys.exit(1)
 
-    # Phase 2: Discover skills and inject their catalog into the system prompt.
-    discovered_skills = discover_skills()
-    if discovered_skills:
-        visible_skills = [
-            (name, meta) for name, meta in discovered_skills
-            if not meta.get("disable-model-invocation", False)
-        ]
-        if visible_skills:
-            catalog = format_skill_catalog(visible_skills)
-            agent_type.inject_extra_system_prompt(catalog)
-
-    # Agent.__init__ now resolves its own Provider via the singleton registry.
-    # context_length is read from config.yaml — must be explicitly configured.
-    from config import load_harness_config
-    _cfg = load_harness_config()
-    if "context_length" not in _cfg:
-        raise RuntimeError(
-            "Missing required configuration: `context_length` must be set in .harness_py/config.yaml."
-        )
-    context_length = int(_cfg["context_length"])
-
-    agent = Agent(
-        agent_type=agent_type,
-        context_length=context_length,
-        tool_schemas=AGENT_TOOLS,  # pass all schemas so filter_tool_schemas can work
-    )
-
+    # ------------------------------------------------------------------
+    # Phase 7: Run the interactive user loop with the configured Agent.
+    # ------------------------------------------------------------------
     user_loop(agent)
 
 

@@ -117,6 +117,7 @@ def _merge_skill_discoveries(
 
 def discover_skills(
     skills_dirs: Optional[List[Path]] = None,
+    command_names: Optional[set] = None,
 ) -> List[Tuple[str, Dict]]:
     """Discover and validate all skills across the specified directories.
 
@@ -126,10 +127,17 @@ def discover_skills(
             directories, its metadata from the earlier directory wins.
             Defaults to ``[cwd/.harness_py/skills, ~/.harness_py/skills]``
             (project first).
+        command_names: Optional set of command names to check for collisions.
+            If provided and any skill names match command names, raises
+            RuntimeError with collision details.
 
     Returns:
         A list of ``(skill_name, metadata)`` tuples for valid skills. Invalid
         skills are skipped with warnings printed to stderr.
+
+    Raises:
+        RuntimeError: If command_names is provided and there are name collisions
+                      between commands and skills.
     """
     if skills_dirs is None:
         from config import get_discovery_dirs
@@ -160,7 +168,26 @@ def discover_skills(
 
         all_discoveries.append([skills_path, valid_skills])
 
-    return _merge_skill_discoveries(all_discoveries)
+    merged = _merge_skill_discoveries(all_discoveries)
+    
+    # Check for command/skill collisions if command_names provided
+    if command_names is not None:
+        skill_names = {name for name, _ in merged}
+        collisions = command_names & skill_names
+        
+        if collisions:
+            collision_messages = []
+            for name in sorted(collisions):
+                collision_messages.append(
+                    f"Command '/{name}' and skill '{name}' both exist. "
+                    f"Cannot reliably route — aborting startup."
+                )
+            raise RuntimeError(
+                "\n[skills] FATAL: Command/skill collision detected. Aborting startup.\n" +
+                "  - " + "\n  - ".join(collision_messages)
+            )
+    
+    return merged
 
 
 def format_skill_catalog(skills: List[Tuple[str, Dict]]) -> str:
@@ -247,9 +274,35 @@ def get_skill_body(skill_name: str, skills_dirs: Optional[List[Path]] = None) ->
     return "", f"Skill '{skill_name}' not found in any configured path"
 
 
+def check_command_skill_collision(command_names: set) -> list:
+    """Check for name collisions between provided command names and discovered skills.
+    
+    Args:
+        command_names: Set of command names to check against discovered skills
+        
+    Returns:
+        List of collision message strings (empty if no collisions)
+    """
+    # Discover all valid skills
+    discovered_skills = discover_skills()
+    skill_names = {name for name, _ in discovered_skills}
+    
+    # Find intersection - names that exist in both sets
+    collisions = command_names & skill_names
+    
+    # Generate collision messages
+    messages = []
+    for name in sorted(collisions):
+        messages.append(
+            f"Command '/{name}' and skill '{name}' both exist. "
+            f"Cannot reliably route — aborting startup."
+        )
+    return messages
+
 __all__ = [
     "discover_skills",
     "get_skill_by_name",
     "get_skill_body",
     "format_skill_catalog",
+    "check_command_skill_collision",
 ]
