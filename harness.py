@@ -87,9 +87,14 @@ def main():
             agent_type.inject_extra_system_prompt(catalog)
 
     # Agent.__init__ now resolves its own Provider via the singleton registry.
-    # context_length is read from config.yaml (not detected at runtime).
+    # context_length is read from config.yaml — must be explicitly configured.
     from config import load_harness_config
-    context_length = int(load_harness_config().get("context_length", 8192))
+    _cfg = load_harness_config()
+    if "context_length" not in _cfg:
+        raise RuntimeError(
+            "Missing required configuration: `context_length` must be set in .harness_py/config.yaml."
+        )
+    context_length = int(_cfg["context_length"])
 
     agent = Agent(
         agent_type=agent_type,

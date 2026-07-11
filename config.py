@@ -15,9 +15,6 @@ from model.types import ProviderConfig, ModelConfig
 #: Valid task lifecycle statuses (must remain immutable).
 VALID_TASK_STATUSES = ("pending", "in_progress", "completed", "failed")
 
-#: Default model context length used when runtime detection is unavailable.
-DEFAULT_CONTEXT_LENGTH = 8192
-
 #: Subdirectories within .harness_py for component discovery.
 _SKILLS_DIR = "skills"
 _AGENTS_DIR = "agents"
@@ -143,10 +140,16 @@ def _build_models_dict(raw_models: list[dict]) -> dict[str, ModelConfig]:
         if not isinstance(model, dict) or "name" not in model:
             continue
         name = model["name"]
+        # context_length is now required per-model — no fallback allowed
+        if "context_length" not in model:
+            raise RuntimeError(
+                f"Model '{name}' requires explicit 'context_length' in config.yaml. "
+                f"OpenAI doesn't expose this value, so it must be configured."
+            )
         models[name] = ModelConfig(
             name=name,
             provider=model.get("provider", "openai"),
-            context_length=int(model.get("context_length", DEFAULT_CONTEXT_LENGTH)),
+            context_length=int(model["context_length"]),
             base_url=model.get("base_url"),
             api_key=model.get("api_key"),
         )
@@ -206,7 +209,18 @@ def load_harness_config() -> dict:
     # context_length can be specified at the top level (global fallback) OR on each model entry.
     # The per-model value is stored in ModelConfig.context_length; this field serves as a
     # default when no explicit model entry exists for the requested model name.
-    context_length = int(project_cfg.get("context_length") or global_cfg.get("context_length", DEFAULT_CONTEXT_LENGTH))
+    # context_length is now required — no runtime detection, no silent fallback
+    project_cl = project_cfg.get("context_length")
+    global_cl = global_cfg.get("context_length")
+    
+    cl_value = project_cl or global_cl
+    if not cl_value:
+        raise RuntimeError(
+            "Missing required configuration: `context_length` must be set in .harness_py/config.yaml.\n"
+            "Add `context_length: 262144` (or your model's actual value) at the top level."
+        )
+    
+    context_length = int(cl_value)
 
     return {
         "providers": providers,
