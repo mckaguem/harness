@@ -178,21 +178,61 @@ def create_session_filename(agent_type_name: str = "main", extension: str = ".ya
 
 
 def ensure_sessions_dir(base_path: Optional[str] = None) -> Path:
-    """Ensure the .sessions/ directory exists.
+    """Ensure the .sessions/ directory (or current run folder) exists.
 
     Args:
-        base_path: Base path to create .sessions/ under. 
+        base_path: Base path to create .sessions/ under.
             Defaults to project root (detected via project_root()).
 
     Returns:
-        The Path object for the .sessions/ directory.
+        The Path object for the .sessions/ directory (or the current run folder
+        when one is active).
     """
     if base_path is None:
-        # Use project root instead of cwd
-        root = project_root()
-        sessions_dir = root / ".sessions"
+        # Prefer the active run folder so a main agent and all of its subagents
+        # are organised together.  Falls back to the flat .sessions/ root.
+        run_folder = get_current_run_folder()
+        if run_folder is not None:
+            sessions_dir = run_folder
+        else:
+            root = project_root()
+            sessions_dir = root / ".sessions"
     else:
         sessions_dir = Path(base_path) / ".sessions"
 
     sessions_dir.mkdir(parents=True, exist_ok=True)
     return sessions_dir
+
+
+def create_run_folder() -> Path:
+    """Create a new date-time stamped run folder under .sessions/.
+
+    Returns:
+        The Path to the newly created run folder.
+    """
+    root = project_root()
+    sessions_root = root / ".sessions"
+    sessions_root.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    frac_seconds = f"{datetime.now().microsecond:06d}"
+    folder_name = f"{timestamp}_{frac_seconds}"
+    run_folder = sessions_root / folder_name
+    run_folder.mkdir(parents=True, exist_ok=True)
+    set_current_run_folder(run_folder)
+    return run_folder
+
+
+# Module-level holder for the currently active run folder.  ``None`` means
+# "no active run" — callers fall back to the flat .sessions/ directory.
+_CURRENT_RUN_FOLDER: Optional[Path] = None
+
+
+def get_current_run_folder() -> Optional[Path]:
+    """Return the currently active run folder, or ``None`` if none is set."""
+    return _CURRENT_RUN_FOLDER
+
+
+def set_current_run_folder(folder: Optional[Path]) -> None:
+    """Set (or clear with ``None``) the currently active run folder."""
+    global _CURRENT_RUN_FOLDER
+    _CURRENT_RUN_FOLDER = folder

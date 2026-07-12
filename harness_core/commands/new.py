@@ -28,14 +28,18 @@ def cmd_new(rest: str, agent=None) -> bool | None:
     if agent._task_list is not None:
         agent._task_list.reset()
     
-    # 2. Create a brand new Session with only the system prompt and fresh session file.
+    # 2. Create a brand new Session with only the system prompt and fresh
+    #    session file. A fresh run folder is created so this /new session and
+    #    any subagents it spawns are organised together.
+    from harness_core.session.session_utils import create_run_folder
+    create_run_folder()
+
     new_session = Session(
         system_prompt=agent._agent_type.system_prompt,
         task_list=agent._task_list,
         auto_save=True,
+        agent_type_name=agent._agent_type.name,
     )
-    # Preserve the current agent type name for filename consistency.
-    new_session._agent_type_name = agent._agent_type.name
     
     # 3. Replace the agent's session.
     agent._session = new_session

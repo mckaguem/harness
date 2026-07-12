@@ -121,6 +121,11 @@ def build_agent():
     #   - Gets context_length from harness_core.model/provider config
     # ------------------------------------------------------------------
     try:
+        # Start a fresh run folder so this app launch (and every subagent it
+        # spawns) is organised under a single date-time directory in .sessions/.
+        from harness_core.session.session_utils import create_run_folder
+        create_run_folder()
+
         agent = Agent.from_file(str(main_agent_path), tool_schemas=AGENT_TOOLS)
     except Exception as exc:
         sys.stderr.write(f"\n[harness] FATAL: Failed to create main agent: {exc}\n")

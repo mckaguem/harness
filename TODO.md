@@ -7,6 +7,13 @@
 - integration tests in headless mode
 - some kind of mock terminal for testing tui
 
+## Session Saving
+
+- [DONE] Group session files per app run into date-time folders under `.sessions/` (created at startup and on `/new` and `/load`), so the main agent and all subagents it spawns share one folder.
+- [DONE] Fix subagent session filenames to include the agent type name (e.g. `..._analyst.yaml`) instead of always `..._main.yaml`.
+- Idea: Add a `/sessions` command or list view to browse run folders.
+- Idea: Auto-prune old run folders beyond N days / keep only the last M runs.
+
 ## Context efficiency
 
 - Context compression
@@ -29,10 +36,6 @@
 
 ## Subagents 
 
-- fix session filenames so they indicate subagent and type
-- limit orchestrator tools so that it doesn't do too much by itself?
-- update orchestrator prompt so that it uses task lists and subagents more
-
 ## Infra
 
 - Async everything and multiple agents running concurrently
@@ -46,7 +49,6 @@
 - textual sluggishness
 - Streaming responses (including thinking)
 - Collapsable thinking
-- title for tool calls is one-line summary
 - tool call display text along with the raw json
 - For subagents, give 1-line tool call summaries, prefix with agent name.
 

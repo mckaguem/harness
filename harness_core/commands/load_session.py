@@ -113,8 +113,16 @@ def cmd_load_session(rest: str, agent=None) -> bool | None:
         print_system("Load Failed", "No active agent to load session into.")
         return False
 
-    # Replace the agent's session and system prompt.
-    new_session = Session(system_prompt=system_prompt, task_list=agent._task_list)
+    # Replace the agent's session and system prompt. Preserve the loaded agent
+    # type so the re-saved file keeps the correct name, and start a fresh run
+    # folder so the loaded conversation is grouped on disk.
+    from harness_core.session.session_utils import create_run_folder
+    create_run_folder()
+    new_session = Session(
+        system_prompt=system_prompt,
+        task_list=agent._task_list,
+        agent_type_name=loaded_agent_type or "main",
+    )
 
     # Replay conversation messages.
     for msg in conversation_messages:

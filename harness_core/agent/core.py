@@ -80,9 +80,9 @@ class Agent:
             system_prompt=agent_type.system_prompt,
             task_list=self._task_list,
             provider=self._provider,
-            model_name=self._agent_type.model_name
+            model_name=self._agent_type.model_name,
+            agent_type_name=agent_type.name,
         )
-        self._session._agent_type_name = agent_type.name
 
         self._max_loops: int = 30  # Safety ceiling to prevent infinite loops
 

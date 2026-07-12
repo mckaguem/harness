@@ -21,7 +21,7 @@ class Session:
     """
 
     def __init__(self, system_prompt: str, task_list=None, auto_save: bool = True,
-                 provider=None, model_name: str = ""):
+                 provider=None, model_name: str = "", agent_type_name: str = "main"):
         """Initialize a Session.
 
         Args:
@@ -30,12 +30,15 @@ class Session:
             auto_save: If True, automatically saves to .sessions/ after every change.
             provider: Optional LLM Provider instance (needed for summarize()).
             model_name: Model name string (needed for summarize() calls).
+            agent_type_name: The agent type name (e.g. 'analyst', 'coder') used
+                in the auto-save filename. Captured at construction so the saved
+                file always carries the correct agent type (even for subagents).
         """
         self.messages: list[dict] = [{"role": "system", "content": system_prompt}]
         self._task_list = task_list
         self._injected_text: Optional[str] = None
         self._auto_save = auto_save
-        self._agent_type_name: str = "main"
+        self._agent_type_name: str = agent_type_name
         self.filepath = None
         self._provider = provider          # type: Optional[object]
         self._model_name: str = model_name
@@ -378,7 +381,8 @@ Execute the next logical step based on this state. Only reference tasks by their
                 loaded_agent_type = line.replace("# Agent Type:", "").strip()
                 break
 
-        session = cls(system_prompt=system_prompt, task_list=task_list, auto_save=False)
+        session = cls(system_prompt=system_prompt, task_list=task_list,
+                      auto_save=False, agent_type_name=loaded_agent_type or "main")
 
         # Preserve the original agent type name for auto-save filename consistency.
         if loaded_agent_type:
