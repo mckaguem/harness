@@ -120,9 +120,91 @@ class HarnessTUI:
 
         def _do() -> None:
             assert self._output is not None
+            with self._lock:
+                # Capture the starting line of this block *before* writing so a
+                # later replace_last() can rewrite just this block.
+                self._output._last_block_start = len(self._output.lines)
             self._output.write(renderable)
             with self._lock:
                 self._write_count += 1
+
+        app.call_from_thread(_do)
+
+    def has_last(self) -> bool:
+        """Return True if the output pane has at least one written line.
+
+        Used by ``display_tool_result`` to decide whether a corresponding
+        tool-call panel exists that the result can be appended into.
+        """
+        if not self.is_active() or self._output is None:
+            return False
+        return len(self._output.lines) > 0
+
+    def replace_last(self, renderable) -> None:
+        """Replace the most recently written block in the output pane.
+
+        This is used to fold a tool result into the panel that was just written
+        for the matching tool call: instead of appending a *new* panel, we swap
+        the previously-written renderable for a merged (call + separator +
+        result) panel and refresh the affected region so the change is visible.
+
+        The swap keeps the original block's starting line index, but the new
+        block may have a different height; we therefore rebuild the trailing
+        portion of the log from the original block boundary onward.
+        """
+        if not self.is_active() or self._output is None:
+            return
+        app = self._app
+        output = self._output
+
+        def _do() -> None:
+            from textual.strip import Strip
+            with self._lock:
+                lines = output.lines
+                if not lines:
+                    return
+                # A top-level renderable (e.g. a Panel) is rendered into one or
+                # more trailing lines; we recorded the starting line index of
+                # that block in ``_last_block_start`` when it was written.  Fall
+                # back to the final line if bookkeeping is unavailable.
+                start = getattr(output, "_last_block_start", None)
+                if start is None or start < 0 or start >= len(lines):
+                    start = len(lines) - 1
+                # Pop the trailing block's lines; we will re-append the merged
+                # block starting at the same boundary.
+                del lines[start:]
+
+            # Render the merged renderable into strips at the log's content
+            # width (mirrors RichLog.write's internal rendering).
+            console = app.console
+            render_width = max(output.scrollable_content_region.width, output.min_width)
+            render_options = console.options.update_width(render_width)
+            from rich.segment import Segment
+            segments = console.render(renderable, render_options)
+            new_lines = list(Segment.split_lines(segments))
+            strips = []
+            for ln in new_lines:
+                strip = Strip.from_lines([ln])[0] if ln else Strip.blank(render_width)
+                strip.adjust_cell_length(render_width)
+                strips.append(strip)
+
+            with self._lock:
+                # Record the new block's start so a subsequent replace_last is
+                # relative to the merged block.
+                output._last_block_start = start
+                output.lines[start:start] = strips
+                output._line_cache.clear()
+                # Recompute widest line width from the full line set so the
+                # scroll region stays correct after a block was replaced.
+                output._widest_line_width = max(
+                    (max((seg.cell_length for seg in ln), default=0) for ln in output.lines),
+                    default=0,
+                )
+                from textual.geometry import Size
+                output.virtual_size = Size(
+                    output._widest_line_width, len(output.lines)
+                )
+            output.refresh()
 
         app.call_from_thread(_do)
 

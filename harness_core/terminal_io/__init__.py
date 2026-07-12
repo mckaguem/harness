@@ -12,6 +12,7 @@ from .display import (
     display_error,
     display_agent_response,
     display_user_message,
+    reset_pending_tool_panel,
 )
 
 # The textual TUI app + controller live in the ``tui`` submodule and are
@@ -27,6 +28,7 @@ __all__ = [
     "display_error",
     "display_tool_call",
     "display_tool_result",
+    "reset_pending_tool_panel",
     "print_system",
     "prompt_user",
     "tui",

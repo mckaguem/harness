@@ -160,6 +160,12 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                 elif kind == ERROR:
                     _, description = output
                     display_error(description)
+                    # An ERROR means no matching tool result will follow for the
+                    # most recent tool call, so reset the "pending tool call"
+                    # tracking so a later result does not merge into the wrong
+                    # panel.
+                    from harness_core.terminal_io import display as _display
+                    _display.reset_pending_tool_panel()
         except Exception as exc:  # pragma: no cover - defensive
             import traceback
             display_error(

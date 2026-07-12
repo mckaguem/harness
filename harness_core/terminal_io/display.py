@@ -10,11 +10,13 @@ keep working unchanged.
 
 from __future__ import annotations
 
-from rich.console import Console
+from rich.console import Console, RenderableType
+from rich.console import Group as RichGroup
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.syntax import Syntax
 from rich.text import Text
+from rich.rule import Rule
 import json
 
 from .speed import format_speed, format_tool_elapsed
@@ -22,6 +24,14 @@ from . import tui as _tui
 
 
 console = Console()
+
+# Separator rendered between a tool call and its result inside a single panel.
+TOOL_SEPARATOR = Rule(style="dim")
+
+# Module-level handle to the most recent tool-call panel so the corresponding
+# tool result can be appended to that same panel when a textual TUI is active.
+# This is the single source of truth for "where does the next result go".
+_LAST_TOOL_PANEL: "dict | None" = None
 
 
 def _tui_write(renderable) -> None:
@@ -83,12 +93,26 @@ def display_tool_call(func_name: str, args_str: str) -> None:
         display_content = args_str.replace("\\n", "\n").replace("\\r", "\r")
 
     title = f"Tool: {func_name}"
-    display_message_panel(
+
+    renderable = display_message_panel(
         text=display_content,
         theme="info",
         title=title,
         result_type="markdown",
+        return_renderable=True,
     )
+
+    # Remember this panel so a later display_tool_result() can append the
+    # result inside the very same panel (textual TUI only).  In the classic
+    # (non-TUI) REPL each write is independent, so the handle is unused there.
+    global _LAST_TOOL_PANEL
+    _LAST_TOOL_PANEL = {
+        "renderable": renderable,
+        "title": title,
+        "result": None,
+    }
+
+    _tui_write(renderable)
 
 
 def _theme_border(theme: str) -> str:
@@ -104,7 +128,7 @@ def _theme_border(theme: str) -> str:
 
 
 def display_message_panel(text: str, theme: str = "status", title: str = "",
-                          result_type: str = "text") -> None:
+                          result_type: str = "text", return_renderable: bool = False) -> "RenderableType | None":
     """Display a Rich panel with the given text, styled by theme.
 
     Shared rendering logic for tool-result panels and ad-hoc command output.
@@ -117,6 +141,12 @@ def display_message_panel(text: str, theme: str = "status", title: str = "",
         title: Custom panel title. Falls back to a default if empty.
         result_type: The syntax-highlighting language tag (e.g. ``"markdown"``,
                      ``"json"``, ``"text"``).
+        return_renderable: When True, return the built ``Panel`` instead of
+                writing it (used by :func:`display_tool_call` so the panel can
+                be reused/extended later).
+
+    Returns:
+        The built ``Panel`` when ``return_renderable`` is True, else ``None``.
     """
     # Truncate if longer than 5 lines (skip truncation for 'status' theme, e.g. task lists).
     display_content = str(text)
@@ -131,41 +161,88 @@ def display_message_panel(text: str, theme: str = "status", title: str = "",
     # Choose between Markdown rendering and Syntax highlighting based on result_type.
     if theme == "error":
         # Render errors distinctly — red border, red text, no syntax highlight.
-        _tui_write(Panel(
+        panel = Panel(
             f"[red]{display_content}[/red]",
             title=panel_title,
             border_style=border_style
-        ))
+        )
     elif result_type == "markdown":
         # Render as actual Markdown (supports bold, code blocks, etc.) for user-friendly display.
         md_obj = Markdown(display_content)
-        _tui_write(Panel(md_obj, title=panel_title, border_style=border_style))
+        panel = Panel(md_obj, title=panel_title, border_style=border_style)
     else:
         # Apply Rich Syntax highlighting for the appropriate format.
         syntax = Syntax(display_content, result_type, theme="monokai")
-        _tui_write(Panel(syntax, title=panel_title, border_style=border_style))
+        panel = Panel(syntax, title=panel_title, border_style=border_style)
+
+    if return_renderable:
+        return panel
+    _tui_write(panel)
+    return None
 
 
 def display_tool_result(func_name: str, result) -> None:
     """Print a truncated tool-result panel with syntax highlighting.
 
+    When a textual TUI is active and the result corresponds to the most
+    recently displayed tool call (see :func:`display_tool_call`), the result is
+    appended *inside* that same panel rather than rendered as a fresh panel —
+    a horizontal rule separator is drawn between the call and the result.  When
+    no matching tool-call panel is tracked (classic REPL, or a result that is
+    not paired with an immediate call), the result is shown in its own panel as
+    before.
+
     Args:
         func_name: Name of the tool that produced the result.
-        result: A :class:`ToolResult` object from harness_core.tools that opt into the new structured return format.
-
-    Behavior
-    --------
-    If the result is longer than 5 lines, only the first 5 are shown followed by
-    an ellipsis line indicating how many lines were truncated (e.g. ``... [8 lines truncated]``).
+        result: A :class:`ToolResult` object from harness_core.tools.
     """
     # Unwrap ToolResult; content must be a ToolResult object.
     title_override = result.title or func_name
-    display_message_panel(
+    result_panel = display_message_panel(
         text=result.display_text,
         theme=result.theme,
         title=title_override,
         result_type=result.type_tag or "text",
+        return_renderable=True,
     )
+
+    # Try to fold the result into the most recent tool-call panel (TUI only).
+    controller = _tui.get_tui()
+    if (controller.is_active() and controller.has_last()
+            and _LAST_TOOL_PANEL is not None
+            and _LAST_TOOL_PANEL.get("result") is None):
+        call_panel = _LAST_TOOL_PANEL["renderable"]
+        # Combine the original call content with a separator + the result panel.
+        combined = RichGroup(
+            call_panel.renderable,
+            TOOL_SEPARATOR,
+            result_panel,
+        )
+        border_style = call_panel.border_style
+        merged = Panel(
+            combined,
+            title=_LAST_TOOL_PANEL["title"],
+            border_style=border_style,
+        )
+        _LAST_TOOL_PANEL["result"] = merged
+        # Swap the previously-written panel renderable for the merged one and
+        # refresh the output pane so the update is visible.
+        controller.replace_last(merged)
+    else:
+        # No pairing possible (classic REPL, or no preceding call panel) —
+        # render the result as its own standalone panel, exactly as before.
+        _tui_write(result_panel)
+
+
+def reset_pending_tool_panel() -> None:
+    """Forget the most recently displayed tool-call panel.
+
+    Called when an unpaired event occurs (e.g. an ``ERROR``) so a later tool
+    result does not incorrectly fold into a call that has no corresponding
+    result.
+    """
+    global _LAST_TOOL_PANEL
+    _LAST_TOOL_PANEL = None
 
 
 def display_error(message: str) -> None:
