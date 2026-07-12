@@ -24,7 +24,7 @@ class TestEditFileSafety:
         old_cwd = os.getcwd()
         try:
             os.chdir(tmp_path)
-            result = edit_file("../etc/passwd", {"old_text": "x", "new_text": "y"})
+            result = edit_file("../etc/passwd", "x", "y")
             content = _unwrap(result)
             assert "traversal" in content.lower() or "Error" in content
         finally:
@@ -37,7 +37,7 @@ class TestEditFileSafety:
             target = tmp_path / "t.txt"
             target.write_text("hello")
             # Pass an empty dict – should be rejected
-            result = edit_file(str(target), {})
+            result = edit_file(str(target), "", "y")
             content = _unwrap(result)
             assert "invalid" in content.lower() or "Error" in content
         finally:
@@ -51,7 +51,7 @@ class TestEditFileErrors:
         old_cwd = os.getcwd()
         try:
             os.chdir(tmp_path)
-            result = edit_file("nope.txt", {"old_text": "x", "new_text": "y"})
+            result = edit_file("nope.txt", "x", "y")
             content = _unwrap(result)
             assert "not found" in content.lower() or "Error" in content
         finally:
@@ -63,7 +63,7 @@ class TestEditFileErrors:
             os.chdir(tmp_path)
             target = tmp_path / "t.txt"
             target.write_text("hello world")
-            result = edit_file(str(target), {"old_text": "xyz_nonexistent", "new_text": "abc"})
+            result = edit_file(str(target), "xyz_nonexistent", "abc")
             content = _unwrap(result)
             assert "not found" in content.lower() or "Error" in content
         finally:
@@ -75,7 +75,7 @@ class TestEditFileErrors:
             os.chdir(tmp_path)
             target = tmp_path / "t.txt"
             target.write_text("hello")
-            result = edit_file(str(target), {"old_text": "", "new_text": "y"})
+            result = edit_file(str(target), "", "y")
             content = _unwrap(result)
             assert "invalid" in content.lower() or "Error" in content
         finally:
@@ -87,7 +87,7 @@ class TestEditFileErrors:
             os.chdir(tmp_path)
             target = tmp_path / "t.txt"
             target.write_text("hello")
-            result = edit_file(str(target), {"old_text": "hello", "new_text": None})
+            result = edit_file(str(target), "hello", None)
             content = _unwrap(result)
             assert "invalid" in content.lower() or "Error" in content
         finally:
@@ -103,10 +103,10 @@ class TestEditFileSuccess:
             os.chdir(tmp_path)
             target = tmp_path / "t.txt"
             target.write_text("hello world")
-            result = edit_file(str(target), {"old_text": "world", "new_text": "earth"})
+            result = edit_file(str(target), "world", "earth")
             assert target.read_text() == "hello earth"
             content = _unwrap(result)
-            assert "Edit #1" in content
+            assert "Edit:" in content
         finally:
             os.chdir(old_cwd)
 
@@ -117,15 +117,15 @@ class TestEditFileSuccess:
             target = tmp_path / "t.txt"
             target.write_text("alpha beta gamma")
             # First edit
-            result1 = edit_file(str(target), {"old_text": "beta", "new_text": "BETA"})
+            result1 = edit_file(str(target), "beta", "BETA")
             assert target.read_text() == "alpha BETA gamma"
             content1 = _unwrap(result1)
-            assert "Edit #1" in content1
+            assert "Edit:" in content1
             # Second edit
-            result2 = edit_file(str(target), {"old_text": "gamma", "new_text": "GAMMA"})
+            result2 = edit_file(str(target), "gamma", "GAMMA")
             assert target.read_text() == "alpha BETA GAMMA"
             content2 = _unwrap(result2)
-            assert "Edit #1" in content2
+            assert "Edit:" in content2
         finally:
             os.chdir(old_cwd)
 
@@ -136,8 +136,8 @@ class TestEditFileSuccess:
             os.chdir(tmp_path)
             target = tmp_path / "t.txt"
             target.write_text("x y z")
-            edit_file(str(target), {"old_text": "x y", "new_text": "X"})
-            edit_file(str(target), {"old_text": "X z", "new_text": "DONE"})
+            edit_file(str(target), "x y", "X")
+            edit_file(str(target), "X z", "DONE")
             assert target.read_text() == "DONE"
         finally:
             os.chdir(old_cwd)
@@ -148,7 +148,7 @@ class TestEditFileSuccess:
             os.chdir(tmp_path)
             target = tmp_path / "t.txt"
             target.write_text("apple apple apple")
-            result = edit_file(str(target), {"old_text": "apple", "new_text": "banana"})
+            result = edit_file(str(target), "apple", "banana")
             assert target.read_text() == "banana apple apple"
         finally:
             os.chdir(old_cwd)
@@ -160,7 +160,7 @@ class TestEditFileSuccess:
             target = tmp_path / "t.txt"
             content = "line1\nold_line_a\nold_line_b\nline4\n"
             target.write_text(content)
-            result = edit_file(str(target), {"old_text": "old_line_a\nold_line_b", "new_text": "new_line_x\nnew_line_y\nnew_line_z"})
+            result = edit_file(str(target), "old_line_a\nold_line_b", "new_line_x\nnew_line_y\nnew_line_z")
             expected = "line1\nnew_line_x\nnew_line_y\nnew_line_z\nline4\n"
             assert target.read_text() == expected
         finally:
@@ -172,7 +172,7 @@ class TestEditFileSuccess:
             os.chdir(tmp_path)
             target = tmp_path / "t.txt"
             target.write_text("hello")
-            result = edit_file(str(target), {"old_text": "hello", "new_text": "hello"})
+            result = edit_file(str(target), "hello", "hello")
             assert target.read_text() == "hello"
         finally:
             os.chdir(old_cwd)
@@ -184,7 +184,7 @@ class TestEditFileSuccess:
             target = tmp_path / "t.txt"
             content = "before\nold_a\nold_b\nafter\n"
             target.write_text(content)
-            result = edit_file(str(target), {"old_text": "old_a\nold_b", "new_text": "replaced"})
+            result = edit_file(str(target), "old_a\nold_b", "replaced")
             content_str = _unwrap(result)
             assert "2 line(s)" in content_str
         finally:
@@ -202,12 +202,12 @@ class TestEditFileAtomicRollback:
             original = "alpha beta gamma"
             target.write_text(original)
             # First edit succeeds
-            result1 = edit_file(str(target), {"old_text": "beta", "new_text": "BETA"})
+            result1 = edit_file(str(target), "beta", "BETA")
             assert target.read_text() == "alpha BETA gamma"
             # Second edit fails; file should remain as after first edit (no further change)
-            result2 = edit_file(str(target), {"old_text": "nonexistent_xyz", "new_text": "X"})
+            result2 = edit_file(str(target), "nonexistent_xyz", "X")
             content = _unwrap(result2)
-            assert "Edit #1" in content  # refers to this single edit attempt
+            assert "not found" in content.lower()  # edit failed; file unchanged
             assert target.read_text() == "alpha BETA gamma"
         finally:
             os.chdir(old_cwd)

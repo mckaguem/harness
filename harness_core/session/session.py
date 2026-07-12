@@ -284,7 +284,11 @@ class Session:
             Modified message dict with task state prepended to its content, or the
             original if no injection is needed.
         """
-        if not self._task_list or message.get("role") != "user":
+        if (
+            not self._task_list
+            or not self._task_list.tasks
+            or message.get("role") != "user"
+        ):
             return message
 
         # Get original content and structured JSON task list

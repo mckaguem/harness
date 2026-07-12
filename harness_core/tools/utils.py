@@ -7,11 +7,24 @@ from harness_core.utils import project_root
 
 
 def is_safe_path(filename: str) -> bool:
-    """Ensure the target path is strictly within the project root directory.
-    
-    First tries to use the project root (found via project markers like .git or .harness_py).
-    If no project root can be found, falls back to the current working directory.
+    """Ensure the target path is within an allowed directory.
+
+    Allowed locations are ``/tmp`` (resolving anywhere under it) and the
+    project root (found via project markers like ``.git`` or ``.harness_py``;
+    falls back to the current working directory if no root is found).
+
+    Paths that resolve outside both ``/tmp`` and the project root are rejected,
+    and any unexpected error fails closed (returns ``False``).
     """
+    # Any path that resolves under /tmp is always allowed.
+    candidate = Path(filename)
+    try:
+        tmp_target = (Path("/tmp") / filename).resolve() if not candidate.is_absolute() else candidate.resolve()
+    except Exception:
+        tmp_target = None
+    if tmp_target is not None and tmp_target.is_relative_to(Path("/tmp")):
+        return True
+    
     try:
         # First try to get project root
         root = project_root().resolve()

@@ -223,7 +223,8 @@ class TestAllToolsE2E:
         agent = make_agent([
             tool_response("edit_file", {
                 "filename": fname,
-                "edits": [{"old_text": "hello", "new_text": "goodbye"}],
+                "old_text": "hello",
+                "new_text": "goodbye",
             }),
             text_response("done"),
         ])

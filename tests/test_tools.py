@@ -41,10 +41,17 @@ class TestAgentTools:
             func = tool["function"]
             assert "parameters" in func, f"{func['name']} missing parameters"
 
-    def test_edit_file_edits_parameter_is_array(self):
+    def test_edit_file_flat_schema(self):
         edit_tool = next(t for t in AGENT_TOOLS if t["function"]["name"] == "edit_file")
-        edits_param = edit_tool["function"]["parameters"]["properties"]["edits"]
-        assert edits_param["type"] == "array"
+        props = edit_tool["function"]["parameters"]["properties"]
+        assert "filename" in props
+        assert "old_text" in props
+        assert "new_text" in props
+        assert "edits" not in props
+        assert "edit" not in props
+        assert edit_tool["function"]["parameters"]["required"] == [
+            "filename", "old_text", "new_text"
+        ]
 
 
 class TestIsSafePath:
@@ -60,11 +67,17 @@ class TestIsSafePath:
         assert is_safe_path("../etc/passwd") is False
 
     def test_absolute_outside_cwd_rejected(self, tmp_path):
-        """Absolute paths pointing outside CWD must be rejected."""
+        """Absolute paths outside /tmp and the project root must be rejected."""
         with patch("pathlib.Path.cwd", return_value=tmp_path):
-            # Build an absolute path that definitely points outside tmp_path.
-            outside = Path("/tmp/somewhere")
+            # /etc is outside both /tmp and the project root, so it must be blocked.
+            outside = Path("/etc/passwd")
             assert is_safe_path(str(outside)) is False
+
+    def test_absolute_under_tmp_allowed(self, tmp_path):
+        """Absolute paths under /tmp are explicitly allowed."""
+        with patch("pathlib.Path.cwd", return_value=tmp_path):
+            under_tmp = Path("/tmp/somewhere")
+            assert is_safe_path(str(under_tmp)) is True
 
     def test_empty_filename_is_still_inside_cwd(self):
         """An empty filename resolves to CWD itself, which is safe."""
