@@ -54,4 +54,3 @@
 
 ## Refactor
 
-- global code review
