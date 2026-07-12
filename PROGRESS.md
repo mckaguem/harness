@@ -22,7 +22,7 @@ This file tracks the work done across the phases described in `plan.md`.
 
 ### Phase 2b — Parallel subagents
 - ⬜ Goal: Make `run_subagent` return immediately with a subagent identifier and run in parallel (async/threads). Add an `await` tool that blocks until a subagent completes. Enforce a maximum concurrency limit with an error when exceeded. Add tests. Run, fix, commit.
-- Status: ⬜ pending
+- Status: ✅ completed
 
 ### Phase 3 — Speculative features
 - ⬜ Goal: Use the `researcher` subagent to find 10 beneficial features online, document them, choose the best, and implement it with tests. Run, fix, commit.
@@ -65,3 +65,10 @@ This file tracks the work done across the phases described in `plan.md`.
   modified — only the two failing tests were fixed (undefined `_fake_ddgs_class` and
   `fake_urlopen` references replaced with real module-scope fakes), leaving the other
   15 tests intact. Full suite: 393 passed, 0 failures.
+
+### Change 4 — Parallel subagents (Phase 2b)
+- Introduced `harness_core/tools/subagent_manager.py` with a `SubagentManager` class (module-level singleton `manager`) that tracks in-flight background sub-agent jobs, enforces a `MAX_CONCURRENT` limit (raises `RuntimeError` when exceeded, surfaced as an error `ToolResult`), and provides `launch(...)` (returns an incrementing `"subagent-<n>"` identifier) and `await_one(identifier)` (blocks until the job completes and returns its `ToolResult`).
+- `run_subagent` gained a new `block` parameter (default `True`). When `block=True` it preserves the existing synchronous behaviour (returns the `ToolResult` directly). When `block=False` it delegates to `manager.launch(...)`, runs the sub-agent in the background via a worker thread, and immediately returns a short identifier-bearing `ToolResult`.
+- Added `harness_core/tools/await_subagent.py`, a new tool that blocks until a background sub-agent job finishes and returns its result. It is auto-discovered into `DISPATCH_REGISTRY` (alongside `AGENT_TOOLS`), so `'await_subagent' in DISPATCH_REGISTRY` is `True`.
+- The `tests/test_tools.py` count was updated to 14 (was 13): it now covers the new `await_subagent` auto-discovery/registration alongside the rest of the tool surface.
+- Tests: `tests/test_parallel_subagent_manager.py` (13 tests) covers `SubagentManager` lifecycle, concurrency limit, the `run_subagent(block=...)` paths, and `await_subagent` round-trip. All 13 pass in < 1s after fixing two tests that patched the wrong module path (`harness_core.tools.run_subagent._run_one` → `harness_core.tools.subagent_manager._run_one`).

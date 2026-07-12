@@ -175,7 +175,7 @@ class TestRunSubagentTool:
         mock_run.assert_called_once_with("analyst", "task A")
 
     def test_run_subagent_block_false_returns_identifier(self):
-        with patch("harness_core.tools.run_subagent._run_one", side_effect=_fake_run_one_factory()):
+        with patch("harness_core.tools.subagent_manager._run_one", side_effect=_fake_run_one_factory()):
             result = run_subagent("analyst", "task A", block=False)
 
         assert isinstance(result, ToolResult)
@@ -201,7 +201,7 @@ class TestAwaitSubagentTool:
     def test_await_subagent_tool_roundtrip(self):
         from harness_core.tools.subagent_manager import manager
 
-        with patch("harness_core.tools.run_subagent._run_one", side_effect=_fake_run_one_factory()):
+        with patch("harness_core.tools.subagent_manager._run_one", side_effect=_fake_run_one_factory()):
             launch_result = run_subagent("analyst", "task A", block=False)
             ident = re.search(r"subagent-\d+", launch_result.llm_text).group()
 
