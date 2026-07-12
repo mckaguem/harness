@@ -124,7 +124,7 @@ class Provider(ABC):
             api_key=config.api_key or "",
         )
 
-        return create_provider(client, provider_type=config.provider_type)
+        return create_provider(client)
 
 
 def _to_responses_input(messages: list[Dict]) -> "tuple[str, list]":
@@ -250,6 +250,46 @@ def _to_responses_tools(tools: list[Dict] | None) -> list[Dict] | None:
     return converted
 
 
+def _normalize_response(response) -> dict:
+    """Convert an OpenAI Responses API response into the normalized
+    chat-completion dict shape (``choices`` + ``usage``) shared by both the
+    sync and async chat paths.
+    """
+    content_text = ""
+    tool_calls = []
+    for item in response.output:
+        if item.type == "message":
+            parts = []
+            for part in item.content:
+                parts.append(part.text)
+            content_text = "".join(parts)
+        elif item.type == "function_call":
+            tool_calls.append({
+                "id": item.call_id,
+                "type": "function",
+                "function": {
+                    "name": item.name,
+                    "arguments": item.arguments,
+                },
+            })
+
+    message = {"role": "assistant", "content": content_text or None}
+    if tool_calls:
+        message["tool_calls"] = tool_calls
+
+    usage = response.usage
+    usage_dict = {
+        "prompt_tokens": usage.input_tokens if usage else 0,
+        "completion_tokens": usage.output_tokens if usage else 0,
+        "total_tokens": usage.total_tokens if usage else 0,
+    }
+
+    return {
+        "choices": [{"message": message}],
+        "usage": usage_dict,
+    }
+
+
 class OpenAIProvider(Provider):
     """OpenAI provider implementation."""
 
@@ -300,39 +340,7 @@ class OpenAIProvider(Provider):
         except Exception as exc:
             raise RuntimeError(f"Provider chat request failed: {exc}") from exc
 
-        content_text = ""
-        tool_calls = []
-        for item in response.output:
-            if item.type == "message":
-                parts = []
-                for part in item.content:
-                    parts.append(part.text)
-                content_text = "".join(parts)
-            elif item.type == "function_call":
-                tool_calls.append({
-                    "id": item.call_id,
-                    "type": "function",
-                    "function": {
-                        "name": item.name,
-                        "arguments": item.arguments,
-                    },
-                })
-
-        message = {"role": "assistant", "content": content_text or None}
-        if tool_calls:
-            message["tool_calls"] = tool_calls
-
-        usage = response.usage
-        usage_dict = {
-            "prompt_tokens": usage.input_tokens if usage else 0,
-            "completion_tokens": usage.output_tokens if usage else 0,
-            "total_tokens": usage.total_tokens if usage else 0,
-        }
-
-        return {
-            "choices": [{"message": message}],
-            "usage": usage_dict,
-        }
+        return _normalize_response(response)
 
     async def chat_completion_async(self, messages: list[Dict], model: str, **kwargs) -> Dict:
         """Get chat completion from OpenAI via the Responses API (async).
@@ -362,39 +370,7 @@ class OpenAIProvider(Provider):
         except Exception as exc:
             raise RuntimeError(f"Provider chat request failed: {exc}") from exc
 
-        content_text = ""
-        tool_calls = []
-        for item in response.output:
-            if item.type == "message":
-                parts = []
-                for part in item.content:
-                    parts.append(part.text)
-                content_text = "".join(parts)
-            elif item.type == "function_call":
-                tool_calls.append({
-                    "id": item.call_id,
-                    "type": "function",
-                    "function": {
-                        "name": item.name,
-                        "arguments": item.arguments,
-                    },
-                })
-
-        message = {"role": "assistant", "content": content_text or None}
-        if tool_calls:
-            message["tool_calls"] = tool_calls
-
-        usage = response.usage
-        usage_dict = {
-            "prompt_tokens": usage.input_tokens if usage else 0,
-            "completion_tokens": usage.output_tokens if usage else 0,
-            "total_tokens": usage.total_tokens if usage else 0,
-        }
-
-        return {
-            "choices": [{"message": message}],
-            "usage": usage_dict,
-        }
+        return _normalize_response(response)
 
     def tokenize(self, text: str, model: str) -> list[int] | None:
         """Tokenize text using OpenAI tokenizer."""
@@ -414,11 +390,11 @@ class OpenAIProvider(Provider):
         return get_base_url(self.client)
 
 
-def create_provider(client, provider_type: str = "auto") -> Provider:
+def create_provider(client) -> Provider:
     """Create a provider instance.
 
-    Ollama support was removed; all provider types ("openai", "auto", or any
-    other value) resolve to OpenAIProvider, which now uses the OpenAI Responses API.
+    Ollama support was removed; the provider is always an OpenAIProvider,
+    which uses the OpenAI Responses API.
     """
     return OpenAIProvider(client)
 
@@ -427,4 +403,5 @@ __all__ = [
     "Provider",
     "OpenAIProvider",
     "create_provider",
+    "_normalize_response",
 ]

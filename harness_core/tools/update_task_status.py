@@ -6,7 +6,7 @@ from harness_core.tools.tool_result import ToolResult
 from harness_core.tools.utils import _strip_ansi, make_error_result
 
 
-def update_task_status(task_id: int, status: str, ctx: ToolContext | None = None) -> tuple | ToolResult:
+def update_task_status(task_id: int, status: str, ctx: ToolContext | None = None) -> ToolResult:
     """Update the status of a specific task.
 
     Updates the status field of a Task object in the current agent's TaskList instance.
@@ -27,7 +27,7 @@ def update_task_status(task_id: int, status: str, ctx: ToolContext | None = None
     Returns:
         On success: a :class:`ToolResult` containing status text for the LLM and
             JSON-encoded remaining-task information for machine consumption.
-        On failure: a ``(type_tag, text)`` tuple indicating an error condition.
+        On failure: a :class:`ToolResult` error (produced by :func:`make_error_result`).
 
     Raises:
         ValueError: If the provided status is not in VALID_STATUSES.

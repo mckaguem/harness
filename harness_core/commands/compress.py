@@ -18,8 +18,8 @@ def compress_handler(rest: str, agent=None):
         display_error("No agent provided. Cannot compress.")
         return False
     
-    # Access the session through the agent's internal state
-    session = getattr(agent, '_session', None) or getattr(agent, 'session', None)
+    # Access the session through the agent's public property.
+    session = agent.session
     
     if session is None:
         print_system("Compress", "No active session found. Cannot compress.")

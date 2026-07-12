@@ -6,7 +6,7 @@ from harness_core.tools.tool_result import ToolResult
 from harness_core.tools.utils import _strip_ansi, make_error_result
 
 
-def initialize_task_list(tasks: list[str], ctx: ToolContext | None = None) -> tuple | ToolResult:
+def initialize_task_list(tasks: list[str], ctx: ToolContext | None = None) -> ToolResult:
     """Initialize or reset the task list with a new set of tasks.
 
     This tool clears any existing tasks and populates the current agent's TaskList instance
@@ -22,7 +22,7 @@ def initialize_task_list(tasks: list[str], ctx: ToolContext | None = None) -> tu
     Returns:
         On success: a :class:`ToolResult` containing status text for the LLM and
             JSON-encoded task list for machine consumption.
-        On failure: a ``(type_tag, text)`` tuple indicating an error condition.
+        On failure: a :class:`ToolResult` error (produced by :func:`make_error_result`).
 
     Raises:
         ValueError: If the input is invalid (empty list, empty descriptions),

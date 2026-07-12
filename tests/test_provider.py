@@ -93,8 +93,8 @@ class TestProviderFactory:
     """Tests for the provider factory helpers."""
 
     def test_factory_returns_openai_provider(self):
-        assert isinstance(create_provider(MagicMock(), "openai"), OpenAIProvider)
-        assert isinstance(create_provider(MagicMock(), "auto"), OpenAIProvider)
+        assert isinstance(create_provider(MagicMock()), OpenAIProvider)
+        assert isinstance(create_provider(MagicMock()), OpenAIProvider)
 
     def test_ollama_provider_not_importable(self):
         import_error = None

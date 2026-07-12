@@ -164,6 +164,16 @@ class Session:
         """
         self._injected_text = f"<<INJECTED>>\n{s}\n<<END_INJECTED>>"
 
+    def consume_injected_text(self) -> str | None:
+        """Return and clear any queued injected text.
+
+        Returns the currently queued text (or ``None`` if nothing is queued)
+        and resets the queue so it is only applied to one user turn.
+        """
+        text = self._injected_text
+        self._injected_text = None
+        return text
+
     # -- summarization -------------------------------------------------------
 
     def summarize(self, summary_prompt: str | None = None) -> str:

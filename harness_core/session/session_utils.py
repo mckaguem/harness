@@ -43,13 +43,8 @@ def format_session_yaml(messages: list[dict], agent_type_name: str = "main") -> 
         yaml_lines.append("---")
         yaml_lines.append(f"role: {role}")
 
-        if role == "system":
-            yaml_lines.append("content: |-" )
-            for line in content.split("\n"):
-                yaml_lines.append(f"    {line}")
-
-        elif role == "user":
-            yaml_lines.append("content: |-" )
+        if role in ("system", "user"):
+            yaml_lines.append("content: |-")
             for line in content.split("\n"):
                 yaml_lines.append(f"    {line}")
 
@@ -114,11 +109,8 @@ def parse_session_yaml(yaml_content: str) -> tuple[list[dict], str | None]:
 
             content = doc.get("content", "")
 
-            if role == "system":
-                messages.append({"role": "system", "content": content})
-
-            elif role == "user":
-                messages.append({"role": "user", "content": content})
+            if role in ("system", "user"):
+                messages.append({"role": role, "content": content})
 
             elif role == "assistant":
                 msg_dict: dict = {"role": "assistant"}

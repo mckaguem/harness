@@ -213,10 +213,10 @@ class Agent:
             (ERROR,            description)
         """
         # 1. Prepend any injected text to the user input, then clear queue
-        effective_input = user_input
-        if self._session._injected_text is not None:
-            effective_input = f"{self._session._injected_text}\n\n{user_input}"
-            self._session._injected_text = None
+        injected = self._session.consume_injected_text()
+        effective_input = (
+            f"{injected}\n\n{user_input}" if injected is not None else user_input
+        )
 
         # 2. Build message dict and prepare it (inject task state BEFORE adding to list)
         user_msg_dict = {"role": "user", "content": effective_input}
