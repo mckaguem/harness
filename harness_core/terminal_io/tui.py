@@ -5,9 +5,10 @@ plain Rich/``prompt_toolkit`` REPL for interactive sessions.  The design keeps
 the existing ``terminal_io`` public surface intact:
 
 * :class:`TextualHarnessApp` is a small, composable app: a header, a
-  :class:`~textual.widgets.RichLog` output pane (which natively renders the
-  Rich ``Panel``/``Markdown``/``Syntax`` objects the rest of the codebase
-  already builds), a multi-line :class:`~textual.widgets.TextArea` input, and a
+  :class:`~textual.containers.VerticalScroll` output pane (a scrollable column
+  of :class:`~textual.widgets.Static` wrappers — and, for tool calls,
+  :class:`~textual.widgets.Collapsible` widgets whose result is rendered inline
+  inside them), a multi-line :class:`~textual.widgets.TextArea` input, and a
   footer.
 * :class:`HarnessTUI` is a controller singleton that owns the running app
   instance and exposes thread-safe ``write``/``prompt`` operations used by the
@@ -26,15 +27,23 @@ import threading
 from typing import Optional
 
 from textual.app import App
-from textual.containers import Vertical
-from textual.widgets import Footer, Header, RichLog, Static, TextArea
+from textual.containers import Vertical, VerticalScroll
+from textual.widgets import Footer, Header, Collapsible, Static, TextArea
 
 import sys
 import time
 import traceback
 
 from rich.panel import Panel
+from rich.console import Group
+from rich.rule import Rule
 from rich.text import Text
+
+
+# Inline separator rendered between a tool call and its result inside a
+# Collapsible widget.  Defined locally (rather than imported from display.py)
+# to avoid a circular import.
+TOOL_SEPARATOR = Rule(style="dim")
 
 
 class StatusSpinner(Static):
@@ -66,6 +75,8 @@ class StatusSpinner(Static):
         return Text(f"{glyph} {self.LABEL}\u2026")
 
 
+
+
 class HarnessTUI:
     """Controller singleton bridging the classic I/O helpers and the TUI.
 
@@ -79,14 +90,18 @@ class HarnessTUI:
         self._app: Optional["TextualHarnessApp"] = None
         # Guarded by ``_lock``; only touched from the app thread.
         self._input: Optional[TextArea] = None
-        self._output: Optional[RichLog] = None
+        self._output: Optional[VerticalScroll] = None
         self._spinner: Optional[StatusSpinner] = None
         self._write_count = 0
         self._lock = threading.Lock()
+        # Stack of ``(Collapsible, inner Static)`` pairs for in-flight tool
+        # calls, each awaiting its matching result.  Pushed in begin_tool_panel(),
+        # popped in complete_tool_panel().  Guarded by ``_lock``.
+        self._tool_stack: list = []
         # True once bind() has been called in on_mount.  We treat the TUI as
         # active as soon as it is bound (even before ``app.is_running`` flips)
-        # so the very first loop output routes into the RichLog rather than the
-        # classic console.  ``app.is_running`` is only set True *after*
+        # so the very first loop output routes into the output pane rather than
+        # the classic console.  ``app.is_running`` is only set True *after*
         # on_mount, so gating on it alone would briefly mis-route output.
         self._bound = False
 
@@ -98,7 +113,7 @@ class HarnessTUI:
 
     # ── lifecycle ───────────────────────────────────────────────────────
 
-    def bind(self, app: "TextualHarnessApp", output: RichLog, input: TextArea, spinner: "StatusSpinner") -> None:
+    def bind(self, app: "TextualHarnessApp", output: VerticalScroll, input: TextArea, spinner: "StatusSpinner") -> None:
         """Attach a running app and its widgets (called from ``on_mount``)."""
         self._app = app
         self._output = output
@@ -113,44 +128,13 @@ class HarnessTUI:
         return self._bound and self._app is not None and self._app.is_running
 
     def write(self, renderable) -> None:
-        """Render ``renderable`` into the output pane (thread-safe)."""
-        if not self.is_active() or self._output is None:
-            return
-        app = self._app
+        """Render ``renderable`` into the output pane (thread-safe).
 
-        def _do() -> None:
-            assert self._output is not None
-            with self._lock:
-                # Capture the starting line of this block *before* writing so a
-                # later replace_last() can rewrite just this block.
-                self._output._last_block_start = len(self._output.lines)
-            self._output.write(renderable)
-            with self._lock:
-                self._write_count += 1
-
-        app.call_from_thread(_do)
-
-    def has_last(self) -> bool:
-        """Return True if the output pane has at least one written line.
-
-        Used by ``display_tool_result`` to decide whether a corresponding
-        tool-call panel exists that the result can be appended into.
-        """
-        if not self.is_active() or self._output is None:
-            return False
-        return len(self._output.lines) > 0
-
-    def replace_last(self, renderable) -> None:
-        """Replace the most recently written block in the output pane.
-
-        This is used to fold a tool result into the panel that was just written
-        for the matching tool call: instead of appending a *new* panel, we swap
-        the previously-written renderable for a merged (call + separator +
-        result) panel and refresh the affected region so the change is visible.
-
-        The swap keeps the original block's starting line index, but the new
-        block may have a different height; we therefore rebuild the trailing
-        portion of the log from the original block boundary onward.
+        The output pane is a Textual :class:`~textual.containers.VerticalScroll`
+        of :class:`~textual.widgets.Static` wrappers (one per renderable).  This
+        lets tool calls become :class:`~textual.widgets.Collapsible` widgets
+        whose result can be appended *inside* them later, which a flat output
+        log cannot do.
         """
         if not self.is_active() or self._output is None:
             return
@@ -158,53 +142,97 @@ class HarnessTUI:
         output = self._output
 
         def _do() -> None:
-            from textual.strip import Strip
+            # ``call_from_thread`` already runs this on the app thread; mounting
+            # synchronously here is correct and avoids races on the tool stack.
+            output.mount(Static(renderable))
+            output.scroll_end(animate=False)
             with self._lock:
-                lines = output.lines
-                if not lines:
-                    return
-                # A top-level renderable (e.g. a Panel) is rendered into one or
-                # more trailing lines; we recorded the starting line index of
-                # that block in ``_last_block_start`` when it was written.  Fall
-                # back to the final line if bookkeeping is unavailable.
-                start = getattr(output, "_last_block_start", None)
-                if start is None or start < 0 or start >= len(lines):
-                    start = len(lines) - 1
-                # Pop the trailing block's lines; we will re-append the merged
-                # block starting at the same boundary.
-                del lines[start:]
+                self._write_count += 1
 
-            # Render the merged renderable into strips at the log's content
-            # width (mirrors RichLog.write's internal rendering).
-            console = app.console
-            render_width = max(output.scrollable_content_region.width, output.min_width)
-            render_options = console.options.update_width(render_width)
-            from rich.segment import Segment
-            segments = console.render(renderable, render_options)
-            new_lines = list(Segment.split_lines(segments))
-            strips = []
-            for ln in new_lines:
-                strip = Strip.from_lines([ln])[0] if ln else Strip.blank(render_width)
-                strip.adjust_cell_length(render_width)
-                strips.append(strip)
+        app.call_from_thread(_do)
 
-            with self._lock:
-                # Record the new block's start so a subsequent replace_last is
-                # relative to the merged block.
-                output._last_block_start = start
-                output.lines[start:start] = strips
-                output._line_cache.clear()
-                # Recompute widest line width from the full line set so the
-                # scroll region stays correct after a block was replaced.
-                output._widest_line_width = max(
-                    (max((seg.cell_length for seg in ln), default=0) for ln in output.lines),
-                    default=0,
-                )
-                from textual.geometry import Size
-                output.virtual_size = Size(
-                    output._widest_line_width, len(output.lines)
-                )
-            output.refresh()
+    def begin_tool_panel(self, title: str, call_renderable) -> None:
+        """Create a collapsed-by-default ``Collapsible`` for a tool call.
+
+        Called from :func:`terminal_io.display.display_tool_call` when the TUI is
+        active (in addition to, not instead of, the classic ``write``).  The
+        collapsible's title is the panel title (``"Tool: <name>"``), and its
+        initial child is the tool-call renderable.  The widget is pushed onto
+        ``_tool_stack`` so the matching :meth:`complete_tool_panel` (which is
+        always emitted immediately after in the agent loop) can append the
+        result into this same collapsible.
+        """
+        if not self.is_active() or self._output is None:
+            return
+        app = self._app
+        output = self._output
+        # `collapsed=False` so the call (and later the result) are visible by
+        # default; the user can click the title to hide it.  The title bar is
+        # itself a (CollapsibleTitle) Static, so the inner content Static gets
+        # a stable id to disambiguate it later in complete_tool_panel().
+        inner = Static(call_renderable, id="tool-content")
+        collapsible = Collapsible(
+            inner,
+            title=title,
+            collapsed=False,
+        )
+        with self._lock:
+            # Stash the original call Panel so complete_tool_panel can rebuild
+            # it with the inline result (call + separator + result) and swap it
+            # into the same Collapsible without re-mounting the whole widget.
+            self._tool_stack.append((collapsible, call_renderable))
+
+        def _do() -> None:
+            output.mount(collapsible)
+            output.scroll_end(animate=False)
+
+        app.call_from_thread(_do)
+
+    def complete_tool_panel(self, result_renderable) -> None:
+        """Append a tool result into the most recent tool-call collapsible.
+
+        Called from :func:`terminal_io.display.display_tool_result` when the TUI
+        is active.  Pops the most recent collapsible off ``_tool_stack`` and
+        mounts the result renderable inside it, after a ``Rule`` separator, so
+        the result is inline (not a separate panel).  Matches the stack-pop in
+        ``begin_tool_panel`` because the agent loop always emits a TOOL_RESULT
+        immediately after its TOOL_CALL.
+        """
+        if not self.is_active() or self._output is None:
+            return
+        app = self._app
+        output = self._output
+        with self._lock:
+            entry = self._tool_stack.pop() if self._tool_stack else None
+        collapsible = entry[0] if entry else None
+        call_panel = entry[1] if entry else None
+
+        def _do() -> None:
+            if collapsible is None or call_panel is None:
+                # No matching call on the stack (e.g. a stray result) \u2014 render
+                # it as a standalone panel so it is not lost.
+                output.mount(Static(result_renderable))
+                output.scroll_end(animate=False)
+                return
+            # Rebuild the single call Panel to include the separator + result
+            # inline, then swap it into the Collapsible via its inner content
+            # Static (NOT the title bar — the title is also a Static, so we
+            # target it by id).  Net effect: one Panel showing call + separator
+            # + result, all nested inside the Collapsible.  The result must be
+            # unwrapped (result.renderable) so we do not nest a second border
+            # inside the call Panel.
+            result_inner = (
+                result_renderable.renderable
+                if isinstance(result_renderable, Panel)
+                else result_renderable
+            )
+            merged = Panel(
+                Group(call_panel.renderable, TOOL_SEPARATOR, result_inner),
+                title=call_panel.title,
+                border_style=call_panel.border_style,
+            )
+            collapsible.query_one("#tool-content", Static).update(merged)
+            output.scroll_end(animate=False)
 
         app.call_from_thread(_do)
 
@@ -212,7 +240,7 @@ class HarnessTUI:
         """Number of times :meth:`write` committed to the output pane.
 
         Useful for tests that want to assert a render happened without poking
-        at RichLog internals.
+        at output-pane internals.
         """
         with self._lock:
             return self._write_count
@@ -326,6 +354,7 @@ class HarnessTUI:
         self._pending_value = ""
         self._pending_prompt = "You> "
         self._bound = False
+        self._tool_stack = []
 
 
 # Module-level controller singleton.
@@ -343,7 +372,7 @@ class TextualHarnessApp(App):
     Layout (top → bottom)::
 
         Header
-        RichLog  (output, fills vertical space)
+        VerticalScroll  (output; a scrollable column of Static/Collapsible)
         TextArea (multi-line input)
         Footer
     """
@@ -354,9 +383,12 @@ class TextualHarnessApp(App):
         border: round $accent;
         background: $surface;
     }
-    RichLog {
+    VerticalScroll {
         height: 1fr;
         border: round $primary;
+    }
+    Static {
+        height: auto;
     }
     StatusSpinner {
         height: 1;
@@ -381,7 +413,7 @@ class TextualHarnessApp(App):
 
         yield Header()
         yield Vertical(
-            RichLog(id="output", markup=False, wrap=True, highlight=False),
+            VerticalScroll(id="output"),
             TextArea(id="input", language=None, soft_wrap=True),
             # Sits at the bottom of the messages panel and animates while the
             # main agent's handle_prompt loop is running (see user_loop).
@@ -393,7 +425,7 @@ class TextualHarnessApp(App):
         controller = get_tui()
         controller.bind(
             self,
-            self.query_one("#output", RichLog),
+            self.query_one("#output", VerticalScroll),
             self.query_one("#input", TextArea),
             self.query_one("#spinner", StatusSpinner),
         )
@@ -435,11 +467,13 @@ class TextualHarnessApp(App):
     def _show_loop_error(self, tb: str) -> None:
         """Render a worker-thread exception into the output pane."""
         if self._output is not None:
-            self._output.write(
-                Panel(
-                    Text.from_markup(f"[red bold]Loop error:[/]\n{tb}"),
-                    title="Error",
-                    border_style="red",
+            self._output.mount(
+                Static(
+                    Panel(
+                        Text.from_markup(f"[red bold]Loop error:[/]\n{tb}"),
+                        title="Error",
+                        border_style="red",
+                    )
                 )
             )
 

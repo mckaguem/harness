@@ -1,22 +1,22 @@
 """High-level display helpers using Rich for rendering.
 
 These helpers build Rich renderables (``Panel`` / ``Markdown`` / ``Syntax``)
-exactly as before.  When a textual TUI is active the renderable is written to
-the app's ``RichLog`` pane via :func:`terminal_io.tui.get_tui().write`; when no
-TUI is active it falls back to the module-level :data:`console` so that callers
-outside the TUI (and the existing test-suite, which patches this ``console``)
-keep working unchanged.
+exactly as before.  When a textual TUI is active each renderable is routed to
+the app's output pane (:class:`~textual.containers.VerticalScroll` of
+:class:`~textual.widgets.Static` widgets, with tool calls as
+:class:`~textual.widgets.Collapsible` widgets) via
+:func:`terminal_io.tui.get_tui().write`; when no TUI is active it falls back
+to the module-level :data:`console` so that callers outside the TUI (and the
+existing test-suite, which patches this ``console``) keep working unchanged.
 """
 
 from __future__ import annotations
 
 from rich.console import Console, RenderableType
-from rich.console import Group as RichGroup
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.syntax import Syntax
 from rich.text import Text
-from rich.rule import Rule
 import json
 
 from .speed import format_speed, format_tool_elapsed
@@ -24,9 +24,6 @@ from . import tui as _tui
 
 
 console = Console()
-
-# Separator rendered between a tool call and its result inside a single panel.
-TOOL_SEPARATOR = Rule(style="dim")
 
 # Module-level handle to the most recent tool-call panel so the corresponding
 # tool result can be appended to that same panel when a textual TUI is active.
@@ -38,14 +35,15 @@ def _tui_write(renderable) -> None:
     """Route a renderable to the active TUI, or fall back to ``console``.
 
     When a textual TUI owns the screen the renderable is emitted into the
-    ``RichLog`` output pane (thread-safe).  Otherwise we print it on the
-    classic console — preserving the original behaviour and keeping the
+    output pane (a VerticalScroll of Static widgets; tool calls become
+    Collapsible widgets).  Otherwise we print it on the
     ``@patch("harness_core.terminal_io.display.console")`` tests valid.
     """
     controller = _tui.get_tui()
     if controller.is_active():
-        # RichLog renders Rich renderables directly.  Plain markup strings
-        # (e.g. the speed summary) are converted so tags like [dim] apply.
+        # In the textual TUI the renderable is emitted into the output pane
+        # (a VerticalScroll of Static widgets).  Plain markup strings (e.g. the
+        # speed summary) are converted so tags like [dim] apply.
         if isinstance(renderable, str):
             renderable = Text.from_markup(renderable)
         controller.write(renderable)
@@ -103,7 +101,7 @@ def display_tool_call(func_name: str, args_str: str) -> None:
     )
 
     # Remember this panel so a later display_tool_result() can append the
-    # result inside the very same panel (textual TUI only).  In the classic
+    # result inside the same collapsible (textual TUI only).  In the classic
     # (non-TUI) REPL each write is independent, so the handle is unused there.
     global _LAST_TOOL_PANEL
     _LAST_TOOL_PANEL = {
@@ -112,7 +110,15 @@ def display_tool_call(func_name: str, args_str: str) -> None:
         "result": None,
     }
 
-    _tui_write(renderable)
+    controller = _tui.get_tui()
+    if controller.is_active():
+        # In the textual TUI the call is mounted inside a Collapsible whose
+        # title matches this panel; the result is appended inline later via
+        # In the textual TUI the call is mounted inside a Collapsible whose
+        controller.begin_tool_panel(title, renderable)
+    else:
+        # Classic REPL: render the call as its own panel as before.
+        _tui_write(renderable)
 
 
 def _theme_border(theme: str) -> str:
@@ -206,31 +212,14 @@ def display_tool_result(func_name: str, result) -> None:
         return_renderable=True,
     )
 
-    # Try to fold the result into the most recent tool-call panel (TUI only).
     controller = _tui.get_tui()
-    if (controller.is_active() and controller.has_last()
-            and _LAST_TOOL_PANEL is not None
-            and _LAST_TOOL_PANEL.get("result") is None):
-        call_panel = _LAST_TOOL_PANEL["renderable"]
-        # Combine the original call content with a separator + the result panel.
-        combined = RichGroup(
-            call_panel.renderable,
-            TOOL_SEPARATOR,
-            result_panel,
-        )
-        border_style = call_panel.border_style
-        merged = Panel(
-            combined,
-            title=_LAST_TOOL_PANEL["title"],
-            border_style=border_style,
-        )
-        _LAST_TOOL_PANEL["result"] = merged
-        # Swap the previously-written panel renderable for the merged one and
-        # refresh the output pane so the update is visible.
-        controller.replace_last(merged)
+    if controller.is_active():
+        # In the textual TUI the result is appended inline into the most
+        # recent tool-call Collapsible (popped off the controller's stack),
+        # after a separator — not rendered as a fresh standalone panel.
+        controller.complete_tool_panel(result_panel)
     else:
-        # No pairing possible (classic REPL, or no preceding call panel) —
-        # render the result as its own standalone panel, exactly as before.
+        # Classic REPL: render the result as its own standalone panel.
         _tui_write(result_panel)
 
 
@@ -256,7 +245,7 @@ def display_user_message(message: str) -> None:
     In the classic (non-TUI) REPL, ``prompt_toolkit`` renders the typed text
     directly onto the terminal, so the user sees what they entered.  In the
     textual TUI the input lives in a separate ``TextArea`` that is cleared on
-    submit and never copied into the ``RichLog`` output pane — without this
+    submit and never copied into the output pane — without this
     echo, the user's messages never appear alongside the agent's responses.
 
     The message is wrapped in a :class:`~rich.text.Text` (not a markup string)
