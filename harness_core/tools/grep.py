@@ -102,6 +102,7 @@ def grep(
         return ToolResult(llm_text=msg, display_text=msg, type_tag="text", title="🔍 Grep", theme="info")
 
     matches: list[dict] = []  # {"file": str, "line_no": int, "content": str}
+    skipped: list[str] = []  # human-readable reasons a file was skipped
 
     for rel_path in sorted(files_to_search):
         abs_path = cwd / rel_path
@@ -119,7 +120,9 @@ def grep(
         except PermissionError as e:
             return make_error_result(f"Permission denied reading `{rel_path}`: {e}")
         except Exception as e:
-            # Skip unreadable files gracefully — don't abort the whole search.
+            # Don't abort the whole search, but surface the failure instead of
+            # silently swallowing it (AGENTS.md §4: never silently swallow).
+            skipped.append(f"{rel_path}: {_strip_ansi(str(e))}")
             continue
 
     if not matches:
@@ -139,6 +142,12 @@ def grep(
         f" under `{path}`."
         + (f" (limited to {max_matches})" if len(matches) >= max_matches else "")
     )
+
+    if skipped:
+        skip_note = "\n\nSkipped {} file(s) due to errors:".format(len(skipped))
+        skip_lines = "\n".join(f"  - {reason}" for reason in skipped)
+        lines_out.append(skip_note)
+        lines_out.append(skip_lines)
 
     result_str = _strip_ansi("\n".join([summary_line] + lines_out))
     return ToolResult(llm_text=result_str, display_text=result_str, type_tag="text", title="🔍 Grep", theme="info")

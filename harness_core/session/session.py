@@ -110,9 +110,16 @@ class Session:
                 f.write(yaml_content)
             self.filepath = str(filepath)  # Set filepath after saving
 
-        except Exception:
-            # Silently fail - don't break the conversation flow if save fails.
-            pass
+        except Exception as exc:  # noqa: BLE001
+            # Surface the failure instead of swallowing it (AGENTS.md §4: never
+            # silently swallow). Go to stderr so it doesn't pollute the
+            # LLM-facing output or break the conversation flow.
+            import sys
+            print(
+                f"[session] Warning: failed to auto-save session to "
+                f"{getattr(self, 'filepath', '<unknown>')}: {exc}",
+                file=sys.stderr,
+            )
 
     def save(self) -> None:
         """Public method to trigger saving the session to disk."""
