@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Tuple
 import yaml
 
+from harness_core.terminal_io import print_system
+
 
 def parse_skill_metadata(skill_dir: Path) -> Tuple[Dict, list[str]]:
     """Parse a skill directory's SKILL.md file and validate metadata.
@@ -147,7 +149,7 @@ def discover_skills(
 
     for skills_path in skills_dirs:
         if not skills_path.is_dir():
-            print(f"[skills] Warning: Skills directory not found: {skills_path}")
+            print_system("Skills", f"Skills directory not found: {skills_path}")
             all_discoveries.append([skills_path, []])  # empty list for missing dir
             continue
 
@@ -159,9 +161,9 @@ def discover_skills(
             metadata, errors = parse_skill_metadata(skill_path)
 
             if errors:
-                print(f"[skills] Skipping invalid skill '{skill_path.name}':")
+                print_system("Skills", f"Skipping invalid skill '{skill_path.name}':")
                 for error in errors:
-                    print(f"  - {error}")
+                    print_system("Skills", f"  - {error}")
                 continue
 
             valid_skills.append((metadata["name"], metadata))

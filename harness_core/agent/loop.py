@@ -14,9 +14,6 @@ import json
 from harness_core.commands import COMMANDS
 from harness_core.skills.interceptor import intercept_message, InterceptorKind
 
-
-_console = Console()
-
 def _count_approx_tokens(messages: list) -> int:
     """Approximate token count from a message list using character estimation.
     
@@ -52,13 +49,13 @@ def _check_and_compress_if_needed(agent, display_error) -> None:
         THRESHOLD = 0.5  # Compress when above 50% utilization
         
         if utilization > THRESHOLD:
-            print(f"⚠️ Context utilization at {utilization:.1%} — auto-compressing...")
+            print_system("Context", f"Context utilization at {utilization:.1%} — auto-compressing...")
             try:
                 from harness_core.session.context_compression import compress_session
                 session = getattr(agent, 'session', None) or getattr(agent, '_session', None)
                 if session is not None:
                     compress_session(session, fraction=0.5)
-                    print(f"✅ Auto-compressed: {len(messages)} → {len(session.messages)} messages")
+                    print_system("Compression", f"Auto-compressed: {len(messages)} → {len(session.messages)} messages")
             except Exception as e:
                 display_error(f"Auto-compression failed: {e}")
     except Exception as e:
@@ -160,7 +157,7 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                     _, func_name, result, response_data = output
                     display_tool_result(func_name, result)
                     if response_data and 'usage' in response_data:
-                        _console.print(format_speed(response_data, agent._context_length))
+                        print_system("Usage", format_speed(response_data, agent._context_length))
                 elif kind == ERROR:
                     _, description = output
                     display_error(description)
@@ -174,7 +171,7 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
             import traceback
             display_error(
                 f"Agent turn failed: {exc}\n"
-                + (traceback.format_exc() if _console.is_terminal else "")
+                + (traceback.format_exc() if Console().is_terminal else "")
             )
         finally:
             _tui.hide_spinner()
