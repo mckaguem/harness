@@ -1,7 +1,7 @@
 """Base skill class and interfaces."""
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Any
 
 
 class Skill(ABC):
@@ -18,7 +18,7 @@ class Skill(ABC):
         self.description = description
     
     @abstractmethod
-    def activate(self, **kwargs) -> Dict[str, Any]:
+    def activate(self, **kwargs) -> dict[str, Any]:
         """Activate the skill.
         
         Args:
@@ -29,7 +29,7 @@ class Skill(ABC):
         """
         pass
     
-    def get_instructions(self) -> Optional[str]:
+    def get_instructions(self) -> str | None:
         """Get detailed instructions for using this skill.
         
         Returns:
@@ -41,7 +41,7 @@ class Skill(ABC):
 class YamlSkill(Skill):
     """Skill defined by YAML configuration."""
     
-    def __init__(self, name: str, yaml_data: Dict[str, Any]):
+    def __init__(self, name: str, yaml_data: dict[str, Any]):
         """Initialize a YAML-based skill.
         
         Args:
@@ -52,7 +52,7 @@ class YamlSkill(Skill):
         self.yaml_data = yaml_data
         self.scripts = yaml_data.get("scripts", {})
     
-    def activate(self, script_name: str = "main", **kwargs) -> Dict[str, Any]:
+    def activate(self, script_name: str = "main", **kwargs) -> dict[str, Any]:
         """Activate the skill by running a script.
         
         Args:

@@ -1,6 +1,6 @@
 """Model-related type definitions."""
 
-from typing import Dict, List, Optional, TypedDict, Union
+from typing import (TypedDict, Union)
 from dataclasses import dataclass
 
 
@@ -9,8 +9,8 @@ class ModelConfig(TypedDict, total=False):
     name: str
     provider: str  # "openai" (Ollama support was removed)
     context_length: int
-    base_url: Optional[str]
-    api_key: Optional[str]
+    base_url: str | None
+    api_key: str | None
 
 
 @dataclass
@@ -19,8 +19,8 @@ class ProviderConfig:
     name: str  # unique identifier for the provider
     provider_type: str  # "openai" (Ollama support was removed)
     base_url: str
-    api_key: Optional[str] = None
-    default_model: Optional[str] = None
+    api_key: str | None = None
+    default_model: str | None = None
     
     
 class TokenUsage(TypedDict):
@@ -32,7 +32,7 @@ class TokenUsage(TypedDict):
 
 class CompletionResponse(TypedDict):
     """Standardized completion response."""
-    choices: List[Dict]
+    choices: list[Dict]
     usage: TokenUsage
     
 

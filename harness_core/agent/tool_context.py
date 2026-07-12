@@ -29,7 +29,6 @@ later without changing every tool signature. For now it just carries the agent
 (YAGNI — only what's needed today).
 """
 
-from typing import Optional
 
 from harness_core.agent.context import CURRENT_AGENT
 
@@ -44,7 +43,7 @@ class ToolContext:
 
     __slots__ = ("agent",)
 
-    def __init__(self, agent: Optional[object] = None) -> None:
+    def __init__(self, agent: object | None = None) -> None:
         self.agent = agent
 
     def __repr__(self) -> str:

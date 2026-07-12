@@ -2,10 +2,9 @@
 
 import os
 from pathlib import Path
-from typing import Optional
 
 
-def project_root(start_path: Optional[str] = None) -> Path:
+def project_root(start_path: str | None = None) -> Path:
     """Detect the project root directory by looking for common project markers.
     
     This function searches upwards from the starting path for common project

@@ -7,7 +7,7 @@ via get_or_create() to ensure there is only one instance per unique configuratio
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Any
+from typing import Any
 
 
 class Provider(ABC):
@@ -19,7 +19,7 @@ class Provider(ABC):
     """
 
     # Class-level singleton registry: config-name -> Provider instance.
-    _registry: Dict[str, 'Provider'] = {}
+    _registry: dict[str, 'Provider'] = {}
 
     @classmethod
     def get_or_create(cls, config: 'ProviderConfig') -> 'Provider':
@@ -52,12 +52,12 @@ class Provider(ABC):
         return instance
 
     @classmethod
-    def get(cls, name: str) -> Optional['Provider']:
+    def get(cls, name: str) -> 'Provider' | None:
         """Return the registered Provider for *name*, or ``None`` if not yet created."""
         return cls._registry.get(name)
 
     @abstractmethod
-    def chat_completion(self, messages: List[Dict], model: str, **kwargs) -> Dict:
+    def chat_completion(self, messages: list[Dict], model: str, **kwargs) -> Dict:
         """Get chat completion from the provider.
 
         Args:
@@ -77,7 +77,7 @@ class Provider(ABC):
         )
 
     @abstractmethod
-    def tokenize(self, text: str, model: str) -> Optional[List[int]]:
+    def tokenize(self, text: str, model: str) -> list[int] | None:
         """Tokenize text using the provider's tokenizer.
 
         Args:
@@ -127,7 +127,7 @@ class Provider(ABC):
         return create_provider(client, provider_type=config.provider_type)
 
 
-def _to_responses_input(messages: List[Dict]) -> "tuple[str, list]":
+def _to_responses_input(messages: list[Dict]) -> "tuple[str, list]":
     """Convert chat-style ``messages`` into a valid Responses API request.
 
     The OpenAI **Responses** API does not accept the Chat-Completions
@@ -214,7 +214,7 @@ def _to_responses_input(messages: List[Dict]) -> "tuple[str, list]":
     return instructions, input_items
 
 
-def _to_responses_tools(tools: Optional[List[Dict]]) -> Optional[List[Dict]]:
+def _to_responses_tools(tools: list[Dict] | None) -> list[Dict] | None:
     """Convert Chat-Completions tool schemas to the Responses API `tools` shape.
 
     Chat Completions nests the callable under `function`:
@@ -261,7 +261,7 @@ class OpenAIProvider(Provider):
         """
         self.client = client
 
-    def chat_completion(self, messages: List[Dict], model: str, **kwargs) -> Dict:
+    def chat_completion(self, messages: list[Dict], model: str, **kwargs) -> Dict:
         """Get chat completion from OpenAI via the Responses API.
 
         Args:
@@ -334,7 +334,7 @@ class OpenAIProvider(Provider):
             "usage": usage_dict,
         }
 
-    async def chat_completion_async(self, messages: List[Dict], model: str, **kwargs) -> Dict:
+    async def chat_completion_async(self, messages: list[Dict], model: str, **kwargs) -> Dict:
         """Get chat completion from OpenAI via the Responses API (async).
 
         Mirrors :meth:`chat_completion` but awaits the SDK call.
@@ -390,7 +390,7 @@ class OpenAIProvider(Provider):
             "usage": usage_dict,
         }
 
-    def tokenize(self, text: str, model: str) -> Optional[List[int]]:
+    def tokenize(self, text: str, model: str) -> list[int] | None:
         """Tokenize text using OpenAI tokenizer."""
         from .utils import tokenize_prompt
         # OpenAI doesn't have a direct tokenize API, use our utility

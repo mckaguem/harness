@@ -8,11 +8,11 @@ When an agent name exists in both paths, the project version wins.
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Tuple
 
 
 def _merge_agent_discoveries(
-    discoveries: list[tuple[Path, List[Tuple[str, Path]]]],
+    discoveries: list[tuple[Path, list[Tuple[str, Path]]]],
 ) -> list[Tuple[str, Path]]:
     """Merge multiple agent discovery results with precedence.
 
@@ -34,8 +34,8 @@ def _merge_agent_discoveries(
 
 
 def discover_agents(
-    agents_dirs: Optional[List[Path]] = None,
-) -> List[Tuple[str, Path]]:
+    agents_dirs: list[Path] | None = None,
+) -> list[Tuple[str, Path]]:
     """Discover all agent YAML files across the specified directories.
 
     Args:
@@ -54,7 +54,7 @@ def discover_agents(
         from harness_core.config import get_discovery_dirs
         agents_dirs = get_discovery_dirs("agents")
 
-    all_discoveries: list[tuple[Path, List[Tuple[str, Path]]]] = []
+    all_discoveries: list[tuple[Path, list[Tuple[str, Path]]]] = []
 
     for agents_path in agents_dirs:
         if not agents_path.is_dir():
@@ -78,7 +78,7 @@ def discover_agents(
     return _merge_agent_discoveries(all_discoveries)
 
 
-def get_agent_yaml(agent_name: str, agents_dirs: Optional[List[Path]] = None) -> Tuple[Optional[Path], str]:
+def get_agent_yaml(agent_name: str, agents_dirs: list[Path] | None = None) -> Tuple[Path | None, str]:
     """Look up an agent YAML file by name.
 
     Searches the directories in order — the first match wins (project before
@@ -107,7 +107,7 @@ def get_agent_yaml(agent_name: str, agents_dirs: Optional[List[Path]] = None) ->
     return None, f"Agent '{agent_name}' not found in any configured path: {dir_names}"
 
 
-def get_agent_yaml_paths() -> List[Path]:
+def get_agent_yaml_paths() -> list[Path]:
     """Return the absolute paths to all available agents/ directories.
 
     Useful for injecting into tool descriptions or system prompts so models

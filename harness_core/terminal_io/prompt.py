@@ -9,7 +9,7 @@ multi-line session (with ``~/.history`` persistence) is used unchanged.
 from pathlib import Path
 
 
-def prompt_user(prompt: str = None) -> str:
+def prompt_user(prompt: str | None = None) -> str:
     """Display the user prompt and read *multi-line* input.
 
     Parameters

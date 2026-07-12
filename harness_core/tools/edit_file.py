@@ -9,7 +9,7 @@ from harness_core.tools.utils import is_safe_path, _strip_ansi, make_error_resul
 from harness_core.tools.tool_result import ToolResult
 
 
-def edit_file(filename: str, edit: dict = None, edits: list = None) -> ToolResult:
+def edit_file(filename: str, edit: dict | None = None, edits: list | None = None) -> ToolResult:
     """Apply search-and-replace edits to *filename*.
 
     Each edit must be a dictionary with the keys ``old_text`` and ``new_text``.
@@ -100,7 +100,7 @@ def edit_file(filename: str, edit: dict = None, edits: list = None) -> ToolResul
     )
 
 
-def summary(filename: str, edit: dict = None, edits: list = None) -> str:
+def summary(filename: str, edit: dict | None = None, edits: list | None = None) -> str:
     """Return a one-line summary of the edit_file call."""
     edit_count = len(edits) if edits else (1 if edit else 0)
     return f"edit_file: {filename} ({edit_count} edit{'s' if edit_count != 1 else ''})"

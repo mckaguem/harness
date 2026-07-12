@@ -10,7 +10,6 @@ enabling multiple agents to operate concurrently without shared state conflicts.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 
 # Valid status values for task lifecycle management
@@ -50,7 +49,7 @@ class NextTaskInfo:
     """
 
     has_next: bool = False          # True if there is still a pending/in_progress task
-    id: Optional[int] = None        # The next uncompleted task's ID (1-indexed)
+    id: int | None = None        # The next uncompleted task's ID (1-indexed)
     description: str = ""           # Description of that task
     status: str = ""                # Its current status
     all_complete: bool = False      # True when every task is completed or failed
@@ -67,7 +66,7 @@ class TaskList:
 
     def __init__(self):
         """Initialize an empty TaskList instance."""
-        self.tasks: List[Task] = []
+        self.tasks: list[Task] = []
         self._listeners: list = []
 
     # -- initialization ----------------------------------------------------
@@ -201,7 +200,7 @@ class TaskList:
         """Return True if every task is completed or failed (no pending/in_progress remain)."""
         return len(self.tasks) > 0 and not any(t.status in ("pending", "in_progress") for t in self.tasks)
 
-    def next_uncompleted_task(self) -> Optional[Task]:
+    def next_uncompleted_task(self) -> Task | None:
         """Return the first task that is still pending or in_progress, or None."""
         for task in self.tasks:
             if task.status in ("pending", "in_progress"):

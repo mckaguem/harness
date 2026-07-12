@@ -1,7 +1,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Optional
+
 
 from .session_utils import (
     format_session_yaml,
@@ -36,11 +36,11 @@ class Session:
         """
         self.messages: list[dict] = [{"role": "system", "content": system_prompt}]
         self._task_list = task_list
-        self._injected_text: Optional[str] = None
+        self._injected_text: str | None = None
         self._auto_save = auto_save
         self._agent_type_name: str = agent_type_name
         self.filepath = None
-        self._provider = provider          # type: Optional[object]
+        self._provider = provider          # type: object | None
         self._model_name: str = model_name
         
         # Generate a unique filename for this session at creation time (if auto-save is enabled)
@@ -166,7 +166,7 @@ class Session:
 
     # -- summarization -------------------------------------------------------
 
-    def summarize(self, summary_prompt: Optional[str] = None) -> str:
+    def summarize(self, summary_prompt: str | None = None) -> str:
         """Ask the LLM to summarise the conversation accumulated so far.
 
         Builds a temporary message list from recent history and appends a
@@ -302,8 +302,8 @@ Execute the next logical step based on this state. Only reference tasks by their
 
     def export_session(
         self,
-        filename: Optional[str] = None,
-        directory: Optional[str] = None,
+        filename: str | None = None,
+        directory: str | None = None,
         agent_type_name: str = "main",
     ) -> tuple[bool, str]:
         """Export the current session to a YAML file.

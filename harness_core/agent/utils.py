@@ -1,10 +1,10 @@
 """Shared utilities for the agent package."""
 
 from pathlib import Path
-from typing import Dict, List
 
 
-def filter_tool_schemas(agent_type: "AgentType", all_schemas: List[Dict]) -> List[Dict]:
+
+def filter_tool_schemas(agent_type: "AgentType", all_schemas: list[Dict]) -> list[Dict]:
     """Filter tool schemas to include only those named in ``agent_type.agent_tools``.
 
     If ``agent_type.agent_tools`` contains ``"*"``, all schemas are returned.

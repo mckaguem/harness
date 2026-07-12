@@ -66,7 +66,7 @@ def get_discovery_dirs(subdir: str) -> list[Path]:
     return [project_dir / subdir, global_dir / subdir]
 
 
-def resolve_config_path(relative_path: str) -> Optional[Path]:
+def resolve_config_path(relative_path: str) -> Path | None:
     """Resolve a relative path (e.g. ``"agents/main.yaml"``) to an absolute Path.
 
     Searches first in the project config directory (preferred), then falls back to
@@ -181,10 +181,10 @@ def load_harness_config() -> dict:
     """Load and merge configuration from global and project ``config.yaml`` files.
 
     Returns a dictionary with keys:
-    - "providers": Dict[str, ProviderConfig] keyed by provider name
-    - "models": Dict[str, ModelConfig] keyed by model name (with context_length)
-    - "default_provider": Optional[str]
-    - "default_model": Optional[str]
+    - "providers": dict[str, ProviderConfig] keyed by provider name
+    - "models": dict[str, ModelConfig] keyed by model name (with context_length)
+    - "default_provider": str | None
+    - "default_model": str | None
     - "context_length": int (global default context length fallback)
     """
     project_dir, global_dir = get_harness_py_dir()

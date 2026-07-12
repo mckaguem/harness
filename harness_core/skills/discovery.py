@@ -9,11 +9,11 @@ When a skill name exists in both paths, the project version wins.
 
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Tuple
 import yaml
 
 
-def parse_skill_metadata(skill_dir: Path) -> Tuple[Dict, List[str]]:
+def parse_skill_metadata(skill_dir: Path) -> Tuple[Dict, list[str]]:
     """Parse a skill directory's SKILL.md file and validate metadata.
 
     Args:
@@ -93,7 +93,7 @@ def parse_skill_metadata(skill_dir: Path) -> Tuple[Dict, List[str]]:
 
 
 def _merge_skill_discoveries(
-    discoveries: list[tuple[Path, List[Tuple[str, Dict]]]],
+    discoveries: list[tuple[Path, list[Tuple[str, Dict]]]],
 ) -> list[Tuple[str, Dict]]:
     """Merge multiple skill discovery results with precedence.
 
@@ -116,9 +116,9 @@ def _merge_skill_discoveries(
 
 
 def discover_skills(
-    skills_dirs: Optional[List[Path]] = None,
-    command_names: Optional[set] = None,
-) -> List[Tuple[str, Dict]]:
+    skills_dirs: list[Path] | None = None,
+    command_names: set | None = None,
+) -> list[Tuple[str, Dict]]:
     """Discover and validate all skills across the specified directories.
 
     Args:
@@ -143,7 +143,7 @@ def discover_skills(
         from harness_core.config import get_discovery_dirs
         skills_dirs = get_discovery_dirs("skills")
 
-    all_discoveries: list[tuple[Path, List[Tuple[str, Dict]]]] = []
+    all_discoveries: list[tuple[Path, list[Tuple[str, Dict]]]] = []
 
     for skills_path in skills_dirs:
         if not skills_path.is_dir():
@@ -190,7 +190,7 @@ def discover_skills(
     return merged
 
 
-def format_skill_catalog(skills: List[Tuple[str, Dict]]) -> str:
+def format_skill_catalog(skills: list[Tuple[str, Dict]]) -> str:
     """Format a list of skills into a concise catalog for system prompt injection.
 
     Args:
@@ -214,7 +214,7 @@ def format_skill_catalog(skills: List[Tuple[str, Dict]]) -> str:
     return "\n".join(lines)
 
 
-def get_skill_by_name(skill_name: str, skills_dirs: Optional[List[Path]] = None) -> Tuple[Dict[str, object], str]:
+def get_skill_by_name(skill_name: str, skills_dirs: list[Path] | None = None) -> Tuple[dict[str, object], str]:
     """Look up a skill by name and return its parsed metadata.
 
     Searches the directories in order — the first match wins (project before
@@ -245,7 +245,7 @@ def get_skill_by_name(skill_name: str, skills_dirs: Optional[List[Path]] = None)
     return {}, f"Skill '{skill_name}' not found in any configured path"
 
 
-def get_skill_body(skill_name: str, skills_dirs: Optional[List[Path]] = None) -> Tuple[str, str]:
+def get_skill_body(skill_name: str, skills_dirs: list[Path] | None = None) -> Tuple[str, str]:
     """Get the body content of a specific skill's SKILL.md file.
 
     Args:

@@ -32,7 +32,7 @@ When an agent name exists in both, the project version wins.
 import asyncio
 import json
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import Tuple
 
 from harness_core.tools.tool_result import ToolResult
 from harness_core.tools.utils import _strip_ansi, make_error_result
@@ -48,7 +48,7 @@ When you have completed your assigned task, you must NOT write a final conversat
 * Do not wrap the tool arguments in markdown backticks (like ```json) or add conversational text outside of the tool call."""
 
 
-def _get_agents_dir_paths() -> List[str]:
+def _get_agents_dir_paths() -> list[str]:
     """Return absolute paths to all agents/ directories from harness_core.config that actually exist."""
     try:
         from harness_core.agent.discovery import get_agent_yaml_paths
@@ -211,7 +211,7 @@ async def run_subagent_async(sub_agent: str, task: str) -> ToolResult:
     return await asyncio.to_thread(_run_one, sub_agent, task)
 
 
-def run_subagents_parallel(calls: List[Tuple[str, str]]) -> List[ToolResult]:
+def run_subagents_parallel(calls: list[Tuple[str, str]]) -> list[ToolResult]:
     """Run several ``(sub_agent, task)`` pairs concurrently and return results in order.
 
     Each call runs in its own worker thread (via :func:`run_subagent_async` /

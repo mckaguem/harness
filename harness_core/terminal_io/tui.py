@@ -24,7 +24,7 @@ controller, so the REPL logic and the existing tests are unchanged.
 from __future__ import annotations
 
 import threading
-from typing import Optional
+
 
 from textual.app import App
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -76,7 +76,6 @@ class StatusSpinner(Static):
         return Text(f"{glyph} {self.LABEL}\u2026")
 
 
-
 class TaskListSidebar(Static):
     """A right-hand panel that renders the main agent's task list.
 
@@ -111,7 +110,6 @@ class TaskListSidebar(Static):
         self.update(Markdown(tasks.to_markdown()))
 
 
-
 class HarnessTUI:
     """Controller singleton bridging the classic I/O helpers and the TUI.
 
@@ -122,11 +120,11 @@ class HarnessTUI:
     """
 
     def __init__(self) -> None:
-        self._app: Optional["TextualHarnessApp"] = None
+        self._app: "TextualHarnessApp" | None = None
         # Guarded by ``_lock``; only touched from the app thread.
-        self._input: Optional[TextArea] = None
-        self._output: Optional[VerticalScroll] = None
-        self._spinner: Optional[StatusSpinner] = None
+        self._input: TextArea | None = None
+        self._output: VerticalScroll | None = None
+        self._spinner: StatusSpinner | None = None
         self._write_count = 0
         self._lock = threading.Lock()
         # Stack of ``(Collapsible, inner Static)`` pairs for in-flight tool
@@ -142,7 +140,7 @@ class HarnessTUI:
 
         # Pending prompt state.  The worker (loop) thread blocks on ``_pending``
         # while the app thread resolves it from the input widget.
-        self._pending: Optional[threading.Event] = None
+        self._pending: threading.Event | None = None
         self._pending_value: str = ""
         self._pending_prompt: str = "You> "
 

@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+
 import yaml
 
 # Import project_root from harness_core.utils
@@ -88,7 +88,7 @@ def format_session_yaml(messages: list[dict], agent_type_name: str = "main") -> 
     return "\n".join(yaml_lines)
 
 
-def parse_session_yaml(yaml_content: str) -> tuple[list[dict], Optional[str]]:
+def parse_session_yaml(yaml_content: str) -> tuple[list[dict], str | None]:
     """Parse YAML session data back into a list of message dicts.
 
     Expects the format produced by :func:`format_session_yaml`, which uses
@@ -177,7 +177,7 @@ def create_session_filename(agent_type_name: str = "main", extension: str = ".ya
     return f"{timestamp}_{frac_seconds}_{safe_name}{extension}"
 
 
-def ensure_sessions_dir(base_path: Optional[str] = None) -> Path:
+def ensure_sessions_dir(base_path: str | None = None) -> Path:
     """Ensure the .sessions/ directory (or current run folder) exists.
 
     Args:
@@ -224,15 +224,15 @@ def create_run_folder() -> Path:
 
 # Module-level holder for the currently active run folder.  ``None`` means
 # "no active run" — callers fall back to the flat .sessions/ directory.
-_CURRENT_RUN_FOLDER: Optional[Path] = None
+_CURRENT_RUN_FOLDER: Path | None = None
 
 
-def get_current_run_folder() -> Optional[Path]:
+def get_current_run_folder() -> Path | None:
     """Return the currently active run folder, or ``None`` if none is set."""
     return _CURRENT_RUN_FOLDER
 
 
-def set_current_run_folder(folder: Optional[Path]) -> None:
+def set_current_run_folder(folder: Path | None) -> None:
     """Set (or clear with ``None``) the currently active run folder."""
     global _CURRENT_RUN_FOLDER
     _CURRENT_RUN_FOLDER = folder

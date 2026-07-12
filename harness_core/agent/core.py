@@ -2,7 +2,7 @@
 
 import json
 import os
-from typing import Dict, Generator, List, Optional, TYPE_CHECKING
+from typing import (Generator, TYPE_CHECKING)
 
 if TYPE_CHECKING:
     from harness_core.agent.task_list import TaskList
@@ -14,18 +14,15 @@ from harness_core.agent.context import CURRENT_AGENT
 from harness_core.session.session import Session
 
 
-
-
-
 class Agent:
     """Owns the conversation state and handles a single user turn."""
     
     def __init__(self,
                  agent_type: "AgentType",
                  context_length: int = 4096,
-                 provider: Optional[Provider] = None,
-                 tool_schemas: Optional[List[Dict]] = None,
-                 extra_tools: Optional[List[Dict]] = None):
+                 provider: Provider | None = None,
+                 tool_schemas: list[Dict] | None = None,
+                 extra_tools: list[Dict] | None = None):
         """Initialize an Agent.
 
         Args:
@@ -73,7 +70,7 @@ class Agent:
         # Cache-friendly task state management — all dynamic state is injected
         # at the tail end of messages, never touching messages[0].
         from harness_core.agent.task_list import TaskList
-        self._task_list: Optional[TaskList] = TaskList()
+        self._task_list: TaskList | None = TaskList()
 
         # Conversation state is now owned by the Session object.
         self._session = Session(
@@ -339,8 +336,8 @@ or update their status to 'failed' before stopping.
 
     @classmethod
     def spawn_subagent(cls, sub_name: str,
-                       tool_schemas: Optional[List[Dict]] = None,
-                       extra_tools: Optional[List[Dict]] = None):
+                       tool_schemas: list[Dict] | None = None,
+                       extra_tools: list[Dict] | None = None):
         """Build and return a configured ``Agent`` for the named sub-agent.
 
         Pure factory — does **not** start any conversation or display anything.
@@ -385,8 +382,8 @@ or update their status to 'failed' before stopping.
         )
 
     @classmethod
-    def from_file(cls, path: str, tool_schemas: Optional[List[Dict]] = None,
-                extra_tools: Optional[List[Dict]] = None) -> "Agent":
+    def from_file(cls, path: str, tool_schemas: list[Dict] | None = None,
+                extra_tools: list[Dict] | None = None) -> "Agent":
         """Create an Agent directly from a YAML agent config file.
 
         This is the recommended entry point for creating agents. It handles:

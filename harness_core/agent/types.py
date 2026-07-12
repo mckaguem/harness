@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
+
 
 from harness_core.model.types import ProviderConfig
 from harness_core.utils import project_root
@@ -14,7 +14,6 @@ import yaml
 _SYSTEM_VARIABLES = {"CWD", "SKILLS", "AGENTS", "TOOLS"}
 
 
-
 @dataclass
 class AgentType:
     """Definition of an agent — its model, tools, and system prompt."""
@@ -22,16 +21,16 @@ class AgentType:
     name: str = ""
     model_name: str = ""
     system_prompt: str = ""
-    provider_config: Optional[ProviderConfig] = None
-    agent_tools: List[str] = field(default_factory=list)
+    provider_config: ProviderConfig | None = None
+    agent_tools: list[str] = field(default_factory=list)
 
     @staticmethod
     def _substitute_variables(
         system_prompt: str,
         cwd: Path,
-        skills: Optional[List[tuple]] = None,
-        agents: Optional[List[Dict]] = None,
-        tools: Optional[List[dict]] = None,
+        skills: list[tuple] | None = None,
+        agents: list[Dict] | None = None,
+        tools: list[dict] | None = None,
     ) -> str:
         """Substitute template variables of the form ``${VAR_NAME}`` in *system_prompt*.
 
@@ -122,10 +121,10 @@ class AgentType:
     @staticmethod
     def _build_system_prompt(
         raw_prompt: str,
-        cwd: Optional[Path] = None,
-        skills: Optional[List[tuple]] = None,
-        agents: Optional[List[Dict]] = None,
-        tools: Optional[List[dict]] = None,
+        cwd: Path | None = None,
+        skills: list[tuple] | None = None,
+        agents: list[Dict] | None = None,
+        tools: list[dict] | None = None,
     ) -> str:
         """Build the final system prompt for an agent.
 
@@ -251,7 +250,7 @@ class AgentType:
         except Exception:
             discovered_agent_names = []
 
-        agent_descriptions: List[Dict] = []
+        agent_descriptions: list[Dict] = []
         for agent_name, a_yaml_path in discovered_agent_names:
             # Try to load the YAML and extract a description. Fall back to an
             # empty string if the file is missing or malformed.

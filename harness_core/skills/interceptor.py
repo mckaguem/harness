@@ -33,7 +33,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 # ---------------------------------------------------------------------------
 # Outcome kinds returned by the interceptor
@@ -84,8 +83,8 @@ class InterceptorOutcome:
     """
 
     kind: str
-    payload: Optional[str] = None
-    stripped_message: Optional[str] = None
+    payload: str | None = None
+    stripped_message: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +109,7 @@ SLASH_COMMAND_RE = re.compile(r"^/([a-zA-Z0-9\-]+)")
 
 def intercept_message(
     raw_user_input: str,
-    skills_dir: Optional[Path] = None,
+    skills_dir: Path | None = None,
 ) -> InterceptorOutcome:
     """Inspect a raw user message and apply the slash-command routing rules.
 
@@ -224,7 +223,7 @@ def matches_slash_pattern(text: str) -> bool:
     return bool(SLASH_COMMAND_RE.match(text))
 
 
-def extract_command_name(text: str) -> Optional[str]:
+def extract_command_name(text: str) -> str | None:
     """If *text* is a slash command, return its captured name (lowercase), else ``None``."""
     match = SLASH_COMMAND_RE.match(text)
     if not match:
