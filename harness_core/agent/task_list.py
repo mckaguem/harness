@@ -68,8 +68,28 @@ class TaskList:
     def __init__(self):
         """Initialize an empty TaskList instance."""
         self.tasks: List[Task] = []
+        self._listeners: list = []
 
     # -- initialization ----------------------------------------------------
+
+    def add_listener(self, listener) -> None:
+        """Register a callable invoked (with no args) after any mutation."""
+        if listener not in self._listeners:
+            self._listeners.append(listener)
+
+    def remove_listener(self, listener) -> None:
+        """Unregister a previously added listener."""
+        if listener in self._listeners:
+            self._listeners.remove(listener)
+
+    def _notify(self) -> None:
+        """Invoke all registered listeners (used internally after mutations)."""
+        for listener in self._listeners:
+            try:
+                listener()
+            except Exception:
+                # A misbehaving listener must not break task-list mutations.
+                pass
 
     def initialize_tasks(self, tasks: list[str]) -> None:
         """Clear existing tasks and populate with a new list.
@@ -107,10 +127,12 @@ class TaskList:
                 description=desc.strip(),
                 status="pending",
             ))
+        self._notify()
 
     def reset(self) -> None:
         """Clear all tasks from the list. Called internally when completion is detected."""
         self.tasks = []
+        self._notify()
 
     # -- status update -----------------------------------------------------
 
@@ -137,10 +159,14 @@ class TaskList:
         for task in self.tasks:
             if task.id == task_id:
                 task.status = status
-                return True, self._build_next_task_info()
+                info = self._build_next_task_info()
+                self._notify()
+                return True, info
 
         # Task not found — still return info about remaining tasks so the caller knows
-        return False, self._build_next_task_info()
+        info = self._build_next_task_info()
+        self._notify()
+        return False, info
 
     def _build_next_task_info(self) -> NextTaskInfo:
         """Build a NextTaskInfo describing the current state of remaining work."""

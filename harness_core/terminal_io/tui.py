@@ -27,7 +27,7 @@ import threading
 from typing import Optional
 
 from textual.app import App
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Footer, Header, Collapsible, Static, TextArea
 
 import sys
@@ -38,6 +38,7 @@ from rich.panel import Panel
 from rich.console import Group
 from rich.rule import Rule
 from rich.text import Text
+from rich.markdown import Markdown
 
 
 # Inline separator rendered between a tool call and its result inside a
@@ -74,6 +75,40 @@ class StatusSpinner(Static):
         # raises ``MissingStyle``.  The widget's own ``color`` CSS paints it.
         return Text(f"{glyph} {self.LABEL}\u2026")
 
+
+
+class TaskListSidebar(Static):
+    """A right-hand panel that renders the main agent's task list.
+
+    Its content is refreshed from the agent's :class:`~harness_core.agent.task_list.TaskList`
+    via :meth:`refresh_tasks`, which is normally driven by a change listener on the
+    TaskList so it stays in sync with every ``initialize_task_list`` / ``update_task_status``
+    tool call.  A periodic interval keeps it correct even if the listener is missed.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._agent = None
+
+    def set_agent(self, agent) -> None:
+        """Provide the agent whose task list should be displayed."""
+        self._agent = agent
+
+    def refresh_tasks(self) -> None:
+        """Re-render the sidebar from the agent's current task list.
+
+        Rendered as a Rich ``Markdown`` object so the task-list heading and
+        ``- [x]`` / ``[*]`` / ``[!]`` / ``[ ]`` checklist markers are laid
+        out as proper Markdown rather than literal text.
+        """
+        if self._agent is None or self._agent.task_list is None:
+            self.update(Markdown("No tasks yet."))
+            return
+        tasks = self._agent.task_list
+        if not tasks.tasks:
+            self.update(Markdown("No tasks yet."))
+            return
+        self.update(Markdown(tasks.to_markdown()))
 
 
 
@@ -388,6 +423,16 @@ class TextualHarnessApp(App):
         height: 1fr;
         border: round $primary;
     }
+    .--sidebar {
+        width: 44;
+        height: 1fr;
+        border: round $secondary;
+        background: $panel;
+        padding: 0 1;
+    }
+    .--sidebar Static {
+        height: auto;
+    }
     Static {
         height: auto;
     }
@@ -413,14 +458,28 @@ class TextualHarnessApp(App):
         from textual.app import ComposeResult
 
         yield Header()
-        yield Vertical(
-            VerticalScroll(id="output"),
-            TextArea(id="input", language=None, soft_wrap=True),
-            # Sits at the bottom of the messages panel and animates while the
-            # main agent's handle_prompt loop is running (see user_loop).
-            StatusSpinner(id="spinner", classes="--busy"),
+        yield Horizontal(
+            Vertical(
+                VerticalScroll(id="output"),
+                TextArea(id="input", language=None, soft_wrap=True),
+                StatusSpinner(id="spinner", classes="--busy"),
+            ),
+            TaskListSidebar(id="task-sidebar", classes="--sidebar"),
         )
         yield Footer()
+
+    def _notify_sidebar(self) -> None:
+        """Called by the TaskList listener (worker thread) on every mutation.
+
+        Marshals the refresh onto the app thread so we never touch Textual
+        widgets from the worker thread.
+        """
+        if self._agent is None:
+            return
+        try:
+            self.call_from_thread(self.query_one("#task-sidebar", TaskListSidebar).refresh_tasks)
+        except Exception:
+            pass
 
     def on_mount(self) -> None:
         controller = get_tui()
@@ -430,11 +489,21 @@ class TextualHarnessApp(App):
             self.query_one("#input", TextArea),
             self.query_one("#spinner", StatusSpinner),
         )
-        # NOTE: ``app.is_running`` only becomes True *after* on_mount (once the
-        # message pump starts).  If we started the loop worker here it would
-        # see is_active() == False and fall through to the classic
-        # console/prompt_toolkit paths, corrupting the full-screen TUI.  So we
-        # defer starting the loop until the app is fully running.
+        # Wire up the right-hand task-list sidebar.  Because the agent's
+        # user_loop runs on a worker thread (see _start_loop) while widgets
+        # live on the app thread, the listener fires on the worker thread and
+        # must marshal its refresh back to the app thread.
+        sidebar = self.query_one("#task-sidebar", TaskListSidebar)
+        if self._agent is not None:
+            sidebar.set_agent(self._agent)
+            try:
+                self._agent.task_list.add_listener(self._notify_sidebar)
+            except Exception:
+                pass
+        # Initial paint + heartbeat so the sidebar is correct even if a
+        # listener notification is missed.
+        sidebar.refresh_tasks()
+        self.set_interval(1.0, sidebar.refresh_tasks)
         self.call_after_refresh(self._start_loop)
 
     def _start_loop(self) -> None:
