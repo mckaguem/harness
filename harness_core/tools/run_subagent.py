@@ -89,6 +89,15 @@ def _build_function_def() -> dict:
                         "type": "string",
                         "description": "The task description — what to have the sub-agent do.",
                     },
+                    "block": {
+                        "type": "boolean",
+                        "description": (
+                            "Optional. When true (default), run the sub-agent synchronously "
+                            "and return its result directly. When false, launch the sub-agent "
+                            "in the background and return a short identifier (e.g. "
+                            "'subagent-1') that can be awaited later via the await_subagent tool."
+                        ),
+                    },
                 },
                 "required": ["sub_agent", "task"],
             },
@@ -191,14 +200,44 @@ def _run_one(sub_agent: str, task: str) -> ToolResult:
         _CURRENT_AGENT.set(saved_agent)
 
 
-def run_subagent(sub_agent: str, task: str) -> ToolResult:
-    """Spawn a named sub-agent and execute *task* on it (synchronous, single call).
+def run_subagent(sub_agent: str, task: str, block: bool = True) -> ToolResult:
+    """Spawn a named sub-agent and execute *task* on it.
 
-    Preserves the original synchronous behavior used by the tool dispatcher.
-    Delegates the actual work to :func:`_run_one` so the single-call path and the
-    parallel path share identical logic.
+    Args:
+        sub_agent: Name of the sub-agent YAML (without extension).
+        task: The task description to run.
+        block: When ``True`` (default), runs synchronously and returns the
+            :class:`ToolResult` directly (backward-compatible behaviour). When
+            ``False``, launches the sub-agent in the BACKGROUND via the shared
+            :class:`SubagentManager` and immediately returns a ``ToolResult``
+            whose ``llm_text`` contains the background identifier
+            (``"subagent-<n>"``) so the caller can later ``await_subagent`` it.
     """
-    return _run_one(sub_agent, task)
+    if block:
+        return _run_one(sub_agent, task)
+
+    from harness_core.tools.subagent_manager import manager
+    from harness_core.tools.utils import make_error_result
+
+    try:
+        identifier = manager.launch(sub_agent, task)
+    except RuntimeError as exc:
+        # Surface the max-concurrency limit as a tool error (not a crash).
+        return make_error_result(str(exc), title="Subagent Limit")
+
+    return ToolResult(
+        llm_text=(
+            f"Launched sub-agent '{sub_agent}' in the background "
+            f"(id: {identifier}). Use the await_subagent tool to retrieve "
+            f"its result."
+        ),
+        display_text=(
+            f"🚀 Background sub-agent '{sub_agent}' launched ({identifier})."
+        ),
+        type_tag="text",
+        title="🚀 Run Sub-Agent (background)",
+        theme="info",
+    )
 
 
 async def run_subagent_async(sub_agent: str, task: str) -> ToolResult:
