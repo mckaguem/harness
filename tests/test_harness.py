@@ -31,8 +31,14 @@ class TestRunLoop:
                 raise AssertionError("Should only be called once")
             
             with patch("harness_core.agent.loop.prompt_user", side_effect=side_effect):
-                user_loop(mock_agent, mock_client)
-            
+                with patch("harness_core.agent.loop.display_agent_response") as mock_display:
+                    user_loop(mock_agent, mock_client)
+
+                        # /exit short-circuits the loop BEFORE any LLM turn, so handle_prompt
+            # must never be invoked and no agent response is ever displayed.
+            assert mock_agent.handle_prompt.call_count == 0
+            assert mock_display.call_count == 0
+
             # Should have called print_system once
             assert mock_print.call_count == 1
 
@@ -55,7 +61,13 @@ class TestRunLoop:
                 raise AssertionError("Should only be called once")
             
             with patch("harness_core.agent.loop.prompt_user", side_effect=side_effect):
-                user_loop(mock_agent, mock_client)
+                with patch("harness_core.agent.loop.display_agent_response") as mock_display:
+                    user_loop(mock_agent, mock_client)
+
+            # /exit short-circuits the loop BEFORE any LLM turn, so handle_prompt
+            # must never be invoked and no agent response is ever displayed.
+            assert mock_agent.handle_prompt.call_count == 0
+            assert mock_display.call_count == 0
 
     def test_run_loop_handles_quit_command(self):
         """run_loop should exit when user types /quit."""
@@ -76,7 +88,13 @@ class TestRunLoop:
                 raise AssertionError("Should only be called once")
             
             with patch("harness_core.agent.loop.prompt_user", side_effect=side_effect):
-                user_loop(mock_agent, mock_client)
+                with patch("harness_core.agent.loop.display_agent_response") as mock_display:
+                    user_loop(mock_agent, mock_client)
+
+            # /quit short-circuits the loop BEFORE any LLM turn, so handle_prompt
+            # must never be invoked and no agent response is ever displayed.
+            assert mock_agent.handle_prompt.call_count == 0
+            assert mock_display.call_count == 0
 
     def test_run_loop_displays_agent_response(self):
         """run_loop should display agent responses."""
@@ -286,4 +304,11 @@ class TestRunLoop:
                 raise AssertionError("Should only be called twice")
             
             with patch("harness_core.agent.loop.prompt_user", side_effect=side_effect):
-                user_loop(mock_agent, mock_client)
+                with patch("harness_core.agent.loop.display_agent_response") as mock_display:
+                    user_loop(mock_agent, mock_client)
+
+            # An unknown slash command is NOT a built-in command and is not a
+            # recognised skill, so it falls through to the LLM: handle_prompt is
+            # called exactly once, and the returned response is displayed.
+            assert mock_agent.handle_prompt.call_count == 1
+            assert mock_display.call_count >= 1

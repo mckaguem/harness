@@ -73,7 +73,8 @@ def _make_fakes(monkeypatch, agent):
     monkeypatch.setattr(loop_mod, "display_tool_result", fake_display_tool_result)
     monkeypatch.setattr(loop_mod, "format_speed", fake_format_speed)
     monkeypatch.setattr(loop_mod, "print_system", fake_print_system)
-    monkeypatch.setattr(loop_mod, "_console", _FakeConsole())
+    # Avoid any real rich.Console construction in the exception handler.
+    monkeypatch.setattr(loop_mod, "Console", lambda: _FakeConsole())
     # Provide working /quit (and /exit) handlers so the loop can terminate
     # when our fake prompt_user returns '/quit'.
     monkeypatch.setattr(
@@ -95,42 +96,44 @@ def _make_fakes(monkeypatch, agent):
     return captured
 
 
-def test_user_loop_survives_provider_error(monkeypatch):
-    """An exception from handle_prompt must NOT propagate out of user_loop."""
-    class BoomAgent:
-        _context_length = 4096
-        _agent_type = SimpleNamespace(name="test", model_name="test")
+class TestUserLoopResilience:
+    """user_loop must stay alive across agent-turn and normal-turn scenarios."""
 
-        def handle_prompt(self, user_input):
-            # Simulate a provider/LLM failure (the real bug trigger).
-            raise RuntimeError("Provider chat request failed: connection refused")
-            yield  # pragma: no cover
+    def test_user_loop_survives_provider_error(self, monkeypatch):
+        """An exception from handle_prompt must NOT propagate out of user_loop."""
+        class BoomAgent:
+            _context_length = 4096
+            _agent_type = SimpleNamespace(name="test", model_name="test")
 
-    agent = BoomAgent()
-    captured = _make_fakes(monkeypatch, agent)
+            def handle_prompt(self, user_input):
+                # Simulate a provider/LLM failure (the real bug trigger).
+                raise RuntimeError("Provider chat request failed: connection refused")
+                yield  # pragma: no cover
 
-    # Must return without raising.
-    loop_mod.user_loop(agent)
+        agent = BoomAgent()
+        captured = _make_fakes(monkeypatch, agent)
 
-    # The error should have been surfaced, and the loop should have tried to
-    # prompt again (i.e. it did NOT crash after the first turn).
-    assert any(k == "error" for k, _ in captured["displayed"]), captured
-    assert captured["prompt_calls"] >= 2, captured
+        # Must return without raising.
+        loop_mod.user_loop(agent)
 
+        # The error should have been surfaced, and the loop should have tried to
+        # prompt again (i.e. it did NOT crash after the first turn).
+        assert any(k == "error" for k, _ in captured["displayed"]), captured
+        assert captured["prompt_calls"] >= 2, captured
 
-def test_user_loop_normal_turn_still_works(monkeypatch):
-    """Sanity: a normal successful turn still drives handle_prompt end-to-end."""
-    class OkAgent:
-        _context_length = 4096
-        _agent_type = SimpleNamespace(name="test", model_name="test")
+    def test_user_loop_normal_turn_still_works(self, monkeypatch):
+        """Sanity: a normal successful turn still drives handle_prompt end-to-end."""
+        class OkAgent:
+            _context_length = 4096
+            _agent_type = SimpleNamespace(name="test", model_name="test")
 
-        def handle_prompt(self, user_input):
-            yield (RESPONSE, "I am the agent.", {})
+            def handle_prompt(self, user_input):
+                yield (RESPONSE, "I am the agent.", {})
 
-    agent = OkAgent()
-    captured = _make_fakes(monkeypatch, agent)
+        agent = OkAgent()
+        captured = _make_fakes(monkeypatch, agent)
 
-    loop_mod.user_loop(agent)
+        loop_mod.user_loop(agent)
 
-    assert any(k == "response" and v == "I am the agent." for k, v in captured["displayed"]), captured
-    assert captured["prompt_calls"] >= 2, captured
+        assert any(k == "response" and v == "I am the agent." for k, v in captured["displayed"]), captured
+        assert captured["prompt_calls"] >= 2, captured

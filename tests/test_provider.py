@@ -30,74 +30,77 @@ def _make_usage(input_tokens=10, output_tokens=5, total_tokens=15):
     return usage
 
 
-def test_simple_text_response_normalization():
-    client = MagicMock()
-    provider = OpenAIProvider(client)
+class TestProviderNormalization:
+    """Tests for OpenAIProvider.chat_completion output normalization."""
 
-    response = Mock()
-    response.output = [_make_message_item("Hello!")]
-    response.usage = _make_usage(10, 5, 15)
-    client.responses.create.return_value = response
+    def test_simple_text_response_normalization(self):
+        client = MagicMock()
+        provider = OpenAIProvider(client)
 
-    result = provider.chat_completion(messages=[{"role": "user", "content": "Hi"}], model="gpt-x")
+        response = Mock()
+        response.output = [_make_message_item("Hello!")]
+        response.usage = _make_usage(10, 5, 15)
+        client.responses.create.return_value = response
 
-    assert result["choices"][0]["message"]["role"] == "assistant"
-    assert result["choices"][0]["message"]["content"] == "Hello!"
-    assert "tool_calls" not in result["choices"][0]["message"]
-    assert result["usage"] == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        result = provider.chat_completion(messages=[{"role": "user", "content": "Hi"}], model="gpt-x")
+
+        assert result["choices"][0]["message"]["role"] == "assistant"
+        assert result["choices"][0]["message"]["content"] == "Hello!"
+        assert "tool_calls" not in result["choices"][0]["message"]
+        assert result["usage"] == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+
+    def test_function_call_output_normalization(self):
+        client = MagicMock()
+        provider = OpenAIProvider(client)
+
+        response = Mock()
+        response.output = [
+            _make_message_item("Sure"),
+            _make_function_call_item("call_1", "execute_bash", '{"cmd":"ls"}'),
+        ]
+        response.usage = _make_usage(20, 8, 28)
+        client.responses.create.return_value = response
+
+        result = provider.chat_completion(messages=[{"role": "user", "content": "Run ls"}], model="gpt-x")
+
+        message = result["choices"][0]["message"]
+        assert message["content"] == "Sure"
+        assert message["tool_calls"] == [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "execute_bash", "arguments": '{"cmd":"ls"}'},
+            }
+        ]
+        assert result["usage"] == {"prompt_tokens": 20, "completion_tokens": 8, "total_tokens": 28}
+
+    def test_error_wrapping(self):
+        client = MagicMock()
+        provider = OpenAIProvider(client)
+        client.responses.create.side_effect = RuntimeError("boom")
+
+        raised = None
+        try:
+            provider.chat_completion(messages=[{"role": "user", "content": "Hi"}], model="gpt-x")
+        except RuntimeError as exc:
+            raised = exc
+
+        assert raised is not None
+        assert str(raised).startswith("Provider chat request failed:")
 
 
-def test_function_call_output_normalization():
-    client = MagicMock()
-    provider = OpenAIProvider(client)
+class TestProviderFactory:
+    """Tests for the provider factory helpers."""
 
-    response = Mock()
-    response.output = [
-        _make_message_item("Sure"),
-        _make_function_call_item("call_1", "execute_bash", '{"cmd":"ls"}'),
-    ]
-    response.usage = _make_usage(20, 8, 28)
-    client.responses.create.return_value = response
+    def test_factory_returns_openai_provider(self):
+        assert isinstance(create_provider(MagicMock(), "openai"), OpenAIProvider)
+        assert isinstance(create_provider(MagicMock(), "auto"), OpenAIProvider)
 
-    result = provider.chat_completion(messages=[{"role": "user", "content": "Run ls"}], model="gpt-x")
-
-    message = result["choices"][0]["message"]
-    assert message["content"] == "Sure"
-    assert message["tool_calls"] == [
-        {
-            "id": "call_1",
-            "type": "function",
-            "function": {"name": "execute_bash", "arguments": '{"cmd":"ls"}'},
-        }
-    ]
-    assert result["usage"] == {"prompt_tokens": 20, "completion_tokens": 8, "total_tokens": 28}
-
-
-def test_factory_returns_openai_provider():
-    assert isinstance(create_provider(MagicMock(), "openai"), OpenAIProvider)
-    assert isinstance(create_provider(MagicMock(), "auto"), OpenAIProvider)
-
-
-def test_ollama_provider_not_importable():
-    import_error = None
-    try:
-        from harness_core.model import OllamaProvider  # noqa: F401
-    except (ImportError, AttributeError) as exc:
-        import_error = exc
-    assert import_error is not None
-    assert hasattr(model_module, "OllamaProvider") is False
-
-
-def test_error_wrapping():
-    client = MagicMock()
-    provider = OpenAIProvider(client)
-    client.responses.create.side_effect = RuntimeError("boom")
-
-    raised = None
-    try:
-        provider.chat_completion(messages=[{"role": "user", "content": "Hi"}], model="gpt-x")
-    except RuntimeError as exc:
-        raised = exc
-
-    assert raised is not None
-    assert str(raised).startswith("Provider chat request failed:")
+    def test_ollama_provider_not_importable(self):
+        import_error = None
+        try:
+            from harness_core.model import OllamaProvider  # noqa: F401
+        except (ImportError, AttributeError) as exc:
+            import_error = exc
+        assert import_error is not None
+        assert hasattr(model_module, "OllamaProvider") is False

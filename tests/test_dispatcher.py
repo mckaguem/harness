@@ -23,45 +23,45 @@ class TestDispatch:
         with pytest.raises(KeyError):
             dispatch("nonexistent_tool", {})
 
-    def test_dispatch_returns_string_from_tool(self):
-        """dispatch should return a ToolResult from the called tool."""
+    def test_dispatch_returns_string_from_tool(self, tmp_path, monkeypatch):
+        """dispatch should return a ToolResult from the called tool and write the file."""
         from harness_core.tools.dispatcher import dispatch
 
-        # write_file returns a ToolResult with JSON status
-        with open("test_dispatcher.txt", "w") as f:
-            pass  # ensure file exists but is empty
+        # Run the write in an isolated temp dir so no stray files hit the repo CWD.
+        monkeypatch.chdir(tmp_path)
+        target = tmp_path / "test_dispatcher.txt"
+        target.write_text("")
 
-        try:
-            result = dispatch("write_file", {
-                "filename": "test_dispatcher.txt",
-                "content": "test content"
-            })
-            assert hasattr(result, 'llm_text') or hasattr(result, 'display_text')
-            text = getattr(result, 'llm_text', str(result)) + getattr(result, 'display_text', '')
-            assert isinstance(text, str)
-            assert '"status": "ok"' in text
-        finally:
-            import os
-            if os.path.exists("test_dispatcher.txt"):
-                os.remove("test_dispatcher.txt")
+        result = dispatch("write_file", {
+            "filename": str(target),
+            "content": "test content"
+        })
+        assert hasattr(result, 'llm_text') or hasattr(result, 'display_text')
+        text = getattr(result, 'llm_text', str(result)) + getattr(result, 'display_text', '')
+        assert isinstance(text, str)
+        assert '"status": "ok"' in text
 
-    def test_dispatch_forwards_args_correctly(self):
-        """dispatch should pass kwargs from args dict to the tool function."""
+        # Side effect: the file on disk must actually contain what was written.
+        assert target.exists()
+        assert target.read_text() == "test content"
+
+    def test_dispatch_forwards_args_correctly(self, tmp_path, monkeypatch):
+        """dispatch should pass kwargs from args dict to the tool function and write the file."""
         from harness_core.tools.dispatcher import dispatch
 
-        # write_file expects filename and content parameters
-        with open("test_kwargs.txt", "w") as f:
-            pass  # ensure file exists
+        # Run the write in an isolated temp dir so no stray files hit the repo CWD.
+        monkeypatch.chdir(tmp_path)
+        target = tmp_path / "test_kwargs.txt"
+        target.write_text("")
 
-        try:
-            result = dispatch("write_file", {
-                "filename": "test_kwargs.txt",
-                "content": "keyword args test"
-            })
-            assert hasattr(result, 'llm_text') or hasattr(result, 'display_text')
-            text = getattr(result, 'llm_text', str(result)) + getattr(result, 'display_text', '')
-            assert isinstance(text, str)
-        finally:
-            import os
-            if os.path.exists("test_kwargs.txt"):
-                os.remove("test_kwargs.txt")
+        result = dispatch("write_file", {
+            "filename": str(target),
+            "content": "keyword args test"
+        })
+        assert hasattr(result, 'llm_text') or hasattr(result, 'display_text')
+        text = getattr(result, 'llm_text', str(result)) + getattr(result, 'display_text', '')
+        assert isinstance(text, str)
+
+        # Side effect: the file on disk must actually contain what was written.
+        assert target.exists()
+        assert target.read_text() == "keyword args test"
