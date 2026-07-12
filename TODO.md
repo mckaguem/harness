@@ -44,13 +44,9 @@
 
 - sidebar on right
     - context usage, most recent t/s
-    - task list
-    - subagent info
 - textual sluggishness
 - Streaming responses (including thinking)
 - Collapsable thinking
-- tool call display text along with the raw json
-- For subagents, give 1-line tool call summaries, prefix with agent name.
 
 ## Misc
 
