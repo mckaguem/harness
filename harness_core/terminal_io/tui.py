@@ -166,15 +166,16 @@ class HarnessTUI:
             return
         app = self._app
         output = self._output
-        # `collapsed=False` so the call (and later the result) are visible by
-        # default; the user can click the title to hide it.  The title bar is
+        # `collapsed=True` so the call (and later the result) are invisible by
+        # default; the user can click the title to see it.  
+        # The title bar is
         # itself a (CollapsibleTitle) Static, so the inner content Static gets
         # a stable id to disambiguate it later in complete_tool_panel().
         inner = Static(call_renderable, id="tool-content")
         collapsible = Collapsible(
             inner,
             title=title,
-            collapsed=False,
+            collapsed=True,
         )
         with self._lock:
             # Stash the original call Panel so complete_tool_panel can rebuild

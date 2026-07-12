@@ -171,6 +171,11 @@ def _matches_file_filter(name: str, file_filter: str) -> bool:
     return name.endswith(file_filter)
 
 
+def summary(pattern: str, path: str, use_regex: bool = False, file_filter: str | None = None, max_matches: int = 50) -> str:
+    """Return a one-line summary of the grep call."""
+    return f"grep: {pattern} in {path}"
+
+
 function_def = {
     "type": "function",
     "function": {

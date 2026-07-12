@@ -87,6 +87,20 @@ def update_task_status(task_id: int, status: str, ctx: ToolContext | None = None
         return make_error_result(str(e))
 
 
+def summary(task_id: int, status: str) -> str:
+    """Return a one-line summary string for the update_task_status action.
+
+    Args:
+        task_id: Integer ID of the task to update (1-indexed).
+        status: New status value.
+
+    Returns:
+        A one-line summary string in the format:
+        "update task status: task {task_id} set to '{status}'"
+    """
+    return f"update task status: task {task_id} set to '{status}'"
+
+
 function_def = {
     "type": "function",
     "function": {

@@ -115,6 +115,11 @@ def web_fetch(url: str) -> ToolResult:
     )
 
 
+def summary(url: str) -> str:
+    """Return a one-line summary of the web_fetch call."""
+    return f"web_fetch: {url}"
+
+
 function_def = {
     "type": "function",
     "function": {

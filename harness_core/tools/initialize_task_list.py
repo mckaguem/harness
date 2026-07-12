@@ -58,6 +58,11 @@ def initialize_task_list(tasks: list[str], ctx: ToolContext | None = None) -> tu
         return make_error_result(str(e))
 
 
+def summary(tasks: list[str]) -> str:
+    """Return a one-line summary of the initialize_task_list call."""
+    return f"initialize_task_list: {len(tasks)} task(s)"
+
+
 function_def = {
     "type": "function",
     "function": {

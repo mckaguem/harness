@@ -169,6 +169,11 @@ def list_dir(path: str = '.', max_depth: int = 2, include_hidden: bool = False) 
     )
 
 
+def summary(path: str = '.', max_depth: int = 2, include_hidden: bool = False) -> str:
+    """Return a one-line summary of the list_dir call."""
+    return f"list_dir: {path} (depth={max_depth}, hidden={include_hidden})"
+
+
 function_def = {
     "type": "function",
     "function": {

@@ -295,17 +295,8 @@ or update their status to 'failed' before stopping.
                         yield (TOOL_RESULT, func_name, block_info["result"], response)
                         loop_count += 1
                         continue
-                
-                # Prepare a pretty string representation of the arguments for the TOOL_CALL yield.
-                try:
-                    if func_name == "initialize_task_list":
-                        args_str = ""
-                    else:
-                        args_str = json.dumps(args, indent=2)
-                except Exception:
-                    args_str = str(args)
-                
-                yield (TOOL_CALL, func_name, args_str, response)
+                                
+                yield (TOOL_CALL, func_name, raw_args, response)
 
                 # Defer execution of multiple run_subagent calls to a single
                 # concurrent batch after this loop (keeps them in parallel).

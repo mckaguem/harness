@@ -100,6 +100,12 @@ def edit_file(filename: str, edit: dict = None, edits: list = None) -> ToolResul
     )
 
 
+def summary(filename: str, edit: dict = None, edits: list = None) -> str:
+    """Return a one-line summary of the edit_file call."""
+    edit_count = len(edits) if edits else (1 if edit else 0)
+    return f"edit_file: {filename} ({edit_count} edit{'s' if edit_count != 1 else ''})"
+
+
 function_def = {
     "type": "function",
     "function": {

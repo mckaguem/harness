@@ -15,8 +15,9 @@ def _discover_skills():
     tools_dir = Path(__file__).parent
     schema = []
     registry = {}
+    summary_registry = {}
 
-    skip = {"__init__.py", "utils.py"}
+    skip = {"__init__.py", "utils.py", "dispatcher.py"}
 
     for path in sorted(tools_dir.glob("*.py")):
         if path.name in skip or path == Path(__file__).parent / "__init__.py":
@@ -40,20 +41,26 @@ def _discover_skills():
         schema.append(function_def)
         registry[name] = mod
 
-    return schema, registry
+        summary_fn = getattr(mod, "summary", None)
+        if callable(summary_fn):
+            summary_registry[name] = summary_fn
+
+    return schema, registry, summary_registry
 
 
 AGENT_TOOLS: list[dict] = []
 DISPATCH_REGISTRY: dict[str, callable] = {}
+SUMMARY_REGISTRY: dict[str, callable] = {}
 
 
 def _build() -> None:
-    """Re-discover skills and populate AGENT_TOOLS / DISPATCH_REGISTRY."""
-    global AGENT_TOOLS, DISPATCH_REGISTRY
+    """Re-discover skills and populate AGENT_TOOLS / DISPATCH_REGISTRY / SUMMARY_REGISTRY."""
+    global AGENT_TOOLS, DISPATCH_REGISTRY, SUMMARY_REGISTRY
 
-    schema, registry = _discover_skills()
+    schema, registry, summary_registry = _discover_skills()
     AGENT_TOOLS = schema  # type: ignore[assignment]
     DISPATCH_REGISTRY = registry  # type: ignore[assignment]
+    SUMMARY_REGISTRY = summary_registry  # type: ignore[assignment]
 
 
 _build()

@@ -33,6 +33,11 @@ def execute_bash(command: str) -> ToolResult:
         return ToolResult(llm_text=msg, display_text=msg, type_tag="text", title="Error", theme="error")
 
 
+def summary(command: str) -> str:
+    """Return a one-line summary of the execute_bash call."""
+    return f"execute_bash: {command}"
+
+
 function_def = {
     "type": "function",
     "function": {

@@ -9,6 +9,8 @@ from harness_core.terminal_io import (
     display_tool_call, display_tool_result, display_error,
     display_agent_response, display_user_message, format_speed,
 )
+from harness_core.tools.dispatcher import summarize
+import json
 from harness_core.commands import COMMANDS
 from harness_core.skills.interceptor import intercept_message, InterceptorKind
 
@@ -151,7 +153,9 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                     display_agent_response(content, ollama_response, agent._context_length)
                 elif kind == TOOL_CALL:
                     _, func_name, args_str, response_data = output
-                    display_tool_call(func_name, args_str)
+                    args_dict = json.loads(args_str)
+                    summary = summarize(func_name, args_dict)
+                    display_tool_call(func_name, args_str, summary)
                 elif kind == TOOL_RESULT:
                     _, func_name, result, response_data = output
                     display_tool_result(func_name, result)

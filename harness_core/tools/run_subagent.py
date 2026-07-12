@@ -236,6 +236,11 @@ def run_subagents_parallel(calls: List[Tuple[str, str]]) -> List[ToolResult]:
     return list(asyncio.run(_gather()))
 
 
+def summary(sub_agent: str, task: str) -> str:
+    """Return a one-line summary of the run_subagent call."""
+    return f"run_subagent: {sub_agent} ({task[:50]}...)" if len(task) > 50 else f"run_subagent: {sub_agent} ({task})"
+
+
 def _get_submit_results_def() -> Dict:
     """Lazily import and return the ``submit_results`` function_def dict."""
     from harness_core.tools.submit_results import function_def

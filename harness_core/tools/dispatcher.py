@@ -4,7 +4,7 @@ import inspect
 
 from harness_core.agent.tool_context import current_tool_context
 from harness_core.tools.tool_result import ToolResult
-from harness_core.tools import DISPATCH_REGISTRY
+import harness_core.tools as tools_module
 
 
 def _accepts_ctx(fn) -> bool:
@@ -31,7 +31,7 @@ def dispatch(func_name: str, args: dict) -> ToolResult | tuple:
     :class:`ToolResult`. Raises ``KeyError`` if *func_name* isn't registered;
     callers should treat that as "unknown tool".
     """
-    mod = DISPATCH_REGISTRY[func_name]  # raises KeyError for unknown tools
+    mod = tools_module.DISPATCH_REGISTRY[func_name]  # raises KeyError for unknown tools
     fn = getattr(mod, func_name)
 
     # Inject the execution context only for tools that opt in via a `ctx` param.
@@ -39,3 +39,17 @@ def dispatch(func_name: str, args: dict) -> ToolResult | tuple:
         args = {**args, "ctx": current_tool_context()}
 
     return fn(**args)
+
+
+def summarize(func_name: str, args: dict) -> str:
+    """Return a summary string for the tool *func_name* with keyword *args*.
+
+    Looks up the tool's summary function in SUMMARY_REGISTRY and calls it
+    with **args. If the summary function isn't registered or raises an
+    exception, falls back to "{func_name}: (summary unavailable)".
+    """
+    try:
+        summary_fn = tools_module.SUMMARY_REGISTRY[func_name]
+        return summary_fn(**args)
+    except Exception:
+        return f"{func_name}: (summary unavailable)"

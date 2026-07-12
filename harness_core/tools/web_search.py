@@ -118,6 +118,10 @@ def web_search(
     )
 
 
+def summary(query: str, region: str = "us-en", safesearch: str = "moderate", timelimit: str | None = None, max_results: int | None = 10, page: int = 1, backend: str = "auto") -> str:
+    """Return a one-line summary of the web_search call."""
+    return f"web_search: {query[:50]}{'...' if len(query) > 50 else ''}"
+
 function_def = {
     "type": "function",
     "function": {
@@ -183,3 +187,5 @@ function_def = {
         }
     }
 }
+
+

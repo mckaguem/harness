@@ -56,7 +56,7 @@ def print_system(title: str, message: str) -> None:
     _tui_write(Panel(message, title=title, border_style="magenta"))
 
 
-def display_tool_call(func_name: str, args_str: str) -> None:
+def display_tool_call(func_name: str, args_str: str, summary: str | None = None) -> None:
     """Print a tool-call panel showing the function name and its arguments.
 
     Renders the call using ``display_message_panel`` with theme="info" and
@@ -90,7 +90,7 @@ def display_tool_call(func_name: str, args_str: str) -> None:
         # Fallback: render raw string with decoded newlines.
         display_content = args_str.replace("\\n", "\n").replace("\\r", "\r")
 
-    title = f"Tool: {func_name}"
+    title = summary if summary else f"Tool: {func_name}"
 
     renderable = display_message_panel(
         text=display_content,

@@ -82,6 +82,11 @@ def activate_skill(skill_name: str) -> ToolResult:
         return make_error_result(f"Unexpected error activating skill '{skill_name}': {e}")
 
 
+def summary(skill_name: str) -> str:
+    """Return a one-line summary of the activate_skill call."""
+    return f"activate_skill: {skill_name}"
+
+
 function_def = {
     "type": "function",
     "function": {

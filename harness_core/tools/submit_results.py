@@ -64,6 +64,25 @@ def submit_results(json_payload: str) -> ToolResult:
     )
 
 
+def summary(json_payload: str) -> str:
+    """Return a one-line summary of the submit_results call.
+
+    Args:
+        json_payload: Same JSON payload string passed to submit_results().
+
+    Returns:
+        One-line summary: "submit_results: <summary_of_actions>" or
+        "submit_results: <invalid json>" if parsing fails.
+    """
+    import json as _json
+    try:
+        data = _json.loads(json_payload)
+        summary_text = data.get("summary_of_actions", "")
+        return f"submit_results: {summary_text}"
+    except Exception:
+        return "submit_results: <invalid json>"
+
+
 function_def = {
     "type": "function",
     "function": {

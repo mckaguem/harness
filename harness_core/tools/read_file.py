@@ -87,6 +87,11 @@ def read_file(filename: str, offset: int, limit: int) -> ToolResult:
         return make_error_result(f"Error reading file: {e}")
 
 
+def summary(filename: str, offset: int, limit: int) -> str:
+    """Return a one-line summary string for read_file."""
+    return f"read_file: {filename} (lines {offset+1}-{offset+limit})"
+
+
 function_def = {
     "type": "function",
     "function": {

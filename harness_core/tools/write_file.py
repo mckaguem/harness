@@ -25,6 +25,11 @@ def write_file(filename: str, content: str) -> ToolResult:
         return make_error_result(f"Error writing to file: {e}")
 
 
+def summary(filename: str, content: str) -> str:
+    """Return a one-line summary of the write_file call."""
+    return f"write_file: {filename} ({len(content)} chars)"
+
+
 function_def = {
     "type": "function",
     "function": {
