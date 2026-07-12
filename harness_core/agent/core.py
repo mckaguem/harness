@@ -81,7 +81,7 @@ class Agent:
             agent_type_name=agent_type.name,
         )
 
-        self._max_loops: int = 30  # Safety ceiling to prevent infinite loops
+        self._max_loops: int = 100  # Safety ceiling to prevent infinite loops
 
         # Bind this instance as the current agent in the thread context so tools
         # can spawn sub-agents without an explicit parent reference.
