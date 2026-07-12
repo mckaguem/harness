@@ -17,6 +17,8 @@
     - auto compression not happening?
     - Print out when auto compression happens
     - Print out size of context before and after (% of max context)
+    - Save to file in nicer format (use same mechanism as uncompressed)
+    - Context usage stats seem to be using old numbers, not updated
 - Relevance realisation system
 
 ## Commands
