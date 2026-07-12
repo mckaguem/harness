@@ -2,10 +2,7 @@
 
 ## Testing
 
-- fix broken tests
-- update tests for high test coverage
-- integration tests in headless mode
-- some kind of mock terminal for testing tui
+- fix: testing creates multiple session files that need to be deleted after testing
 
 ## Session Saving
 
@@ -17,6 +14,7 @@
 ## Context efficiency
 
 - Context compression
+    - auto compression not happening?
     - Print out when auto compression happens
     - Print out size of context before and after (% of max context)
 - Relevance realisation system
@@ -27,6 +25,7 @@
 
 ## Skills
 
+- remove error about missing skills directory every time a skill is used
 - clean up the code so much!
     - Skill class
 
@@ -34,7 +33,9 @@
 
 - Some way of preventing the main agent from getting the submit_result tool
 
-## Subagents 
+## Subagents
+
+- collapsed subagent session visible?
 
 ## Infra
 
@@ -43,7 +44,8 @@
 ## UI
 
 - sidebar on right
-    - context usage, most recent t/s
+    - format usage stats better
+- turn time under agent response
 - textual sluggishness
 - Streaming responses (including thinking)
 - Collapsable thinking
@@ -51,6 +53,7 @@
 ## Misc
 
 - On start, ask to copy sample config to ~/.harness_py if not found (and if not in project directory)
+
 
 ## Refactor
 
