@@ -13,6 +13,7 @@ The harness can run in two modes:
 
 import getopt
 import sys
+import time
 
 from harness_core.agent import Agent
 from harness_core.tools import AGENT_TOOLS
@@ -166,8 +167,8 @@ def run_non_interactive(agent, message):
         display_error,
         display_agent_response,
         display_user_message,
+        display_turn_stats,
     )
-    from harness_core.terminal_io.speed import format_speed
     from rich.console import Console
 
     _console = Console()
@@ -202,19 +203,20 @@ def run_non_interactive(agent, message):
         display_user_message(effective_input)
 
     # --- Drive the agent engine to completion ------------------------------
+    turn_start = time.time()
     for output in agent.handle_prompt(effective_input):
         kind = output[0]
         if kind == RESPONSE:
             _, content, ollama_response = output
+            elapsed = time.time() - turn_start
             display_agent_response(content, ollama_response, agent._context_length)
+            display_turn_stats(ollama_response, agent._context_length, elapsed_seconds=elapsed)
         elif kind == TOOL_CALL:
             _, func_name, args_str, response_data = output
             display_tool_call(func_name, args_str)
         elif kind == TOOL_RESULT:
             _, func_name, result, response_data = output
             display_tool_result(func_name, result)
-            if response_data and 'usage' in response_data:
-                _console.print(format_speed(response_data, agent._context_length))
         elif kind == ERROR:
             _, description = output
             display_error(description)

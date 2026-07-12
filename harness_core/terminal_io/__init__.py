@@ -12,6 +12,7 @@ from .display import (
     display_error,
     display_agent_response,
     display_user_message,
+    display_turn_stats,
     reset_pending_tool_panel,
 )
 
@@ -25,6 +26,7 @@ __all__ = [
     "format_tool_elapsed",
     "display_agent_response",
     "display_user_message",
+    "display_turn_stats",
     "display_error",
     "display_tool_call",
     "display_tool_result",

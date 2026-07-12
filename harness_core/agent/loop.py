@@ -7,7 +7,8 @@ from harness_core.agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from harness_core.terminal_io import (
     print_system, prompt_user,
     display_tool_call, display_tool_result, display_error,
-    display_agent_response, display_user_message, format_speed,
+    display_agent_response, display_user_message, display_turn_stats,
+    format_speed,
 )
 from harness_core.tools.dispatcher import summarize
 import json
@@ -87,6 +88,7 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
 
     while True:
         user_input = prompt_user()
+        turn_start = _time.time()
 
         # Echo the user's own message into the output pane so it appears
         # alongside the agent's response.  (The classic REPL renders the typed
@@ -147,7 +149,9 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                 kind = output[0]
                 if kind == RESPONSE:
                     _, content, ollama_response = output
+                    elapsed = _time.time() - turn_start
                     display_agent_response(content, ollama_response, agent._context_length)
+                    display_turn_stats(ollama_response, agent._context_length, elapsed_seconds=elapsed)
                 elif kind == TOOL_CALL:
                     _, func_name, args_str, response_data = output
                     args_dict = json.loads(args_str)
@@ -156,8 +160,6 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                 elif kind == TOOL_RESULT:
                     _, func_name, result, response_data = output
                     display_tool_result(func_name, result)
-                    if response_data and 'usage' in response_data:
-                        print_system("Usage", format_speed(response_data, agent._context_length))
                 elif kind == ERROR:
                     _, description = output
                     display_error(description)

@@ -285,4 +285,21 @@ def display_agent_response(content: str | None, response: dict | None = None, co
 
     speed_info = format_speed(response, context_length)
     if speed_info:
-        _tui_write(speed_info)
+        _tui_write(speed_info)                       # under the agent response
+        _tui.get_tui().update_sidebar_usage(speed_info)
+
+
+def display_turn_stats(response: dict | None = None, context_length: int = 0,
+                       elapsed_seconds: float | None = None) -> None:
+    """Push the most recent turn's usage + elapsed time into the right sidebar.
+
+    Only the latest stats are shown (the sidebar overwrites its stats each call).
+    """
+    parts = []
+    speed_info = format_speed(response, context_length)
+    if speed_info:
+        parts.append(speed_info)
+    if elapsed_seconds is not None:
+        parts.append(f"[dim]⏲ {elapsed_seconds:.1f}s turn[/dim]")
+    if parts:
+        _tui.get_tui().update_sidebar_usage("\n".join(parts))

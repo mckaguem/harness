@@ -88,26 +88,51 @@ class TaskListSidebar(Static):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._agent = None
+        self._usage_text: str | None = None
 
     def set_agent(self, agent) -> None:
         """Provide the agent whose task list should be displayed."""
         self._agent = agent
 
-    def refresh_tasks(self) -> None:
-        """Re-render the sidebar from the agent's current task list.
+    def set_usage(self, text: str | None) -> None:
+        """Store the most recent LLM usage summary to render above the tasks.
 
-        Rendered as a Rich ``Markdown`` object so the task-list heading and
-        ``- [x]`` / ``[*]`` / ``[!]`` / ``[ ]`` checklist markers are laid
-        out as proper Markdown rather than literal text.
+        ``text`` is the ``format_speed`` summary string (or ``None`` to clear).
+        It is rendered on the next :meth:`refresh_tasks`.
         """
+        self._usage_text = text
+
+    def refresh_tasks(self) -> None:
+        """Re-render the sidebar.
+
+        The usage summary (if set) is always shown at the top, above the task
+        list.  The task list renders below it whenever one exists (even when
+        empty after completion); if no task list is available yet, only the
+        usage block is shown.
+        """
+        usage_render = None
+        if self._usage_text:
+            # Render on two lines: the speed line, then the (optional) turn
+            # line, so it does not wrap awkwardly in the narrow sidebar.
+            sub = self._usage_text.split("\n")
+            lines = [Text.from_markup(part) for part in sub if part]
+            usage_render = Group(Text("📊 Usage", style="bold"), *lines, Rule())
+
         if self._agent is None or self._agent.task_list is None:
-            self.update(Markdown("No tasks yet."))
+            # No task list available yet — show usage only (or a placeholder).
+            self.update(usage_render if usage_render is not None else Markdown("_No tasks yet._"))
             return
+
         tasks = self._agent.task_list
         if not tasks.tasks:
-            self.update(Markdown("No tasks yet."))
-            return
-        self.update(Markdown(tasks.to_markdown()))
+            body = Markdown("_No tasks yet._")
+        else:
+            body = Markdown(tasks.to_markdown())
+
+        if usage_render is not None:
+            self.update(Group(usage_render, body))
+        else:
+            self.update(body)
 
 
 class HarnessTUI:
@@ -278,6 +303,19 @@ class HarnessTUI:
         """
         with self._lock:
             return self._write_count
+
+    # ── sidebar usage (thread-safe, delegated to the running app) ───────
+
+    def update_sidebar_usage(self, text: str | None) -> None:
+        """Push the most recent usage summary to the right sidebar.
+
+        No-op unless the TUI is active; otherwise delegates to the running
+        :class:`TextualHarnessApp`, which marshals the update onto the app
+        thread.
+        """
+        if not self.is_active() or self._app is None:
+            return
+        self._app.update_sidebar_usage(text)
 
     # ── agent busy indicator (used by user_loop around handle_prompt) ────
 
@@ -476,6 +514,33 @@ class TextualHarnessApp(App):
             return
         try:
             self.call_from_thread(self.query_one("#task-sidebar", TaskListSidebar).refresh_tasks)
+        except Exception:
+            pass
+
+    def update_sidebar_usage(self, text: str | None) -> None:
+        """Push the most recent usage summary to the right sidebar (thread-safe).
+
+        Marshals a single call onto the app thread that sets the stored usage
+        text and re-renders the sidebar above the task list.  This is only ever
+        invoked from the HarnessTUI controller after the app is bound and
+        running; it guards on the App's own ``is_running`` flag and wraps the
+        marshalled work in try/except so a stray call never raises (Textual's
+        ``App`` does not expose an ``is_active`` property, which was the
+        original source of the reported crash).
+        """
+        if not self.is_running:
+            return
+
+        def _do() -> None:
+            try:
+                sidebar = self.query_one("#task-sidebar", TaskListSidebar)
+            except Exception:
+                return
+            sidebar.set_usage(text)
+            sidebar.refresh_tasks()
+
+        try:
+            self.call_from_thread(_do)
         except Exception:
             pass
 
