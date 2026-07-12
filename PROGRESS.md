@@ -26,7 +26,7 @@ This file tracks the work done across the phases described in `plan.md`.
 
 ### Phase 3 — Speculative features
 - ⬜ Goal: Use the `researcher` subagent to find 10 beneficial features online, document them, choose the best, and implement it with tests. Run, fix, commit.
-- Status: ⬜ pending
+- Status: ✅ completed
 
 ## Summary of commits / changes
 (Will be filled in as work progresses.)
@@ -72,3 +72,30 @@ This file tracks the work done across the phases described in `plan.md`.
 - Added `harness_core/tools/await_subagent.py`, a new tool that blocks until a background sub-agent job finishes and returns its result. It is auto-discovered into `DISPATCH_REGISTRY` (alongside `AGENT_TOOLS`), so `'await_subagent' in DISPATCH_REGISTRY` is `True`.
 - The `tests/test_tools.py` count was updated to 14 (was 13): it now covers the new `await_subagent` auto-discovery/registration alongside the rest of the tool surface.
 - Tests: `tests/test_parallel_subagent_manager.py` (13 tests) covers `SubagentManager` lifecycle, concurrency limit, the `run_subagent(block=...)` paths, and `await_subagent` round-trip. All 13 pass in < 1s after fixing two tests that patched the wrong module path (`harness_core.tools.run_subagent._run_one` → `harness_core.tools.subagent_manager._run_one`).
+
+### Change 5 — Phase 3: persistent project memory (MEMORY.md)
+- Phase 3 research enumerated 10 beneficial features for a local coding agent in
+  `docs/speculative_features.md` (sources: Claude Code architecture write-ups,
+  r/LocalLLaMA threads, agent-worktree/context-mode projects, etc.). The selected
+  best feature was a **persistent project memory file** (`MEMORY.md`) — the agentic
+  "external memory" pattern: a durable notes file that outlives any single
+  conversation and is auto-injected into the system prompt, surviving context
+  compression and session reloads.
+- `harness_core/memory.py` (new) provides `get_memory_path()`, `read_memory()`
+  (returns stripped content or `None`), and `memory_section(memory)` (builds the
+  prompt block, returning "" when memory is empty/None so callers can append it
+  unconditionally). It reuses `harness_core.utils.project_root` to locate the file.
+- `harness_core/tools/update_memory.py` (new) is a self-discovered tool (exposes
+  `function_def`) so it is auto-registered into `DISPATCH_REGISTRY`/`AGENT_TOOLS`.
+  It supports `mode="replace"` (default) and `mode="append"`, returning a
+  `ToolResult` (theme `"error"` for invalid modes). Lets an agent maintain
+  `MEMORY.md` while working.
+- System-prompt wiring: `AgentType._build_system_prompt` in
+  `harness_core/agent/types.py` now imports `read_memory`/`memory_section` and
+  appends the memory section at the end of the prompt (after the cwd footer), so
+  every agent sees the project's persistent memory. Previously the wiring was
+  missing and agents never saw the file.
+- `tests/test_memory.py` (new, 9 fast offline tests) covers `read_memory`
+  (missing/returns content), `memory_section` (empty/block), `update_memory`
+  (replace/append/invalid mode), system-prompt injection, and auto-discovery.
+- `tests/test_tools.py` count is 20 (Phase 2b additions remain green).

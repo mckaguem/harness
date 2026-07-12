@@ -7,6 +7,7 @@ from pathlib import Path
 
 from harness_core.model.types import ProviderConfig
 from harness_core.utils import project_root
+from harness_core.memory import read_memory, memory_section
 
 import yaml
 
@@ -165,6 +166,12 @@ class AgentType:
         # Append backwards-compatible "current working directory name" footer.
         if not had_template_vars:
             prompt += f"\nCurrent working directory name: {cwd.name}"
+
+        # Inject the persistent project memory (MEMORY.md) section, if any.
+        # memory_section() returns "" when there is no memory, so this is safe
+        # and unconditional.
+        memory = read_memory()
+        prompt += memory_section(memory)
 
         return prompt
     
