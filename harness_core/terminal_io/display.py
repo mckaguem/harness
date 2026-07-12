@@ -259,7 +259,7 @@ def display_user_message(message: str) -> None:
     ))
 
 
-def display_agent_response(content: str | None, response: dict = {}, context_length: int = 0,
+def display_agent_response(content: str | None, response: dict | None = None, context_length: int = 0,
                            prompt_token_count: int | None = None) -> None:
     """Display the agent's response safely.
 
@@ -276,6 +276,8 @@ def display_agent_response(content: str | None, response: dict = {}, context_len
     prompt_token_count: int | None, optional
         Number of tokens in the original prompt.
     """
+    if response is None:
+        response = {}
     # Guard against None content – treat as empty string.
     safe_content = content if content is not None else ""
     markdown_obj = Markdown(safe_content)

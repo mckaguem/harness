@@ -342,11 +342,17 @@ class OpenAIProvider(Provider):
         tools = kwargs.get('tools')
         max_output_tokens = kwargs.pop('max_tokens', 16384) if 'max_tokens' in kwargs else 16384
 
+        # Mirror chat_completion: normalise the chat schema into the
+        # Responses input shape (system -> instructions, tool results ->
+        # function_call_output, assistant tool_calls -> function_call).
+        instructions, input_items = _to_responses_input(messages)
         request_kwargs = {
             "model": model,
-            "input": messages,
+            "input": input_items,
             "max_output_tokens": max_output_tokens,
         }
+        if instructions is not None:
+            request_kwargs["instructions"] = instructions
         if tools is not None:
             # Responses API `tools` are FLATTENED (see _to_responses_tools).
             request_kwargs["tools"] = _to_responses_tools(tools)
