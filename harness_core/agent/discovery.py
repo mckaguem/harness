@@ -103,7 +103,8 @@ def get_agent_yaml(agent_name: str, agents_dirs: Optional[List[Path]] = None) ->
         if yaml_file.is_file():
             return yaml_file, ""
 
-    return None, f"Agent '{agent_name}' not found in any configured path: {agents_dirs}"
+    dir_names = ", ".join(sorted({p.name for p in agents_dirs}))
+    return None, f"Agent '{agent_name}' not found in any configured path: {dir_names}"
 
 
 def get_agent_yaml_paths() -> List[Path]:

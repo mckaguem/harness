@@ -137,17 +137,13 @@ def list_dir(path: str = '.', max_depth: int = 2, include_hidden: bool = False) 
             "Path traversal detected. You may only list directories within the project directory."
         )
 
-    # Resolve the target and verify it stays inside the project root.
+    # Resolve the target; is_safe_path() above already guarantees it stays
+    # inside the project root, so this is purely for downstream use.
     try:
         cwd = project_root().resolve()
     except FileNotFoundError:
         cwd = Path.cwd().resolve()
     target = (cwd / path).resolve()
-
-    if not target.is_relative_to(cwd):
-        return make_error_result(
-            "Path traversal detected. You may only list directories within the project directory."
-        )
 
     if not target.is_dir():
         return make_error_result(f"`{path}` is not a directory in the current workspace.")

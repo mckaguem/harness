@@ -3,7 +3,7 @@
 import os
 import re
 from pathlib import Path
-from harness_core.tools.utils import _strip_ansi, make_error_result
+from harness_core.tools.utils import _strip_ansi, is_safe_path, make_error_result
 from harness_core.tools.tool_result import ToolResult
 from harness_core.utils import project_root
 
@@ -47,15 +47,17 @@ def grep(
     if max_matches < 1:
         return make_error_result(f"`max_matches` must be >= 1.")
 
+    # Fail closed: every path op must pass the canonical guard first.
+    if not is_safe_path(path):
+        return make_error_result(
+            "Path traversal detected. `path` must be within the current directory."
+        )
+
     try:
         cwd = project_root().resolve()
     except FileNotFoundError:
         cwd = Path.cwd().resolve()
     target = (cwd / path).resolve()
-
-    # Safety — every candidate path must stay inside cwd.
-    if not target.is_relative_to(cwd):
-        return make_error_result(f"Path traversal detected. `path` must be within the current directory.")
 
     try:
         compiled = re.compile(pattern) if use_regex else None
@@ -115,7 +117,7 @@ def grep(
                             "content": line.strip(),
                         })
         except PermissionError as e:
-            return make_error_result(f"Permission denied reading `{abs_path}`: {e}")
+            return make_error_result(f"Permission denied reading `{rel_path}`: {e}")
         except Exception as e:
             # Skip unreadable files gracefully — don't abort the whole search.
             continue

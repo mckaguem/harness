@@ -232,7 +232,8 @@ class Agent:
             if loop_count >= self._max_loops:
                 yield (ERROR, f"Maximum loop count ({self._max_loops}) exceeded. Breaking out of handle_prompt.")
                 break
-            
+            loop_count += 1
+
             messages_to_send = self._session.get_messages()
             response = self._chat(messages_to_send)
             
@@ -293,7 +294,6 @@ or update their status to 'failed' before stopping.
                         prepared_inner = self._session.prepare_message_for_injection(inner_block_dict)
                         self._session.add_user_message(prepared_inner["content"])
                         yield (TOOL_RESULT, func_name, block_info["result"], response)
-                        loop_count += 1
                         continue
                                 
                 yield (TOOL_CALL, func_name, raw_args, response)
