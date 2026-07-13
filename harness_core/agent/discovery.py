@@ -10,6 +10,12 @@ When an agent name exists in both paths, the project version wins.
 from pathlib import Path
 from typing import Tuple
 
+from harness_core.terminal_io import print_system
+
+# Module-level cache so the (expensive) filesystem scan runs only once per
+# unique set of discovery directories.
+_AGENT_DISCOVERY_CACHE: dict[tuple, list] = {}
+
 
 def _merge_agent_discoveries(
     discoveries: list[tuple[Path, list[Tuple[str, Path]]]],
@@ -54,28 +60,44 @@ def discover_agents(
         from harness_core.config import get_discovery_dirs
         agents_dirs = get_discovery_dirs("agents")
 
-    all_discoveries: list[tuple[Path, list[Tuple[str, Path]]]] = []
+    cache_key = tuple(str(p) for p in agents_dirs)
+    merged = _AGENT_DISCOVERY_CACHE.get(cache_key)
+    if merged is None:
+        all_discoveries: list[tuple[Path, list[Tuple[str, Path]]]] = []
+        missing_dirs: list[Path] = []
 
-    for agents_path in agents_dirs:
-        if not agents_path.is_dir():
-            print(f"[agents] Warning: Agents directory not found: {agents_path}")
-            all_discoveries.append((agents_path, []))
-            continue
-
-        valid_agents = []
-        for yaml_file in sorted(agents_path.iterdir()):
-            if not yaml_file.is_file():
-                continue
-            # Only pick up .yaml / .yml files at the top level of agents/
-            if yaml_file.suffix not in (".yaml", ".yml"):
+        for agents_path in agents_dirs:
+            if not agents_path.is_dir():
+                missing_dirs.append(agents_path)
+                all_discoveries.append((agents_path, []))
                 continue
 
-            agent_name = yaml_file.stem
-            valid_agents.append((agent_name, yaml_file))
+            valid_agents = []
+            for yaml_file in sorted(agents_path.iterdir()):
+                if not yaml_file.is_file():
+                    continue
+                # Only pick up .yaml / .yml files at the top level of agents/
+                if yaml_file.suffix not in (".yaml", ".yml"):
+                    continue
 
-        all_discoveries.append((agents_path, valid_agents))
+                agent_name = yaml_file.stem
+                valid_agents.append((agent_name, yaml_file))
 
-    return _merge_agent_discoveries(all_discoveries)
+            all_discoveries.append((agents_path, valid_agents))
+
+        # Only warn when NONE of the configured agents directories exist — a single
+        # missing directory is expected (e.g. project has agents but global doesn't).
+        if missing_dirs and len(missing_dirs) == len(agents_dirs):
+            print_system(
+                "Agents",
+                "Agents directory not found in any configured path: "
+                + ", ".join(str(p) for p in missing_dirs),
+            )
+
+        merged = _merge_agent_discoveries(all_discoveries)
+        _AGENT_DISCOVERY_CACHE[cache_key] = merged
+
+    return merged
 
 
 def get_agent_yaml(agent_name: str, agents_dirs: list[Path] | None = None) -> Tuple[Path | None, str]:

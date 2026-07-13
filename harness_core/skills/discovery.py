@@ -14,6 +14,10 @@ import yaml
 
 from harness_core.terminal_io import print_system
 
+# Module-level cache so the (expensive) filesystem scan runs only once per
+# unique set of discovery directories. Keyed by the tuple of directory paths.
+_SKILL_DISCOVERY_CACHE: dict[tuple, list] = {}
+
 
 def parse_skill_metadata(skill_dir: Path) -> Tuple[Dict, list[str]]:
     """Parse a skill directory's SKILL.md file and validate metadata.
@@ -145,32 +149,45 @@ def discover_skills(
         from harness_core.config import get_discovery_dirs
         skills_dirs = get_discovery_dirs("skills")
 
-    all_discoveries: list[tuple[Path, list[Tuple[str, Dict]]]] = []
+    cache_key = tuple(str(p) for p in skills_dirs)
+    merged = _SKILL_DISCOVERY_CACHE.get(cache_key)
+    if merged is None:
+        all_discoveries: list[tuple[Path, list[Tuple[str, Dict]]]] = []
+        missing_dirs: list[Path] = []
 
-    for skills_path in skills_dirs:
-        if not skills_path.is_dir():
-            print_system("Skills", f"Skills directory not found: {skills_path}")
-            all_discoveries.append([skills_path, []])  # empty list for missing dir
-            continue
-
-        valid_skills = []
-        for skill_path in sorted(skills_path.iterdir()):
-            if not skill_path.is_dir() or skill_path.name.startswith("."):
+        for skills_path in skills_dirs:
+            if not skills_path.is_dir():
+                missing_dirs.append(skills_path)
+                all_discoveries.append([skills_path, []])  # empty list for missing dir
                 continue
 
-            metadata, errors = parse_skill_metadata(skill_path)
+            valid_skills = []
+            for skill_path in sorted(skills_path.iterdir()):
+                if not skill_path.is_dir() or skill_path.name.startswith("."):
+                    continue
 
-            if errors:
-                print_system("Skills", f"Skipping invalid skill '{skill_path.name}':")
-                for error in errors:
-                    print_system("Skills", f"  - {error}")
-                continue
+                metadata, errors = parse_skill_metadata(skill_path)
 
-            valid_skills.append((metadata["name"], metadata))
+                if errors:
+                    print_system("Skills", f"Skipping invalid skill '{skill_path.name}':")
+                    for error in errors:
+                        print_system("Skills", f"  - {error}")
+                    continue
 
-        all_discoveries.append([skills_path, valid_skills])
+                valid_skills.append((metadata["name"], metadata))
 
-    merged = _merge_skill_discoveries(all_discoveries)
+            all_discoveries.append([skills_path, valid_skills])
+
+        # Only warn when NONE of the configured skills directories exist
+        if missing_dirs and len(missing_dirs) == len(skills_dirs):
+            print_system(
+                "Skills",
+                "Skills directory not found in any configured path: "
+                + ", ".join(str(p) for p in missing_dirs),
+            )
+
+        merged = _merge_skill_discoveries(all_discoveries)
+        _SKILL_DISCOVERY_CACHE[cache_key] = merged
     
     # Check for command/skill collisions if command_names provided
     if command_names is not None:
