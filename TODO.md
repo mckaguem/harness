@@ -2,7 +2,6 @@
 
 ## Testing
 
-- fix: testing creates multiple session files that need to be deleted after testing
 
 ## Session Saving
 
@@ -13,12 +12,14 @@
 
 ## Context efficiency
 
-- Context compression
+- Context compression (test the following)
     - auto compression not happening?
     - Print out when auto compression happens
     - Print out size of context before and after (% of max context)
     - Save to file in nicer format (use same mechanism as uncompressed)
     - Context usage stats seem to be using old numbers, not updated
+    - Truncate listdir tool outputs
+
 - Relevance realisation system
 
 ## Commands
@@ -27,7 +28,6 @@
 
 ## Skills
 
-- remove error about missing skills directory every time a skill is used
 - clean up the code so much!
     - Skill class
 

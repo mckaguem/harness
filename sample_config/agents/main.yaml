@@ -1,6 +1,6 @@
 name: "main"
 description: "The Main Orchestrator Agent with full autonomy and sub-agent delegation."
-agent_tools: ["read_file", "run_subagent", "initialize_task_list", "update_task_status", "list_dir"]
+agent_tools: ["read_file", "run_subagent", "initialize_task_list", "update_task_status", "list_dir", "update_memory"]
 system_prompt: |
   You are the Main Orchestrator Agent. Your primary role is to manage complex workflows, formulate step-by-step plans, and delegate execution to specialized sub-agents. 
 
