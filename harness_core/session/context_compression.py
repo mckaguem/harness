@@ -11,6 +11,7 @@ This module provides functionality to compress conversation history by:
 """
 
 from .session import Session  # Ensure proper import if needed elsewhere
+from harness_core.terminal_io import print_system
 
 # Tool names whose (large, tree-style) outputs should be truncated during
 # compression to keep only the most recent portion — mirroring the generic
@@ -186,6 +187,11 @@ def compress_session(session: object, fraction: float = 0.1) -> str | None:
     if not hasattr(session, "messages"):
         raise ValueError("Session object must have a 'messages' attribute")
 
+    messages = getattr(session, "messages", None)
+    if messages is None:
+        print_system("Compress", "Session has no messages. Cannot compress.")
+        return None
+
     # Always save before mutating
     session.save()
 
@@ -195,7 +201,9 @@ def compress_session(session: object, fraction: float = 0.1) -> str | None:
     # If nothing changed, return None
     had_changes = False
     for orig_msg, comp_msg in zip(session.messages, new_messages):
-        if len(comp_msg.get("content", "")) < len(orig_msg.get("content", "")):
+        orig_content = orig_msg.get("content") or ""
+        comp_content = comp_msg.get("content") or ""
+        if len(comp_content) < len(orig_content):
             had_changes = True
             break
 

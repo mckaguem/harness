@@ -36,7 +36,11 @@ def compress_handler(rest: str, agent=None):
         return False
     
     # Log before/after stats for the user
-    original_count = len(session.messages)
+    messages = getattr(session, 'messages', None)
+    if messages is None:
+        print_system("Compress", "Session has no messages. Cannot compress.")
+        return False
+    original_count = len(messages)
     try:
         result = compress_session(session, fraction=fraction)
         

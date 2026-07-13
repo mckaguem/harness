@@ -98,7 +98,7 @@ def cmd_load_session(rest: str, agent=None) -> bool | None:
             print_system("Load Failed", "Session file contains no messages.")
             return False
 
-        system_prompt = messages[0].get("content", "")
+        system_prompt = messages[0].get("content") or ""
         conversation_messages = messages[1:]
 
     except FileNotFoundError:

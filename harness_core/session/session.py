@@ -412,7 +412,7 @@ Execute the next logical step based on this state. Only reference tasks by their
         # Replay conversation messages into the session.
         for msg in conversation_messages:
             role = msg.get("role", "")
-            content = msg.get("content", "")
+            content = msg.get("content") or ""
 
             if role == "user":
                 session.add_user_message(content)
