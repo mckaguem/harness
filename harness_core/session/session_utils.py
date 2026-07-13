@@ -115,7 +115,7 @@ def parse_session_yaml(yaml_content: str) -> tuple[list[dict], str | None]:
             elif role == "assistant":
                 msg_dict: dict = {"role": "assistant"}
                 if doc.get("tool_calls"):
-                    parsed_tool_calls = []
+                    parsed_tool_calls: list[dict] = []
                     for tc in doc["tool_calls"]:
                         func = tc.get("function", {})
                         args_val = func.get("arguments", "")

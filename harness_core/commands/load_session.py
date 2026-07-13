@@ -134,7 +134,8 @@ def cmd_load_session(rest: str, agent=None) -> bool | None:
             new_session.add_assistant_message(msg)
         elif role == "tool":
             func_name = msg.get("name", "unknown_tool")
-            new_session.add_tool_result(func_name, content)
+            tool_call_id = msg.get("tool_call_id", f"call_{func_name}")
+            new_session.add_tool_result(func_name, content, tool_call_id)
 
     agent._session = new_session
 

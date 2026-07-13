@@ -32,7 +32,7 @@ When an agent name exists in both, the project version wins.
 import asyncio
 import json
 from pathlib import Path
-from typing import Tuple
+from typing import Dict, Tuple
 
 from harness_core.tools.tool_result import ToolResult
 from harness_core.tools.utils import _strip_ansi, make_error_result

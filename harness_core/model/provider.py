@@ -7,7 +7,9 @@ via get_or_create() to ensure there is only one instance per unique configuratio
 """
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Dict
+
+from harness_core.model.types import ProviderConfig
 
 
 class Provider(ABC):
@@ -127,7 +129,7 @@ class Provider(ABC):
         return create_provider(client)
 
 
-def _to_responses_input(messages: list[Dict]) -> "tuple[str, list]":
+def _to_responses_input(messages: list[Dict]) -> "tuple[str | None, list[Any]]":
     """Convert chat-style ``messages`` into a valid Responses API request.
 
     The OpenAI **Responses** API does not accept the Chat-Completions
@@ -234,7 +236,7 @@ def _to_responses_tools(tools: list[Dict] | None) -> list[Dict] | None:
             continue
         if "function" in tool and isinstance(tool.get("function"), dict):
             func = tool["function"]
-            item = {"type": "function"}
+            item: dict[str, Any] = {"type": "function"}
             if "name" in func:
                 item["name"] = func["name"]
             if "description" in func:
@@ -273,7 +275,7 @@ def _normalize_response(response) -> dict:
                 },
             })
 
-    message = {"role": "assistant", "content": content_text or None}
+    message: dict[str, Any] = {"role": "assistant", "content": content_text or None}
     if tool_calls:
         message["tool_calls"] = tool_calls
 

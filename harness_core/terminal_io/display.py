@@ -283,7 +283,7 @@ def display_agent_response(content: str | None, response: dict | None = None, co
     markdown_obj = Markdown(safe_content)
     _tui_write(Panel(markdown_obj, title="🤖 Agent Response", border_style="green"))
 
-    speed_info = format_speed(response, context_length)
+    speed_info = format_speed(response if response is not None else {}, context_length)
     if speed_info:
         _tui_write(speed_info)                       # under the agent response
         _tui.get_tui().update_sidebar_usage(speed_info)
@@ -296,7 +296,7 @@ def display_turn_stats(response: dict | None = None, context_length: int = 0,
     Only the latest stats are shown (the sidebar overwrites its stats each call).
     """
     parts = []
-    speed_info = format_speed(response, context_length)
+    speed_info = format_speed(response if response is not None else {}, context_length)
     if speed_info:
         parts.append(speed_info)
     if elapsed_seconds is not None:

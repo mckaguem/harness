@@ -1,13 +1,14 @@
 """Dispatcher — routes a tool name to its callable at runtime."""
 
 import inspect
+from typing import Any, Callable
 
 from harness_core.agent.tool_context import current_tool_context
 from harness_core.tools.tool_result import ToolResult
 import harness_core.tools as tools_module
 
 
-def _accepts_ctx(fn) -> bool:
+def _accepts_ctx(fn: Callable[..., Any]) -> bool:
     """Return True if *fn* declares a ``ctx`` parameter in its signature."""
     try:
         params = inspect.signature(fn).parameters

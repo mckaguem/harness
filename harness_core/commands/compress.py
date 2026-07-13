@@ -55,7 +55,7 @@ def compress_handler(rest: str, agent=None):
             from harness_core.terminal_io import speed as _speed
             from harness_core.terminal_io.tui import get_tui as _get_tui
             _compressed_usage = {"usage": {"prompt_tokens": _count_approx_tokens(session.messages)}}
-            _usage_text = _speed.format_speed(_compressed_usage, ctx_len)
+            _usage_text = _speed.format_speed(_compressed_usage, ctx_len if ctx_len else 0)
             if _usage_text:
                 _get_tui().update_sidebar_usage(_usage_text)
         

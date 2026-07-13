@@ -128,7 +128,7 @@ class TestUserLoopResilience:
             _agent_type = SimpleNamespace(name="test", model_name="test")
 
             def handle_prompt(self, user_input):
-                yield (RESPONSE, "I am the agent.", {})
+                yield (RESPONSE, "I am the agent.", {}, None)
 
         agent = OkAgent()
         captured = _make_fakes(monkeypatch, agent)

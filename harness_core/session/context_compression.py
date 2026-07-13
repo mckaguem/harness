@@ -169,7 +169,7 @@ def build_compressed_filepath(filepath: str) -> tuple[str, bool]:
         return f"{base}-compressed-{new_timestamp}.{ext}", False
 
 
-def compress_session(session: object, fraction: float = 0.1) -> str | None:
+def compress_session(session: Session, fraction: float = 0.1) -> str | None:
     """Compress a session's messages and rotate its save file.
 
     Args:
@@ -212,6 +212,7 @@ def compress_session(session: object, fraction: float = 0.1) -> str | None:
 
     # Update filepath with compression marker
     old_path = session.filepath
+    assert old_path is not None
     new_filepath, _ = build_compressed_filepath(old_path)
 
     # Replace messages and save to new location

@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 import re
 from pathlib import Path
+from typing import Dict
 
 
 from harness_core.model.types import ProviderConfig

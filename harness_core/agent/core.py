@@ -2,9 +2,10 @@
 
 import json
 import os
-from typing import (Generator, TYPE_CHECKING)
+from typing import (Any, Dict, Generator, Optional, TYPE_CHECKING)
 
 if TYPE_CHECKING:
+    from harness_core.agent.types import AgentType
     from harness_core.agent.task_list import TaskList
 
 from harness_core.model.provider import Provider
@@ -21,10 +22,10 @@ class Agent:
     def __init__(self,
                  agent_type: "AgentType",
                  context_length: int = 4096,
-                 provider: Provider | None = None,
+                 provider: Optional[Provider] = None,
                  tool_schemas: list[Dict] | None = None,
                  extra_tools: list[Dict] | None = None,
-                 id: str = None):
+                 id: Optional[str] = None):
         """Initialize an Agent.
 
         Args:
@@ -43,6 +44,7 @@ class Agent:
             self._id = f"Agent.{generate_unique_id()}"
         self._context_length = int(context_length)
 
+        self._provider: Optional[Provider] = None
         if provider is not None and isinstance(provider, Provider):
             self._provider = provider
         elif hasattr(agent_type, 'provider_config') and agent_type.provider_config is not None:
@@ -50,13 +52,10 @@ class Agent:
                 self._provider = Provider.get_or_create(agent_type.provider_config)
             except Exception as exc:
                 print(f"Warning: Failed to resolve provider for '{agent_type.name}': {exc}")
-        else:
-            # No provider - agent will fail on chat_completion, but that's fine for tests
-            self._provider = None
 
         # Resolve base URL from provider if available
         try:
-            self._base_url = self._provider.get_base_url().rstrip("/")
+            self._base_url = self._provider.get_base_url().rstrip("/") if self._provider is not None else ""
         except Exception:
             self._base_url = ""
 
@@ -104,7 +103,7 @@ class Agent:
         return self._id
 
     @property
-    def task_list(self) -> "TaskList":
+    def task_list(self) -> "Optional[TaskList]":
         """Public accessor for the agent's task list."""
         return self._task_list
 
@@ -152,6 +151,9 @@ class Agent:
         """
         import time
         start_time = time.time()
+
+        if self._provider is None:
+            raise RuntimeError("No provider configured for this agent.")
 
         try:
             raw_response = self._provider.chat_completion(
@@ -211,7 +213,7 @@ class Agent:
     
     # -- public API ----------------------------------------------------------
     
-    def handle_prompt(self, user_input: str) -> Generator[tuple[str, ...], None, None]:
+    def handle_prompt(self, user_input: str) -> Generator[tuple[str, Any, Any, Optional[dict[str, Any]]], None, None]:
         """Process a single user prompt to completion.
         
         Yields tuples of ``(kind, ...)`` where ``kind`` is one of
@@ -241,7 +243,7 @@ class Agent:
         loop_count = 0
         while True:
             if loop_count >= self._max_loops:
-                yield (ERROR, f"Maximum loop count ({self._max_loops}) exceeded. Breaking out of handle_prompt.")
+                yield (ERROR, f"Maximum loop count ({self._max_loops}) exceeded. Breaking out of handle_prompt.", None, None)
                 break
             loop_count += 1
 
@@ -269,7 +271,7 @@ or update their status to 'failed' before stopping.
                     
                 else:
                     content = message.get("content", "")
-                    yield (RESPONSE, content, response)
+                    yield (RESPONSE, content, response, None)
                     break
             
             pending_parallel = []
@@ -292,7 +294,7 @@ or update their status to 'failed' before stopping.
                     # Record the tool result (error) in the session.
                     self._session.add_tool_result(func_name, error_result.llm_text, tool_call["id"])
                     # Yield an error event and skip further processing of this tool call.
-                    yield (ERROR, description)
+                    yield (ERROR, description, None, None)
                     # Continue to next tool call (or next loop iteration).
                     continue
                 
@@ -321,12 +323,12 @@ or update their status to 'failed' before stopping.
                 except KeyError:
                     description = f"Unknown function '{func_name}'."
                     return_result = self._executor.make_error_result(func_name, description)
-                    yield (ERROR, description)
+                    yield (ERROR, description, None, None)
                 except Exception as exc:
                     # Handle unexpected errors (e.g., wrong args to tool)
                     description = f"Error calling {func_name}: {exc}"
                     return_result = self._executor.make_error_result(func_name, description)
-                    yield (ERROR, description)
+                    yield (ERROR, description, None, None)
 
                 # Use session.add_tool_result instead of self.messages.append({"role":"tool",...})
                 self._session.add_tool_result(func_name, return_result.llm_text, tool_call_id)
@@ -429,8 +431,8 @@ or update their status to 'failed' before stopping.
         # Resolve context_length: prefer model-specific config, fall back to global default.
         from harness_core.config import get_model_config, load_harness_config
         model_cfg = get_model_config(agent_type.model_name)
-        if model_cfg is not None and hasattr(model_cfg, 'context_length'):
-            context_length = int(model_cfg.context_length)
+        if model_cfg is not None and model_cfg.get('context_length') is not None:
+            context_length = int(model_cfg['context_length'])
         else:
             _cfg = load_harness_config()
             context_length = int(_cfg["context_length"])

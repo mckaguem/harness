@@ -197,7 +197,7 @@ class HarnessTUI:
         # while the app thread resolves it from the input widget.
         self._pending: threading.Event | None = None
         self._pending_value: str = ""
-        self._pending_prompt: str = "You> "
+        self._pending_prompt: str | None = "You> "
 
     # ── lifecycle ───────────────────────────────────────────────────────
 
@@ -227,6 +227,7 @@ class HarnessTUI:
         if not self.is_active() or self._output is None:
             return
         app = self._app
+        assert app is not None
         output = self._output
 
         def _do() -> None:
@@ -253,6 +254,7 @@ class HarnessTUI:
         if not self.is_active() or self._output is None:
             return
         app = self._app
+        assert app is not None
         output = self._output
         # `collapsed=True` so the call (and later the result) are invisible by
         # default; the user can click the title to see it.  
@@ -290,6 +292,7 @@ class HarnessTUI:
         if not self.is_active() or self._output is None:
             return
         app = self._app
+        assert app is not None
         output = self._output
         with self._lock:
             entry = self._tool_stack.pop() if self._tool_stack else None
@@ -370,6 +373,7 @@ class HarnessTUI:
         if not self.is_active() or self._spinner is None:
             return
         app = self._app
+        assert app is not None
 
         def _do() -> None:
             assert self._spinner is not None
@@ -385,6 +389,7 @@ class HarnessTUI:
         if not self.is_active() or self._spinner is None:
             return
         app = self._app
+        assert app is not None
 
         def _do() -> None:
             assert self._spinner is not None
@@ -405,6 +410,7 @@ class HarnessTUI:
             raise RuntimeError("HarnessTUI.prompt called while TUI is inactive")
 
         app = self._app
+        assert app is not None
         event = threading.Event()
         with self._lock:
             self._pending = event
@@ -530,6 +536,7 @@ class TextualHarnessApp(App):
         super().__init__()
         self._agent = agent
         self._on_exit = on_exit
+        self._output: VerticalScroll | None = None
 
     def compose(self) -> "ComposeResult":  # type: ignore[name-defined]
         from textual.app import ComposeResult
@@ -566,28 +573,6 @@ class TextualHarnessApp(App):
                 return
             sidebar.set_usage(text)
             sidebar.refresh_tasks()
-
-        try:
-            self.call_from_thread(_do)
-        except Exception:
-            pass
-
-    def update_sidebar_tasks_from_payload(self, payload: TaskListPayload) -> None:
-        """Push a TaskListPayload snapshot to the right sidebar (thread-safe).
-
-        Marshals a single call onto the app thread that re-renders the sidebar
-        from the event payload.  Guards on the App's own ``is_running`` flag and
-        wraps the marshalled work in try/except so a stray call never raises.
-        """
-        if not self.is_running:
-            return
-
-        def _do() -> None:
-            try:
-                sidebar = self.query_one("#task-sidebar", TaskListSidebar)
-            except Exception:
-                return
-            sidebar.refresh_tasks_from_payload(payload)
 
         try:
             self.call_from_thread(_do)
@@ -653,6 +638,12 @@ class TextualHarnessApp(App):
         except Exception:
             pass
 
+        # Cache the output pane reference for _show_loop_error (worker-thread path).
+        try:
+            self._output = self.query_one("#output", VerticalScroll)
+        except Exception:
+            self._output = None
+
         self.call_after_refresh(self._start_loop)
 
     def _start_loop(self) -> None:
@@ -685,8 +676,9 @@ class TextualHarnessApp(App):
 
     def _show_loop_error(self, tb: str) -> None:
         """Render a worker-thread exception into the output pane."""
-        if self._output is not None:
-            self._output.mount(
+        output = self._output
+        if output is not None:
+            output.mount(
                 Static(
                     Panel(
                         Text.from_markup(f"[red bold]Loop error:[/]\n{tb}"),

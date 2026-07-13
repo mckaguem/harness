@@ -121,7 +121,7 @@ class EventListener:
         """
         pass  # Do nothing by default
 
-    async def subscribe(self, topics: List[str] = None) -> None:
+    async def subscribe(self, topics: Optional[List[str]] = None) -> None:
         """Subscribe this listener to the specified topics and auto-discovered topics.
 
         This method:

@@ -208,7 +208,7 @@ def run_non_interactive(agent, message):
     for output in agent.handle_prompt(effective_input):
         kind = output[0]
         if kind == RESPONSE:
-            _, content, ollama_response = output
+            _, content, ollama_response, _ = output
             elapsed = time.time() - turn_start
             display_agent_response(content, ollama_response, agent._context_length)
             display_turn_stats(ollama_response, agent._context_length, elapsed_seconds=elapsed)
@@ -219,7 +219,7 @@ def run_non_interactive(agent, message):
             _, func_name, result, response_data = output
             display_tool_result(func_name, result)
         elif kind == ERROR:
-            _, description = output
+            _, description, _, _ = output
             display_error(description)
 
     return 0

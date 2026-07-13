@@ -106,7 +106,7 @@ class TestRunLoop:
         
         # Mock handle_prompt to yield a response output
         mock_agent.handle_prompt.return_value = [
-            ("response", "Hello world!", {"eval_count": 10})
+            ("response", "Hello world!", {"eval_count": 10}, None)
         ]
         
         with patch("harness_core.agent.loop.print_system"):
@@ -210,7 +210,7 @@ class TestRunLoop:
         
         # Mock handle_prompt to yield an error output
         mock_agent.handle_prompt.return_value = [
-            ("error", "Connection timeout")
+            ("error", "Connection timeout", None, None)
         ]
         
         with patch("harness_core.agent.loop.print_system"):
@@ -250,7 +250,7 @@ class TestRunLoop:
             theme="status"
         )
         mock_agent.handle_prompt.return_value = [
-            ("response", "Thinking...", {"eval_count": 5}),
+            ("response", "Thinking...", {"eval_count": 5}, None),
             ("tool_call", "execute_bash", '{"command": "ls"}', None),
             ("tool_result", "execute_bash", result_obj, None),
         ]
@@ -288,7 +288,7 @@ class TestRunLoop:
         
         # Mock handle_prompt to yield a response (not break the loop)
         mock_agent.handle_prompt.return_value = [
-            ("response", "Test response", {"eval_count": 10})
+            ("response", "Test response", {"eval_count": 10}, None)
         ]
         
         with patch("harness_core.agent.loop.print_system"):

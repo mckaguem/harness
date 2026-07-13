@@ -12,6 +12,7 @@ is done directly on the agent id.
 from __future__ import annotations
 
 import re
+from typing import Callable
 
 from harness_core.eventbus import Event, EventListener, filter_by_sender
 from harness_core.event_types import TaskListPayload
@@ -20,7 +21,7 @@ from .task_display import render_task_list_markdown_from_payload
 from .tui import get_tui
 
 
-def _make_refresh_handler() -> "callable":
+def _make_refresh_handler() -> "Callable":
     """Build the shared async handler used by each filtered event handler."""
 
     async def _refresh(self, event: Event) -> None:

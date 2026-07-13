@@ -549,7 +549,7 @@ class TestAgentHandlePrompt:
         outputs = list(agent.handle_prompt("Hi"))
 
         assert len(outputs) == 1
-        kind, content, response = outputs[0]
+        kind, content, response, _resp_data = outputs[0]
         assert kind == RESPONSE
         assert content == "Hello!"
 
@@ -576,7 +576,7 @@ class TestAgentHandlePrompt:
         assert func_name == "execute_bash"
         from harness_core.tools.tool_result import ToolResult
         assert isinstance(result, ToolResult)
-        kind, content, response = outputs[2]
+        kind, content, response, _resp_data = outputs[2]
         assert content == "Done!"
 
     def test_yields_error_on_unknown_tool(self):

@@ -256,7 +256,7 @@ class TestEventListenerBaseClass:
         assert listener in event_bus._subscribers["test.event"]
 
     @pytest.mark.asyncio
-    async def test_default_handler_can_be_overridden(self):
+    async def test_default_handler_can_be_overridden_via_register(self):
         """Test default_handler can be overridden to custom behavior."""
         class CustomListener(EventListener):
             def __init__(self):

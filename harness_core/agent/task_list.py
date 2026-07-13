@@ -11,6 +11,7 @@ enabling multiple agents to operate concurrently without shared state conflicts.
 
 import asyncio
 from dataclasses import dataclass, field
+from typing import Optional
 
 from harness_core.eventbus import Event, event_bus, generate_unique_id
 from harness_core.event_types import TaskListPayload
@@ -68,7 +69,7 @@ class TaskList:
     each Agent instance holds its own independent TaskList.
     """
 
-    def __init__(self, id: str = None, sender_id: str = None):
+    def __init__(self, id: str | None = None, sender_id: str | None = None):
         """Initialize an empty TaskList instance.
 
         Args:

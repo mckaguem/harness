@@ -9,7 +9,7 @@ When a skill name exists in both paths, the project version wins.
 
 import re
 from pathlib import Path
-from typing import Tuple
+from typing import Any, Dict, Tuple
 import yaml
 
 from harness_core.terminal_io import print_system
@@ -29,8 +29,8 @@ def parse_skill_metadata(skill_dir: Path) -> Tuple[Dict, list[str]]:
         A tuple of (metadata_dict, errors_list). If errors is non-empty,
         the skill should be skipped.
     """
-    errors = []
-    metadata = {}
+    errors: list[str] = []
+    metadata: dict[str, Any] = {}
 
     skill_md_path = skill_dir / "SKILL.md"
 
@@ -99,7 +99,7 @@ def parse_skill_metadata(skill_dir: Path) -> Tuple[Dict, list[str]]:
 
 
 def _merge_skill_discoveries(
-    discoveries: list[tuple[Path, list[Tuple[str, Dict]]]],
+    discoveries: list[list[Any]],
 ) -> list[Tuple[str, Dict]]:
     """Merge multiple skill discovery results with precedence.
 
@@ -152,7 +152,7 @@ def discover_skills(
     cache_key = tuple(str(p) for p in skills_dirs)
     merged = _SKILL_DISCOVERY_CACHE.get(cache_key)
     if merged is None:
-        all_discoveries: list[tuple[Path, list[Tuple[str, Dict]]]] = []
+        all_discoveries: list[list[Any]] = []
         missing_dirs: list[Path] = []
 
         for skills_path in skills_dirs:

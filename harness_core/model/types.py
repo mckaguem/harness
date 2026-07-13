@@ -1,6 +1,6 @@
 """Model-related type definitions."""
 
-from typing import (TypedDict, Union)
+from typing import (TypedDict, Union, Dict)
 from dataclasses import dataclass
 
 

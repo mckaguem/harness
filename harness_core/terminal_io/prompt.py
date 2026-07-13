@@ -8,6 +8,8 @@ multi-line session (with ``~/.history`` persistence) is used unchanged.
 
 from pathlib import Path
 
+from prompt_toolkit import PromptSession
+
 
 def prompt_user(prompt: str | None = None) -> str:
     """Display the user prompt and read *multi-line* input.
@@ -39,10 +41,9 @@ def prompt_user(prompt: str | None = None) -> str:
     if controller.is_active():
         return controller.prompt(prompt if prompt is not None else "You> ")
 
-    from prompt_toolkit import PromptSession
     from prompt_toolkit.history import FileHistory
 
-    history_path = Path.home() / ".history"
+    history_path = Path.home() / ".history"  # noqa: S306
 
     session_kwargs: dict = {
         "multiline": True,
@@ -55,7 +56,7 @@ def prompt_user(prompt: str | None = None) -> str:
         "history": FileHistory(str(history_path)),
     }
 
-    session = PromptSession(**session_kwargs)
+    session: PromptSession = PromptSession(**session_kwargs)
 
     while True:
         try:

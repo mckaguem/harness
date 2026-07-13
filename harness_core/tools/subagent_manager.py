@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import itertools
 import threading
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+import concurrent.futures
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 
 from harness_core.tools.tool_result import ToolResult
 
@@ -40,7 +41,7 @@ class SubagentManager:
     def __init__(self, max_concurrent: int = DEFAULT_MAX_CONCURRENT) -> None:
         self.MAX_CONCURRENT = max_concurrent
         self._counter = itertools.count(1)
-        self._futures: dict[str, "concurrent.futures.Future[ToolResult]"] = {}
+        self._futures: dict[str, Future[ToolResult]] = {}
         self._lock = threading.Lock()
         # One shared executor; sized generously so jobs aren't queued behind
         # unrelated work. The MAX_CONCURRENT guard is enforced by ``launch``.
@@ -92,6 +93,7 @@ class SubagentManager:
                     raise RuntimeError(
                         f"No running subagent with identifier '{identifier}'."
                     )
+                assert future is not None
                 pending = {identifier: future}
             else:
                 if not self._futures:
@@ -109,8 +111,10 @@ class SubagentManager:
                         future = fut
                         break
 
+        assert future is not None
         result = future.result(timeout=timeout)
         with self._lock:
+            assert identifier is not None
             self._futures.pop(identifier, None)
         return result
 

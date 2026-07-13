@@ -10,6 +10,8 @@ from .session_utils import (
     ensure_sessions_dir,
 )
 
+from harness_core.model.provider import Provider
+
 
 class Session:
     """Owns the conversation state and handles message lifecycle.
@@ -39,8 +41,8 @@ class Session:
         self._injected_text: str | None = None
         self._auto_save = auto_save
         self._agent_type_name: str = agent_type_name
-        self.filepath = None
-        self._provider = provider          # type: object | None
+        self.filepath: str | None = None
+        self._provider: Provider | None = provider
         self._model_name: str = model_name
         
         # Generate a unique filename for this session at creation time (if auto-save is enabled)
@@ -420,7 +422,8 @@ Execute the next logical step based on this state. Only reference tasks by their
                 session.add_assistant_message(msg)
             elif role == "tool":
                 func_name = msg.get("name", "unknown_tool")
-                session.add_tool_result(func_name, content)
+                tool_call_id = msg.get("tool_call_id", f"call_{func_name}")
+                session.add_tool_result(func_name, content, tool_call_id)
 
         # Re-enable auto_save after loading to ensure future changes are saved.
         session._auto_save = True

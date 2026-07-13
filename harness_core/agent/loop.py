@@ -3,7 +3,12 @@
 import time as _time
 from rich.console import Console
 
+from typing import TYPE_CHECKING
+
 from harness_core.agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
+
+if TYPE_CHECKING:
+    from harness_core.agent.core import Agent
 from harness_core.terminal_io import (
     print_system, prompt_user,
     display_tool_call, display_tool_result, display_error,
@@ -127,10 +132,10 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
             if outcome.kind == InterceptorKind.ACTIVATED:
                 # Inject the skill context block into the next user message so
                 # it is prepended to the user's request before being sent to the LLM.
-                agent.inject_text(outcome.payload)
+                agent.inject_text(outcome.payload or "")
                 effective_input = outcome.stripped_message if outcome.stripped_message else user_input
             elif outcome.kind == InterceptorKind.RESTRICTED:
-                display_error(outcome.payload)
+                display_error(outcome.payload or "")
                 effective_input = outcome.stripped_message if outcome.stripped_message else user_input
             else:
                 # UNKNOWN or SKIP: treat as regular text and send to LLM.
@@ -157,7 +162,7 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
             for output in outputs:
                 kind = output[0]
                 if kind == RESPONSE:
-                    _, content, ollama_response = output
+                    _, content, ollama_response, _ = output
                     elapsed = _time.time() - turn_start
                     display_agent_response(content, ollama_response, agent._context_length)
                     display_turn_stats(ollama_response, agent._context_length, elapsed_seconds=elapsed)
@@ -170,8 +175,8 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                     _, func_name, result, response_data = output
                     display_tool_result(func_name, result)
                 elif kind == ERROR:
-                    _, description = output
-                    display_error(description)
+                    _, description, _, _ = output
+                    display_error(description or "")
                     # An ERROR means no matching tool result will follow for the
                     # most recent tool call, so reset the "pending tool call"
                     # tracking so a later result does not merge into the wrong

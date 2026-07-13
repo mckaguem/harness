@@ -8,6 +8,7 @@ mapping tool names to their callables.
 
 import importlib.util
 from pathlib import Path
+from typing import Any, Callable
 
 
 def _discover_skills():
@@ -49,8 +50,8 @@ def _discover_skills():
 
 
 AGENT_TOOLS: list[dict] = []
-DISPATCH_REGISTRY: dict[str, callable] = {}
-SUMMARY_REGISTRY: dict[str, callable] = {}
+DISPATCH_REGISTRY: dict[str, Callable[..., Any]] = {}
+SUMMARY_REGISTRY: dict[str, Callable[..., Any]] = {}
 
 
 def _build() -> None:
