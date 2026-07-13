@@ -12,6 +12,53 @@ from harness_core.agent import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from harness_core.utils import project_root
 
 
+@pytest.fixture(autouse=True)
+def _resolve_placeholder_model_config(monkeypatch):
+    """Resolve placeholder model/provider names used by these tests.
+
+    After the refactor ``AgentType.from_file`` requires that the agent's
+    ``model_name`` resolves to a model defined in config.yaml. These tests
+    historically used placeholder names ("test", "llama3", "mistral") that are
+    not present in the real config. This fixture resolves them to a valid
+    model/provider config (while still deferring to the real config for names
+    that genuinely exist) without reverting the refactor.
+    """
+    from harness_core.config import (
+        get_model_config as _real_get_model_config,
+        get_provider_config as _real_get_provider_config,
+    )
+    from harness_core.model.types import ProviderConfig
+
+    def _fake_get_model_config(name):
+        real = _real_get_model_config(name)
+        if real is not None:
+            return real
+        return {
+            "name": name,
+            "provider_model_name": name,
+            "provider": "openai",
+            "context_length": 262144,
+        }
+
+    def _fake_get_provider_config(name):
+        real = _real_get_provider_config(name)
+        if real is not None:
+            return real
+        return ProviderConfig(
+            name=name,
+            provider_type="openai",
+            base_url="http://test.invalid/v1",
+            api_key="test",
+        )
+
+    monkeypatch.setattr(
+        "harness_core.config.get_model_config", _fake_get_model_config
+    )
+    monkeypatch.setattr(
+        "harness_core.config.get_provider_config", _fake_get_provider_config
+    )
+
+
 class TestAgentTypeFromFile:
     """Tests for AgentType.from_file() YAML loading."""
 
@@ -89,7 +136,7 @@ agent_tools: []
         finally:
             os.chdir(old_cwd)
 
-    @patch("harness_core.config.get_default_model", return_value="fallback-model")
+    @patch("harness_core.config.get_default_model", return_value="tencent/hy3:free")
     def test_uses_default_model_when_missing(self, mock_default_model, tmp_path):
         """Should fall back to configured default model when YAML has no model_name."""
         from harness_core.agent import AgentType
@@ -104,7 +151,8 @@ agent_tools: []
         os.chdir(tmp_path)
         try:
             agent_type = AgentType.from_file(str(tmp_path / "harness_core.config.yaml"))
-            assert agent_type.model_name == "fallback-model"
+            assert agent_type.model_name == "tencent/hy3:free"
+            assert agent_type.provider_model_name == "tencent/hy3:free"
         finally:
             os.chdir(old_cwd)
 

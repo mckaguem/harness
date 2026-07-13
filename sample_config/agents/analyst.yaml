@@ -1,6 +1,5 @@
 name: "analyst"
 description: "A code analyst focused on understanding and explaining codebases through read-only analysis."
-model_name: "ollama_chat/hf.co/deepreinforce-ai/Ornith-1.0-35B-GGUF:Q8_0"
 agent_tools: ["*"]
 system_prompt: |
   You are a code analyst focused on understanding and explaining codebases.

@@ -158,8 +158,15 @@ def _build_models_dict(raw_models: list[dict]) -> dict[str, ModelConfig]:
                 f"Model '{name}' requires explicit 'context_length' in config.yaml. "
                 f"OpenAI doesn't expose this value, so it must be configured."
             )
+        # provider_model_name is required per-model — no fallback allowed
+        if "provider_model_name" not in model:
+            raise RuntimeError(
+                f"Model '{name}' requires explicit 'provider_model_name' in config.yaml. "
+                f"This is the model string passed to the provider API."
+            )
         models[name] = ModelConfig(
             name=name,
+            provider_model_name=model["provider_model_name"],
             provider=model.get("provider", "openai"),
             context_length=int(model["context_length"]),
             base_url=model.get("base_url"),
@@ -195,7 +202,6 @@ def load_harness_config() -> dict:
     Returns a dictionary with keys:
     - "providers": dict[str, ProviderConfig] keyed by provider name
     - "models": dict[str, ModelConfig] keyed by model name (with context_length)
-    - "default_provider": str | None
     - "default_model": str | None
     - "context_length": int (global default context length fallback)
     """
@@ -215,7 +221,6 @@ def load_harness_config() -> dict:
     models = _build_models_dict(global_cfg.get("models", []))
     models.update(_build_models_dict(project_cfg.get("models", [])))
 
-    default_provider = project_cfg.get("default_provider") or global_cfg.get("default_provider")
     default_model = project_cfg.get("default_model") or global_cfg.get("default_model")
 
     # context_length can be specified at the top level (global fallback) OR on each model entry.
@@ -237,7 +242,6 @@ def load_harness_config() -> dict:
     return {
         "providers": providers,
         "models": models,
-        "default_provider": default_provider,
         "default_model": default_model,
         "context_length": context_length,
     }
@@ -264,15 +268,6 @@ def get_model_config(model_name: str) -> ModelConfig | None:
     return cfg["models"].get(model_name)
 
 
-def get_default_provider() -> ProviderConfig | None:
-    """Return the default provider configuration, if specified."""
-    cfg = _get_cached_config()
-    name = cfg.get("default_provider")
-    if not name:
-        return None
-    return cfg["providers"].get(name)
-
-
 def get_default_model() -> str | None:
     """Return the default model name, if specified."""
     cfg = _get_cached_config()
@@ -288,6 +283,5 @@ __all__ = [
     "load_harness_config",
     "get_provider_config",
     "get_model_config",
-    "get_default_provider",
     "get_default_model",
 ]

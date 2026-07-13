@@ -1,6 +1,5 @@
 name: "coder"
 description: "A coding specialist that writes, edits, and executes code with minimal changes."
-model_name: "ollama_chat/hf.co/deepreinforce-ai/Ornith-1.0-35B-GGUF:Q8_0"
 agent_tools: ["*"]
 system_prompt: |
   You are a specialized coding assistant that writes, edits, and executes code.

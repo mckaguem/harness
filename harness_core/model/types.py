@@ -7,6 +7,7 @@ from dataclasses import dataclass
 class ModelConfig(TypedDict, total=False):
     """Configuration for a model."""
     name: str
+    provider_model_name: str  # actual model string handed to the provider API
     provider: str  # "openai" (Ollama support was removed)
     context_length: int
     base_url: str | None

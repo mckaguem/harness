@@ -85,7 +85,7 @@ class Agent:
             system_prompt=agent_type.system_prompt,
             task_list=self._task_list,
             provider=self._provider,
-            model_name=self._agent_type.model_name,
+            model_name=self._agent_type.provider_model_name,
             agent_type_name=agent_type.name,
         )
 
@@ -158,7 +158,7 @@ class Agent:
         try:
             raw_response = self._provider.chat_completion(
                 messages=messages,
-                model=self._agent_type.model_name,
+                model=self._agent_type.provider_model_name,
                 tools=self._tools if self._tools else None,
             )
         except Exception as exc:

@@ -22,6 +22,7 @@ class AgentType:
 
     name: str = ""
     model_name: str = ""
+    provider_model_name: str = ""
     system_prompt: str = ""
     provider_config: ProviderConfig | None = None
     agent_tools: list[str] = field(default_factory=list)
@@ -220,16 +221,29 @@ class AgentType:
                 )
             model_name = default_model
 
-        # Resolve provider_config based on YAML 'provider' key or fallback.
-        from harness_core.config import get_provider_config, get_default_provider
-        yaml_provider = config.get("provider")
-        if yaml_provider:
-            resolved_provider = get_provider_config(yaml_provider)
-            if resolved_provider is None:
-                # Fall back to default provider if the specified one doesn't exist
-                resolved_provider = get_default_provider()
-        else:
-            resolved_provider = get_default_provider()
+        # Resolve provider_config from the model's configuration. Providers are
+        # specified entirely through the model config (no separate top-level
+        # default_provider, and the agent YAML no longer carries a 'provider' key).
+        from harness_core.config import get_model_config
+        model_cfg = get_model_config(model_name)
+        if model_cfg is None:
+            raise ValueError(
+                f"Model '{model_name}' referenced by '{path}' is not defined in "
+                "config.yaml under 'models:'."
+            )
+        provider_name = model_cfg.get("provider")
+        if not provider_name:
+            raise ValueError(
+                f"Model '{model_name}' in config.yaml must specify a 'provider'."
+            )
+        from harness_core.config import get_provider_config
+        resolved_provider = get_provider_config(provider_name)
+        if resolved_provider is None:
+            raise ValueError(
+                f"Provider '{provider_name}' for model '{model_name}' is not "
+                "defined in config.yaml under 'providers:'."
+            )
+        provider_model_name = model_cfg.get("provider_model_name") or model_name
 
         agent_tools = config.get("agent_tools", [])
         if not isinstance(agent_tools, list):
@@ -286,6 +300,7 @@ class AgentType:
         return cls(
             name=name,
             model_name=model_name,
+            provider_model_name=provider_model_name,
             system_prompt=system_prompt,
             provider_config=resolved_provider,
             agent_tools=agent_tools,
