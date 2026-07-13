@@ -209,6 +209,12 @@ class Agent:
                 for tc in message_obj["tool_calls"]
             ]
 
+        # Capture any accompanying text message from the LLM alongside the
+        # tool calls. This "pre_tool_content" is surfaced in the TUI/REPL as a
+        # text panel displayed before each TOOL_CALL renderable, so users can see
+        # what the agent was saying before it invoked tools.
+        resp_dict["pre_tool_content"] = message_obj.get("content") or ""
+
         return resp_dict
     
     # -- public API ----------------------------------------------------------

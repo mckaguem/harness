@@ -56,7 +56,13 @@ def print_system(title: str, message: str) -> None:
     _tui_write(Panel(message, title=title, border_style="magenta"))
 
 
-def display_tool_call(func_name: str, args_str: str, summary: str | None = None) -> None:
+def display_tool_call(
+    func_name: str,
+    args_str: str,
+    summary: str | None = None,
+    *,
+    pre_content: str = "",
+) -> None:
     """Print a tool-call panel showing the function name and its arguments.
 
     Renders the call using ``display_message_panel`` with theme="info" and
@@ -99,6 +105,25 @@ def display_tool_call(func_name: str, args_str: str, summary: str | None = None)
         result_type="markdown",
         return_renderable=True,
     )
+
+    # If the LLM accompanied this tool call with a text message, render it as a
+    # separate panel ABOVE the tool-call panel so users can see what the agent
+    # said before invoking tools.  In TUI mode the pre-content panel is pushed
+    # onto the output pane first (via write), and the tool-call collapsible
+    # follows.  In classic REPL mode it's written via _tui_write.
+    if pre_content:
+        pre_renderable = display_message_panel(
+            text=pre_content,
+            theme="info",
+            title="Agent",
+            result_type="markdown",
+            return_renderable=True,
+        )
+        controller = _tui.get_tui()
+        if controller.is_active():
+            controller.write(pre_renderable)
+        else:
+            _tui_write(pre_renderable)
 
     # Remember this panel so a later display_tool_result() can append the
     # result inside the same collapsible (textual TUI only).  In the classic

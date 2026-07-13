@@ -51,6 +51,7 @@
 - textual sluggishness
 - Streaming responses (including thinking)
 - Collapsable thinking
+- for long things in message window, have a separate panel with scrollbar (eg. file_read, thinking)
 
 ## Misc
 

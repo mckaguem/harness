@@ -218,7 +218,8 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                     _, func_name, args_str, response_data = output
                     args_dict = json.loads(args_str)
                     summary = summarize(func_name, args_dict)
-                    display_tool_call(func_name, args_str, summary)
+                    pre_content = (response_data or {}).get("pre_tool_content", "") or ""
+                    display_tool_call(func_name, args_str, summary, pre_content=pre_content)
                 elif kind == TOOL_RESULT:
                     _, func_name, result, response_data = output
                     display_tool_result(func_name, result)
