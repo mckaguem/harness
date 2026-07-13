@@ -9,7 +9,7 @@
 
 | Layer | Technology |
 |-------|-----------|
-| **Language & Runtime** | Python 3.10+ (uses `str | None` hints, walrus operators) |
+| **Language & Runtime** | Python 3.14+ (uses `str | None` hints, walrus operators, and strict typing) |
 | **LLM Client** | `ollama` — local Ollama instance (default host overridable via `OLLAMA_HOST`) |
 | **Terminal UI** | `rich` (color, Unicode boxes, highlighting); `prompt_toolkit` for input history/tab completion |
 | **Config** | `pyyaml` — agent definitions and skills live as YAML under `.harness_py/` |
@@ -42,6 +42,7 @@
 ## 5. Testing & Workflow Guardrails
 
 - **Tests:** pytest. Run `pytest tests/`. Mirror naming: `test_<module>.py`. Tests use `tmp_path`, manual `os.chdir()`, and `unittest.mock.patch`. Every new tool/agent needs a mirror test.
+- **Type checking:** `mypy` is the project's static type checker. Run `mypy harness_core tests` from the repo root and ensure it reports zero errors before committing. Keep type hints accurate on public APIs; add missing `typing` imports (`Dict`, `Callable`, `Optional`) and package type imports as needed, and prefer `Optional[...]` / `X | None` over implicit `Optional` defaults. If you must suppress a third-party import without stubs, record it in the `[tool.mypy]` section of `pyproject.toml` (prefer installing real stubs like `types-PyYAML` first).
 - **Edits:** Use targeted `edit_file` (supports multiple ordered replacements atomically) over full rewrites.
 - **Breaking changes:** Alert the user if a change breaks type definitions, tool schemas, or architectural boundaries. Never remove a `tools/` file that has tests, and never modify an agent YAML's tool list without confirming intent.
 - **Adding tools:** drop a `.py` in `harness_core/tools/` with a module-level `function_def` + matching callable — auto-discovered. Add a mirror test.
