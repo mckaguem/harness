@@ -46,6 +46,14 @@ def compress_handler(rest: str, agent=None):
             new_count = len(session.messages)
             print_system("Compress", "Session compressed successfully.")
             print_system("Compress", f"Original messages: {original_count}\nCompressed messages: {new_count}\nNew file: {result}\nPreserved tail fraction: {fraction*100:.0f}%")
+            ctx_len = getattr(agent, 'context_length', None) or getattr(agent, '_context_length', 0)
+            from harness_core.agent.loop import _count_approx_tokens
+            from harness_core.terminal_io import speed as _speed
+            from harness_core.terminal_io.tui import get_tui as _get_tui
+            _compressed_usage = {"usage": {"prompt_tokens": _count_approx_tokens(session.messages)}}
+            _usage_text = _speed.format_speed(_compressed_usage, ctx_len)
+            if _usage_text:
+                _get_tui().update_sidebar_usage(_usage_text)
         
     except Exception as e:
         display_error(f"Compression failed: {e}")

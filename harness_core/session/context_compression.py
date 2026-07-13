@@ -12,6 +12,11 @@ This module provides functionality to compress conversation history by:
 
 from .session import Session  # Ensure proper import if needed elsewhere
 
+# Tool names whose (large, tree-style) outputs should be truncated during
+# compression to keep only the most recent portion — mirroring the generic
+# "keep last fraction" rule used for long message content elsewhere.
+TRUNCATE_TOOL_NAMES = {"list_dir"}
+
 def compress_messages(messages: list[dict], fraction: float) -> list[dict]:
     """Compress older messages in the list, preserving a portion at the end.
 
@@ -61,6 +66,11 @@ def compress_messages(messages: list[dict], fraction: float) -> list[dict]:
         if msg.get("role") == "system":
             return True
         if msg.get("role") == "tool":
+            # list_dir (and other TRUNCATE_TOOL_NAMES) produce large tree
+            # outputs that should be truncated during compression rather
+            # than preserved verbatim.
+            if msg.get("name") in TRUNCATE_TOOL_NAMES:
+                return False
             return True
         if msg.get("tool_calls"):
             return True
@@ -77,13 +87,25 @@ def compress_messages(messages: list[dict], fraction: float) -> list[dict]:
         new_msg = dict(msg)  # shallow copy to preserve role
         content = new_msg.get("content")
 
+        is_truncate_tool = msg.get("role") == "tool" and msg.get("name") in TRUNCATE_TOOL_NAMES
         if isinstance(content, str) and len(content) > 100:
-            # Halve the content but keep a truncation marker
-            max_chars = int(len(content) * 0.5)
-            new_msg["content"] = (
-                content[:max_chars]
-                + "\n...[truncated for context compression, original omitted to save space]"
-            )
+            if is_truncate_tool:
+                # Keep only the LAST ~10% of the (large, tree-style) output and
+                # drop the leading portion to save space, consistent with the
+                # generic "keep last fraction" compression rule.
+                keep_chars = max(1, int(len(content) * 0.1))
+                new_msg["content"] = (
+                    f"...[truncated for context compression; {len(content) - keep_chars} of "
+                    f"{len(content)} chars omitted to save space]\n"
+                    + content[-keep_chars:]
+                )
+            else:
+                # Halve the content but keep a truncation marker
+                max_chars = int(len(content) * 0.5)
+                new_msg["content"] = (
+                    content[:max_chars]
+                    + "\n...[truncated for context compression, original omitted to save space]"
+                )
 
         compressed_prefix.append(new_msg)
 

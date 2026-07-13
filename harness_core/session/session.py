@@ -126,19 +126,19 @@ class Session:
         self._auto_save_session()
 
     def _save_impl(self, new_filepath: str, save_state: bool = True) -> None:
-        """Internal helper to write messages to a specific filepath as JSON.
-        
-        Used by compress_session for compressed file output.
+        """Write messages to a specific filepath using the same YAML format
+        as the normal session save (so compressed files match uncompressed ones).
         """
-        import json
         from pathlib import Path
-        
         # Ensure parent directory exists
         Path(new_filepath).parent.mkdir(parents=True, exist_ok=True)
-        
-        with open(new_filepath, 'w', encoding='utf-8') as f:
-            json.dump({"messages": self.messages}, f, ensure_ascii=False, indent=2)
-        
+
+        yaml_content = format_session_yaml(
+            self.messages, agent_type_name=self._agent_type_name,
+        )
+        with open(new_filepath, "w", encoding="utf-8") as f:
+            f.write(yaml_content)
+
         if save_state:
             self.filepath = new_filepath
 

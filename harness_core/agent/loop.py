@@ -50,13 +50,22 @@ def _check_and_compress_if_needed(agent, display_error) -> None:
         THRESHOLD = 0.5  # Compress when above 50% utilization
         
         if utilization > THRESHOLD:
-            print_system("Context", f"Context utilization at {utilization:.1%} — auto-compressing...")
+            pre_util = utilization
             try:
                 from harness_core.session.context_compression import compress_session
                 session = getattr(agent, 'session', None) or getattr(agent, '_session', None)
                 if session is not None:
-                    compress_session(session, fraction=0.5)
-                    print_system("Compression", f"Auto-compressed: {len(messages)} → {len(session.messages)} messages")
+                    compress_session(session, fraction=0.1)
+                    post_util = _count_approx_tokens(session.messages) / context_length if context_length > 0 else 0
+                    # Reflect the compressed context size in the usage stats
+                    # sidebar (previously it showed the stale pre-compression size).
+                    from harness_core.terminal_io import speed as _speed
+                    from harness_core.terminal_io.tui import get_tui as _get_tui
+                    _compressed_usage = {"usage": {"prompt_tokens": _count_approx_tokens(session.messages)}}
+                    _usage_text = _speed.format_speed(_compressed_usage, context_length)
+                    if _usage_text:
+                        _get_tui().update_sidebar_usage(_usage_text)
+                    print_system("Auto-Compression", f"Context utilization was {pre_util:.1%} of {context_length} max tokens. Auto-compressed to {post_util:.1%}.")
             except Exception as e:
                 display_error(f"Auto-compression failed: {e}")
     except Exception as e:
@@ -180,8 +189,8 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
         
         # Auto-compression check: after each agent response to a user message,
         # if context utilization exceeds 50%, trigger compression.
-        if effective_input != user_input or not user_input.startswith('/'):
+        if not (user_input.startswith('/') and effective_input == user_input):
             try:
                 _check_and_compress_if_needed(agent, display_error)
             except Exception as e:
-                pass  # silently skip auto-compression on any error
+                display_error(f"Auto-compression check failed: {e}")
