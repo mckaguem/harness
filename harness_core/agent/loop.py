@@ -70,11 +70,57 @@ def _check_and_compress_if_needed(agent, display_error) -> None:
                     _usage_text = _speed.format_speed(_compressed_usage, context_length)
                     if _usage_text:
                         _get_tui().update_sidebar_usage(_usage_text)
-                    print_system("Auto-Compression", f"Context utilization was {pre_util:.1%} of {context_length} max tokens. Auto-compressed to {post_util:.1%}.")
+                    _emit_system_event(
+                        agent,
+                        "agent.session.autocompress",
+                        "Auto-Compression",
+                        f"Context utilization was {pre_util:.1%} of {context_length} max tokens. Auto-compressed to {post_util:.1%}.",
+                    )
             except Exception as e:
                 display_error(f"Auto-compression failed: {e}")
     except Exception as e:
         pass  # silently skip on any error
+
+def _emit_system_event(agent, topic: str, title: str, message: str) -> None:
+    """Emit a system-notification event, or render it directly when no TUI is active.
+
+    When the textual TUI is active the event is published on the registered app
+    loop (set via ``set_event_loop`` in ``TextualHarnessApp.on_mount``) so the
+    subscribed :class:`~harness_core.terminal_io.event_listener.HarnessEventListener`
+    can render it through the TUI output pane.  In the classic REPL (and other
+    non-TUI contexts) there is no event listener subscribed, so we fall back to
+    calling :func:`harness_core.terminal_io.display.print_system` directly.
+    """
+    from harness_core.terminal_io.tui import get_tui
+
+    tui = get_tui()
+    tui_active = getattr(tui, "is_active", None)
+    if not (callable(tui_active) and tui_active()):
+        # Non-TUI mode (classic REPL, tests, non-interactive): render directly.
+        print_system(title, message)
+        return
+
+    import asyncio
+    from harness_core.eventbus import Event, event_bus, get_event_loop
+    from harness_core.event_types import SystemMessagePayload
+
+    event = Event(
+        topic=topic,
+        sender=agent.id,
+        payload=SystemMessagePayload(title=title, message=message),
+    )
+    loop = get_event_loop()
+    if loop is not None and loop.is_running():
+        # Marshal delivery onto the app loop (worker-thread safe).
+        loop.call_soon_threadsafe(
+            lambda: asyncio.ensure_future(event_bus.publish(event), loop=loop)
+        )
+    else:
+        # No app loop available — best-effort inline delivery.
+        try:
+            asyncio.run(event_bus.publish(event))
+        except RuntimeError:
+            pass
 
 def user_loop(agent: "Agent", on_exit=None) -> None:
     """Run the interactive chat loop.
@@ -95,7 +141,9 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
     from harness_core.agent.context import CURRENT_AGENT
     CURRENT_AGENT.set(agent)
 
-    print_system(
+    _emit_system_event(
+        agent,
+        "agent.status.ready",
         f"🚀 Agent Ready — {agent._agent_type.name} ({agent._agent_type.model_name})",
         "Type a message to begin. Type /exit or /quit to stop."
     )

@@ -238,7 +238,15 @@ class HarnessTUI:
             with self._lock:
                 self._write_count += 1
 
-        app.call_from_thread(_do)
+        # When the caller is already on the app/Textual thread (e.g. an event
+        # handler delivered inline by the event bus), calling ``call_from_thread``
+        # itself raises RuntimeError (it must be a *different* thread).  In that
+        # case mount synchronously here; otherwise marshal onto the app thread.
+        app_thread = getattr(app, "_thread_id", None)
+        if app_thread is not None and app_thread == threading.current_thread().ident:
+            _do()
+        else:
+            app.call_from_thread(_do)
 
     def begin_tool_panel(self, title: str, call_renderable) -> None:
         """Create a collapsed-by-default ``Collapsible`` for a tool call.
@@ -601,7 +609,7 @@ class TextualHarnessApp(App):
         except Exception:
             pass
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         controller = get_tui()
         controller.bind(
             self,
@@ -624,17 +632,20 @@ class TextualHarnessApp(App):
         sidebar.refresh_tasks()
         self.set_interval(1.0, sidebar.refresh_tasks)
 
-        # Subscribe the EventListener that drives the sidebar from the TaskList
-        # event bus.  The listener filters by this agent's TaskList sender id so
-        # only the main agent's task list is displayed.  ``on_mount`` runs on the
-        # app loop's thread, so we schedule the async subscription as a task.
+        # Subscribe the consolidated EventListener that drives the sidebar from
+        # the TaskList event bus and renders system banners (e.g. auto-compress
+        # / agent-ready) via the terminal_io display layer.  The listener filters
+        # by this agent's sender id so only the main agent's events are shown.
+        # We await the subscription here (on_mount runs on the app loop's thread)
+        # so the listener is fully subscribed to the bus BEFORE the worker-thread
+        # user_loop emits its one-shot ``agent.status.ready`` banner — otherwise
+        # the late subscriber would miss that event and the banner would never
+        # appear.
         try:
-            from .event_listener import subscribe_task_list_listener
+            from .event_listener import subscribe_event_listener
 
             if self._agent is not None:
-                asyncio.ensure_future(
-                    subscribe_task_list_listener(self._agent.id)
-                )
+                await subscribe_event_listener(self._agent.id)
         except Exception:
             pass
 

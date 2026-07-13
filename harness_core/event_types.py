@@ -133,3 +133,17 @@ class TaskListPayload(EventPayload):
             "has_incomplete": self.has_incomplete,
             "metadata": self.metadata,
         }
+
+
+@dataclass(kw_only=True)
+class SystemMessagePayload(EventPayload):
+    """Event payload for a system-level status/notification message.
+
+    Carries a short ``title`` and a longer ``message`` body, suitable for
+    rendering as a system panel (e.g. an "Agent Ready" banner or an
+    "Auto-Compression" notice). Mirrors the signature of
+    :func:`harness_core.terminal_io.display.print_system`.
+    """
+
+    title: str = ""
+    message: str = ""
