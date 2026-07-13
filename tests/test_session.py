@@ -15,7 +15,7 @@ class TestSessionMessages:
     def test_add_user_message_appends_and_autosaves(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         sessions_dir = tmp_path / ".sessions"
-        sessions_dir.mkdir()
+        sessions_dir.mkdir(exist_ok=True)
         monkeypatch.setattr(
             "harness_core.session.session.ensure_sessions_dir",
             lambda *a, **k: sessions_dir,
@@ -39,7 +39,7 @@ class TestSessionMessages:
     def test_add_tool_result_stores_name_and_call_id(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         sessions_dir = tmp_path / ".sessions"
-        sessions_dir.mkdir()
+        sessions_dir.mkdir(exist_ok=True)
         monkeypatch.setattr(
             "harness_core.session.session.ensure_sessions_dir",
             lambda *a, **k: sessions_dir,
@@ -57,7 +57,7 @@ class TestSessionMessages:
     def test_auto_save_false_writes_nothing(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         sessions_dir = tmp_path / ".sessions"
-        sessions_dir.mkdir()
+        sessions_dir.mkdir(exist_ok=True)
         monkeypatch.setattr(
             "harness_core.session.session.ensure_sessions_dir",
             lambda *a, **k: sessions_dir,
@@ -78,7 +78,7 @@ class TestSessionFromFile:
     def test_from_file_restores_messages(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         sessions_dir = tmp_path / ".sessions"
-        sessions_dir.mkdir()
+        sessions_dir.mkdir(exist_ok=True)
         monkeypatch.setattr(
             "harness_core.session.session.ensure_sessions_dir",
             lambda *a, **k: sessions_dir,
