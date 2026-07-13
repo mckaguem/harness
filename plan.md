@@ -4,7 +4,7 @@ We are building an event bus system
 
 ## EventBus
 
-Create a new file called `eventbus.py`
+Create a new file called `eventbus.py` in harness_core/
 
 - Event Datclass:
     - topic: str
