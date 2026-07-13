@@ -128,6 +128,7 @@ def build_agent():
         create_run_folder()
 
         agent = Agent.from_file(str(main_agent_path), tool_schemas=AGENT_TOOLS)
+        agent._id = "Agent.main"
     except Exception as exc:
         sys.stderr.write(f"\n[harness] FATAL: Failed to create main agent: {exc}\n")
         sys.exit(1)

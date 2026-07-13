@@ -9,7 +9,11 @@ Each Agent instance maintains its own TaskList for independent task tracking,
 enabling multiple agents to operate concurrently without shared state conflicts.
 """
 
+import asyncio
 from dataclasses import dataclass, field
+
+from harness_core.eventbus import Event, event_bus, generate_unique_id
+from harness_core.event_types import TaskListPayload
 
 
 # Valid status values for task lifecycle management
@@ -64,31 +68,43 @@ class TaskList:
     each Agent instance holds its own independent TaskList.
     """
 
-    def __init__(self):
-        """Initialize an empty TaskList instance."""
+    def __init__(self, id: str = None, sender_id: str = None):
+        """Initialize an empty TaskList instance.
+
+        Args:
+            id: Optional identifier. If provided, the TaskList's id is set to
+                ``f"TaskList.{id}"`` (saved to ``self`` with the ``TaskList.``
+                prefix). If None, a unique id is generated.
+            sender_id: Optional id used as the event ``sender`` when this
+                TaskList publishes events. Normally this is the owning agent's
+                id (e.g. ``Agent.main``). If None, defaults to ``self.id``.
+        """
+        if id is not None:
+            self.id = f"TaskList.{id}"
+        else:
+            self.id = "TaskList." + generate_unique_id()
+        self._sender_id = sender_id if sender_id is not None else self.id
         self.tasks: list[Task] = []
-        self._listeners: list = []
+
+    # -- event emission ----------------------------------------------------
+
+    def _emit(self, topic: str) -> None:
+        """Publish a tasklist event if an event loop is running.
+
+        In non-async contexts (e.g. unit tests) there is no running loop, so
+        we skip emission — no listeners will be present anyway.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(
+            event_bus.publish(
+                Event(topic=topic, sender=self._sender_id, payload=TaskListPayload.from_task_list(self))
+            )
+        )
 
     # -- initialization ----------------------------------------------------
-
-    def add_listener(self, listener) -> None:
-        """Register a callable invoked (with no args) after any mutation."""
-        if listener not in self._listeners:
-            self._listeners.append(listener)
-
-    def remove_listener(self, listener) -> None:
-        """Unregister a previously added listener."""
-        if listener in self._listeners:
-            self._listeners.remove(listener)
-
-    def _notify(self) -> None:
-        """Invoke all registered listeners (used internally after mutations)."""
-        for listener in self._listeners:
-            try:
-                listener()
-            except Exception:
-                # A misbehaving listener must not break task-list mutations.
-                pass
 
     def initialize_tasks(self, tasks: list[str]) -> None:
         """Clear existing tasks and populate with a new list.
@@ -126,12 +142,13 @@ class TaskList:
                 description=desc.strip(),
                 status="pending",
             ))
-        self._notify()
+
+        self._emit("agent.tasklist.initialize")
 
     def reset(self) -> None:
         """Clear all tasks from the list. Called internally when completion is detected."""
         self.tasks = []
-        self._notify()
+        self._emit("agent.tasklist.reset")
 
     # -- status update -----------------------------------------------------
 
@@ -159,12 +176,12 @@ class TaskList:
             if task.id == task_id:
                 task.status = status
                 info = self._build_next_task_info()
-                self._notify()
+                self._emit("agent.tasklist.update")
                 return True, info
 
         # Task not found — still return info about remaining tasks so the caller knows
         info = self._build_next_task_info()
-        self._notify()
+        self._emit("agent.tasklist.update")
         return False, info
 
     def _build_next_task_info(self) -> NextTaskInfo:
@@ -207,7 +224,7 @@ class TaskList:
                 return task
         return None
 
-    # -- formatting (JSON + Markdown) --------------------------------------
+    # -- formatting (JSON) -------------------------------------------------
 
     def to_json_list(self) -> list[dict]:
         """Render the full task list as a list of JSON-compatible dicts with explicit IDs."""
@@ -215,6 +232,11 @@ class TaskList:
 
     def to_markdown(self) -> str:
         """Render the current task list state as a formatted markdown string.
+
+        Deprecated: prefer the view function
+        :func:`harness_core.terminal_io.task_display.render_task_list_markdown`,
+        which keeps markdown rendering (the View) separate from this model. This
+        method is retained only because the test suite still exercises it.
 
         The output is designed to be injected directly into LLM message payloads
         with clear visual delimiters and status indicators using checkbox syntax:
@@ -226,22 +248,6 @@ class TaskList:
         Returns:
             A string containing the formatted task list ready for context injection.
         """
-        lines = ["### SYSTEM STATE: CURRENT TASK LIST"]
+        from harness_core.terminal_io.task_display import render_task_list_markdown
 
-        for task in self.tasks:
-            if task.status == "completed":
-                marker = "[x]"
-                line = f"- {marker} {task.description}"
-            elif task.status == "in_progress":
-                marker = "[*]"
-                line = f"- {marker} {task.description} *(CURRENT)*"
-            elif task.status == "failed":
-                marker = "[!]"
-                line = f"- {marker} {task.description} *(FAILED)*"
-            else:  # pending
-                marker = "[ ]"
-                line = f"- {marker} {task.description}"
-
-            lines.append(line)
-
-        return "\n".join(lines)
+        return render_task_list_markdown(self)

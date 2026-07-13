@@ -2,6 +2,7 @@
 
 from harness_core.agent.core import CURRENT_AGENT
 from harness_core.agent.tool_context import ToolContext
+from harness_core.terminal_io.task_display import render_task_list_markdown
 from harness_core.tools.tool_result import ToolResult
 from harness_core.tools.utils import _strip_ansi, make_error_result
 
@@ -78,7 +79,7 @@ def update_task_status(task_id: int, status: str, ctx: ToolContext | None = None
 
         return ToolResult(
             llm_text="\n".join(llm_text_parts),
-            display_text=current_agent.task_list.to_markdown(),
+            display_text=render_task_list_markdown(current_agent.task_list),
             type_tag="markdown",
             title="📋 Task List",
             theme="status",

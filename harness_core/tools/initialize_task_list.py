@@ -2,6 +2,7 @@
 
 from harness_core.agent.context import CURRENT_AGENT
 from harness_core.agent.tool_context import ToolContext
+from harness_core.terminal_io.task_display import render_task_list_markdown
 from harness_core.tools.tool_result import ToolResult
 from harness_core.tools.utils import _strip_ansi, make_error_result
 
@@ -48,7 +49,7 @@ def initialize_task_list(tasks: list[str], ctx: ToolContext | None = None) -> To
             display_text=(
                 f"### 📋 Task List Initialized\n\n"
                 f"{len(tasks)} task(s) created:\n\n"
-                + current_agent.task_list.to_markdown()
+                + render_task_list_markdown(current_agent.task_list)
             ),
             type_tag="markdown",
             title="📋 Task List",

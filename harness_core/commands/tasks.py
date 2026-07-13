@@ -2,6 +2,7 @@
 
 from harness_core.agent.core import CURRENT_AGENT
 from harness_core.terminal_io.display import display_message_panel
+from harness_core.terminal_io.task_display import render_task_list_markdown
 
 
 def cmd_tasks(rest: str, agent=None) -> bool | None:
@@ -39,7 +40,7 @@ def cmd_tasks(rest: str, agent=None) -> bool | None:
         return False
 
     display_message_panel(
-        current_agent.task_list.to_markdown(),
+        render_task_list_markdown(current_agent.task_list),
         theme="status",
         title="📋 Tasks",
     )

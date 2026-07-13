@@ -12,6 +12,7 @@ from harness_core.model.provider import Provider
 from harness_core.agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from harness_core.agent.context import CURRENT_AGENT
 from harness_core.session.session import Session
+from harness_core.eventbus import generate_unique_id
 
 
 class Agent:
@@ -22,7 +23,8 @@ class Agent:
                  context_length: int = 4096,
                  provider: Provider | None = None,
                  tool_schemas: list[Dict] | None = None,
-                 extra_tools: list[Dict] | None = None):
+                 extra_tools: list[Dict] | None = None,
+                 id: str = None):
         """Initialize an Agent.
 
         Args:
@@ -31,8 +33,14 @@ class Agent:
             provider: Optional Provider instance. When given, it is used directly.
                       Otherwise the provider is resolved via the singleton registry
                       from ``AgentType.provider_config`` (loaded from YAML).
+            id: Optional explicit identifier for this agent. When given, the
+                agent id is ``"Agent.{id}"``; otherwise a unique id is generated.
         """
         self._agent_type = agent_type
+        if id is not None:
+            self._id = f"Agent.{id}"
+        else:
+            self._id = f"Agent.{generate_unique_id()}"
         self._context_length = int(context_length)
 
         if provider is not None and isinstance(provider, Provider):
@@ -70,7 +78,8 @@ class Agent:
         # Cache-friendly task state management — all dynamic state is injected
         # at the tail end of messages, never touching messages[0].
         from harness_core.agent.task_list import TaskList
-        self._task_list: TaskList | None = TaskList()
+        task_list_id = self._id[len("Agent."):] if self._id.startswith("Agent.") else self._id
+        self._task_list: TaskList | None = TaskList(id=task_list_id, sender_id=self._id)
 
         # Conversation state is now owned by the Session object.
         self._session = Session(
@@ -88,6 +97,11 @@ class Agent:
         CURRENT_AGENT.set(self)
 
     # -- task list access --------------------------------------------------
+
+    @property
+    def id(self) -> str:
+        """Unique identifier for this agent (prefixed with 'Agent.')."""
+        return self._id
 
     @property
     def task_list(self) -> "TaskList":

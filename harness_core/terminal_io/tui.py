@@ -23,6 +23,7 @@ controller, so the REPL logic and the existing tests are unchanged.
 
 from __future__ import annotations
 
+import asyncio
 import threading
 
 
@@ -39,6 +40,12 @@ from rich.console import Group
 from rich.rule import Rule
 from rich.text import Text
 from rich.markdown import Markdown
+
+from harness_core.event_types import TaskListPayload
+from harness_core.terminal_io.task_display import (
+    render_task_list_markdown,
+    render_task_list_markdown_from_payload,
+)
 
 
 # Inline separator rendered between a tool call and its result inside a
@@ -127,7 +134,30 @@ class TaskListSidebar(Static):
         if not tasks.tasks:
             body = Markdown("_No tasks yet._")
         else:
-            body = Markdown(tasks.to_markdown())
+            body = Markdown(render_task_list_markdown(tasks))
+
+        if usage_render is not None:
+            self.update(Group(usage_render, body))
+        else:
+            self.update(body)
+
+    def refresh_tasks_from_payload(self, payload: TaskListPayload) -> None:
+        """Re-render the task list from a TaskListPayload (event-driven).
+
+        Mirrors :meth:`refresh_tasks` but sources the task rows from an event
+        payload rather than the agent's live TaskList, so sidebar updates can be
+        driven directly by the TaskList EventBus.
+        """
+        usage_render = None
+        if self._usage_text:
+            sub = self._usage_text.split("\n")
+            lines = [Text.from_markup(part) for part in sub if part]
+            usage_render = Group(Text("📊 Usage", style="bold"), *lines, Rule())
+
+        if not payload.tasks:
+            body = Markdown("_No tasks yet._")
+        else:
+            body = Markdown(render_task_list_markdown_from_payload(payload))
 
         if usage_render is not None:
             self.update(Group(usage_render, body))
@@ -317,6 +347,17 @@ class HarnessTUI:
             return
         self._app.update_sidebar_usage(text)
 
+    def update_sidebar_tasks_from_payload(self, payload: TaskListPayload) -> None:
+        """Push a TaskListPayload snapshot to the right sidebar (thread-safe).
+
+        No-op unless the TUI is active; otherwise delegates to the running
+        :class:`TextualHarnessApp`, which marshals the update onto the app
+        thread.
+        """
+        if not self.is_active() or self._app is None:
+            return
+        self._app.update_sidebar_tasks_from_payload(payload)
+
     # ── agent busy indicator (used by user_loop around handle_prompt) ────
 
     def show_spinner(self) -> None:
@@ -504,19 +545,6 @@ class TextualHarnessApp(App):
         )
         yield Footer()
 
-    def _notify_sidebar(self) -> None:
-        """Called by the TaskList listener (worker thread) on every mutation.
-
-        Marshals the refresh onto the app thread so we never touch Textual
-        widgets from the worker thread.
-        """
-        if self._agent is None:
-            return
-        try:
-            self.call_from_thread(self.query_one("#task-sidebar", TaskListSidebar).refresh_tasks)
-        except Exception:
-            pass
-
     def update_sidebar_usage(self, text: str | None) -> None:
         """Push the most recent usage summary to the right sidebar (thread-safe).
 
@@ -544,6 +572,50 @@ class TextualHarnessApp(App):
         except Exception:
             pass
 
+    def update_sidebar_tasks_from_payload(self, payload: TaskListPayload) -> None:
+        """Push a TaskListPayload snapshot to the right sidebar (thread-safe).
+
+        Marshals a single call onto the app thread that re-renders the sidebar
+        from the event payload.  Guards on the App's own ``is_running`` flag and
+        wraps the marshalled work in try/except so a stray call never raises.
+        """
+        if not self.is_running:
+            return
+
+        def _do() -> None:
+            try:
+                sidebar = self.query_one("#task-sidebar", TaskListSidebar)
+            except Exception:
+                return
+            sidebar.refresh_tasks_from_payload(payload)
+
+        try:
+            self.call_from_thread(_do)
+        except Exception:
+            pass
+
+    def update_sidebar_tasks_from_payload(self, payload: TaskListPayload) -> None:
+        """Push a TaskListPayload snapshot to the right sidebar (thread-safe).
+
+        Marshals a single call onto the app thread that re-renders the sidebar
+        from the event payload.  Guards on the App's own ``is_running`` flag and
+        wraps the marshalled work in try/except so a stray call never raises.
+        """
+        if not self.is_running:
+            return
+
+        def _do() -> None:
+            try:
+                sidebar = self.query_one("#task-sidebar", TaskListSidebar)
+            except Exception:
+                return
+            sidebar.refresh_tasks_from_payload(payload)
+
+        try:
+            self.call_from_thread(_do)
+        except Exception:
+            pass
+
     def on_mount(self) -> None:
         controller = get_tui()
         controller.bind(
@@ -552,21 +624,35 @@ class TextualHarnessApp(App):
             self.query_one("#input", TextArea),
             self.query_one("#spinner", StatusSpinner),
         )
-        # Wire up the right-hand task-list sidebar.  Because the agent's
-        # user_loop runs on a worker thread (see _start_loop) while widgets
-        # live on the app thread, the listener fires on the worker thread and
-        # must marshal its refresh back to the app thread.
+        # Register this app's running loop so that events published from the
+        # worker thread (the agent loop) are marshalled back onto the app
+        # thread where the widgets live.
+        from harness_core.eventbus import set_event_loop
+
+        set_event_loop(asyncio.get_running_loop())
+
+        # Wire up the right-hand task-list sidebar.
         sidebar = self.query_one("#task-sidebar", TaskListSidebar)
         if self._agent is not None:
             sidebar.set_agent(self._agent)
-            try:
-                self._agent.task_list.add_listener(self._notify_sidebar)
-            except Exception:
-                pass
-        # Initial paint + heartbeat so the sidebar is correct even if a
-        # listener notification is missed.
+        # Initial paint + heartbeat so the sidebar is always correct.
         sidebar.refresh_tasks()
         self.set_interval(1.0, sidebar.refresh_tasks)
+
+        # Subscribe the EventListener that drives the sidebar from the TaskList
+        # event bus.  The listener filters by this agent's TaskList sender id so
+        # only the main agent's task list is displayed.  ``on_mount`` runs on the
+        # app loop's thread, so we schedule the async subscription as a task.
+        try:
+            from .event_listener import subscribe_task_list_listener
+
+            if self._agent is not None:
+                asyncio.ensure_future(
+                    subscribe_task_list_listener(self._agent.id)
+                )
+        except Exception:
+            pass
+
         self.call_after_refresh(self._start_loop)
 
     def _start_loop(self) -> None:
