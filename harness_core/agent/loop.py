@@ -1,10 +1,14 @@
 """Interactive user loop for the agent harness."""
 
 import asyncio
+import logging
 import time as _time
 from rich.console import Console
 
 from typing import TYPE_CHECKING
+
+# Module-level logger for debug logging
+logger = logging.getLogger(__name__)
 
 from harness_core.agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 
@@ -114,9 +118,13 @@ def _emit_system_event(agent, topic: str, title: str, message: str) -> None:
     loop = get_event_loop()
     if loop is not None and loop.is_running():
         # Marshal delivery onto the app loop (worker-thread safe).
-        loop.call_soon_threadsafe(
-            lambda: asyncio.ensure_future(event_bus.publish(event), loop=loop)
-        )
+        # Use run_coroutine_threadsafe instead of call_soon_threadsafe + ensure_future
+        # (ensure_future is deprecated and may not work reliably across threads).
+        try:
+            asyncio.run_coroutine_threadsafe(event_bus.publish(event), loop)
+        except RuntimeError as exc:
+            # If the loop is closed or not running, fall back to direct render
+            print_system(title, message)
     else:
         # No app loop available — best-effort inline delivery.
         try:
@@ -132,6 +140,7 @@ def _emit_control_event(agent, topic: str) -> None:
     when the textual TUI is active; in non-TUI mode they are no-ops (the classic
     REPL does not need spinner/turn control events).
     """
+    agent_id = getattr(agent, 'id', 'unknown-agent')
     from harness_core.terminal_io.tui import get_tui
 
     tui = get_tui()
@@ -145,15 +154,20 @@ def _emit_control_event(agent, topic: str) -> None:
 
     event = Event(
         topic=topic,
-        sender=agent.id,
+        sender=agent_id,
         payload=None,
     )
     loop = get_event_loop()
     if loop is not None and loop.is_running():
         # Marshal delivery onto the app loop (worker-thread safe).
-        loop.call_soon_threadsafe(
-            lambda: asyncio.ensure_future(event_bus.publish(event), loop=loop)
-        )
+        # Use run_coroutine_threadsafe instead of call_soon_threadsafe + ensure_future
+        # (ensure_future is deprecated and may not work reliably across threads).
+        try:
+            asyncio.run_coroutine_threadsafe(event_bus.publish(event), loop)
+        except RuntimeError:
+            # If the loop is closed or not running, silently ignore
+            # (control events are best-effort in non-TUI mode anyway)
+            pass
     else:
         # No app loop available — best-effort inline delivery.
         try:

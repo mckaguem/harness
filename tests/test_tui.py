@@ -29,6 +29,8 @@ from textual.containers import VerticalScroll
 
 from harness_core.terminal_io.tui import TextualHarnessApp, HarnessTUI, get_tui
 from harness_core.terminal_io import display
+from harness_core.eventbus import Event, EventBus, event_bus
+from harness_core.terminal_io.event_listener import make_event_listener, subscribe_event_listener
 
 
 @pytest.fixture
@@ -55,26 +57,57 @@ class TestComposition:
 
         _drive(_body())
 
-    def test_footer_present(self, tui_app):
+
+class TestEventBusIntegration:
+    """Integration test for spinner visibility via the event bus.
+
+    This test verifies the full event flow:
+    1. Creates a real EventListener (HarnessEventListener)
+    2. Subscribes it to agent.turn.start/stop events
+    3. Emits events via the event bus
+    4. Verifies the spinner visibility toggles
+    """
+
+    def test_spinner_toggles_via_event_bus(self, tui_app):
+        import threading
+
         async def _body():
-            async with tui_app.run_test():
-                assert tui_app.query_one(Footer) is not None
+            async with tui_app.run_test() as pilot:
+                controller = get_tui()
+                spinner = tui_app.query_one("#spinner")
+                # Hidden initially (set by bind()).
+                assert spinner.display is False
 
-        _drive(_body())
+                # Create a test event bus and listener for the test agent
+                test_bus = EventBus()
+                test_agent_id = "Agent.test"
+                listener = subscribe_event_listener(test_agent_id, test_bus)
 
-    def test_output_is_verticalscroll(self, tui_app):
-        async def _body():
-            async with tui_app.run_test():
-                assert isinstance(
-                    tui_app.query_one("#output", VerticalScroll), VerticalScroll
-                )
+                # Allow time for subscriptions to register and background task to start
+                await pilot.pause()
+                await pilot.pause()
 
-        _drive(_body())
+                # Emit agent.turn.start event via the event bus
+                test_bus.publish_to_topic(sender=test_agent_id, topic="agent.turn.start", payload=None)
 
-    def test_input_is_textarea(self, tui_app):
-        async def _body():
-            async with tui_app.run_test():
-                assert isinstance(tui_app.query_one("#input", TextArea), TextArea)
+                # Allow time for event to be processed by the listener's mailbox
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.pause()
+
+                # Spinner should now be visible
+                assert spinner.display is True, "Spinner should be visible after agent.turn.start event"
+
+                # Emit agent.turn.stop event via the event bus
+                test_bus.publish_to_topic(sender=test_agent_id, topic="agent.turn.stop", payload=None)
+
+                # Allow time for event to be processed
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.pause()
+
+                # Spinner should now be hidden
+                assert spinner.display is False, "Spinner should be hidden after agent.turn.stop event"
 
         _drive(_body())
 

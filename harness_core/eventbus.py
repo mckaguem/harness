@@ -12,10 +12,15 @@ This module provides:
 
 import asyncio
 import functools
+import logging
 import re
 import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Set
+
+
+# Module-level logger for the event bus
+logger = logging.getLogger(__name__)
 
 
 # Reference to the application's main running event loop, if one has been
@@ -268,7 +273,16 @@ class EventListener:
                 # Once a message arrives, this wakes up.
                 message = await self.mailbox.get()
 
-                await self._handle_incoming(message)
+                try:
+                    await self._handle_incoming(message)
+                except Exception as e:
+                    # Catch any exception in message handling to prevent the
+                    # listener from crashing and silently dropping messages.
+                    logger.exception(
+                        "Error handling message in %s._mailbox_listener: %s",
+                        self.agent_id,
+                        e,
+                    )
 
                 self.mailbox.task_done()
         except asyncio.CancelledError:
