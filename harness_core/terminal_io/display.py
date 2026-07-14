@@ -62,6 +62,7 @@ def display_tool_call(
     summary: str | None = None,
     *,
     pre_content: str = "",
+    reasoning: str | None = None,
 ) -> None:
     """Print a tool-call panel showing the function name and its arguments.
 
@@ -111,13 +112,18 @@ def display_tool_call(
     # said before invoking tools.  In TUI mode the pre-content panel is pushed
     # onto the output pane first (via write), and the tool-call collapsible
     # follows.  In classic REPL mode it's written via _tui_write.
-    if pre_content:
-        pre_renderable = display_message_panel(
-            text=pre_content,
-            theme="info",
+    # If the LLM accompanied this tool call with a text message (pre_tool_content)
+    # and/or reasoning, render it as a separate panel ABOVE the tool-call panel so
+    # users can see what the agent was thinking/saying before invoking tools.
+    # Reasoning (chain-of-thought) is prepended above a "---" separator, then the
+    # pre-tool-call text. Rendered as a full Markdown panel (no 5-line truncation)
+    # so longer reasoning stays visible.
+    if pre_content or reasoning:
+        pre_body = _combine_reasoning(reasoning, pre_content)
+        pre_renderable = Panel(
+            Markdown(pre_body),
             title="Agent",
-            result_type="markdown",
-            return_renderable=True,
+            border_style=_theme_border("info"),
         )
         controller = _tui.get_tui()
         if controller.is_active():
@@ -284,8 +290,26 @@ def display_user_message(message: str) -> None:
     ))
 
 
+def _combine_reasoning(reasoning: str | None, body: str) -> str:
+    """Prepend reasoning/thinking above a horizontal separator, then the body.
+
+    Used by both the agent-response panel and the pre-tool-call "Agent" panel so
+    the user sees the model's thinking followed by a clear ``---`` separator and
+    then the actual response / pre-tool-call text.
+
+    The separator is only drawn when there is real body text to separate: if the
+    model returned reasoning but no separate answer content, the reasoning is
+    shown on its own (no dangling ``---`` with a blank panel beneath it).
+    """
+    if reasoning:
+        if body:
+            return f"{reasoning}\n\n---\n\n{body}"
+        return reasoning
+    return body
+
+
 def display_agent_response(content: str | None, response: dict | None = None, context_length: int = 0,
-                           prompt_token_count: int | None = None) -> None:
+                           prompt_token_count: int | None = None, reasoning: str | None = None) -> None:
     """Display the agent's response safely.
 
     Parameters
@@ -305,7 +329,13 @@ def display_agent_response(content: str | None, response: dict | None = None, co
         response = {}
     # Guard against None content – treat as empty string.
     safe_content = content if content is not None else ""
-    markdown_obj = Markdown(safe_content)
+    # Surface reasoning above a separator, then the actual response text.
+    display_text = _combine_reasoning(reasoning, safe_content)
+    if not display_text:
+        # Neither reasoning nor response content was produced – show a
+        # placeholder instead of an empty panel so the turn is not silent.
+        display_text = "(no response content)"
+    markdown_obj = Markdown(display_text)
     _tui_write(Panel(markdown_obj, title="🤖 Agent Response", border_style="green"))
 
     speed_info = format_speed(response if response is not None else {}, context_length)

@@ -113,7 +113,7 @@ class TestRunNonInteractive:
 
         captured = {}
         with patch("harness_core.terminal_io.display_agent_response",
-                   side_effect=lambda c, r, cl: captured.setdefault("content", c)), patch(
+                   side_effect=lambda c, r, cl, **k: captured.setdefault("content", c)), patch(
             "harness_core.terminal_io.display_user_message"), patch(
             "harness_core.terminal_io.display_tool_call"), patch(
             "harness_core.terminal_io.display_tool_result"), patch(
@@ -177,7 +177,7 @@ class TestRunNonInteractive:
         with patch("harness_core.terminal_io.display_agent_response"), patch(
             "harness_core.terminal_io.display_user_message"), patch(
             "harness_core.terminal_io.display_tool_call",
-            side_effect=lambda fn, a: calls.append(fn)), patch(
+            side_effect=lambda fn, a, **k: calls.append(fn)), patch(
             "harness_core.terminal_io.display_tool_result",
             side_effect=lambda fn, r: results.append(fn)), patch(
             "harness_core.terminal_io.display_error"):

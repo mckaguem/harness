@@ -211,3 +211,82 @@ class TestThemeBorderIntegration:
             panel = mock_console.print.call_args[0][0]
             # Each call should produce a Panel with a valid border style.
             assert panel.border_style is not None
+
+
+# ── display_agent_response() with reasoning ──────────────────────────────
+
+
+class TestDisplayAgentResponseReasoning:
+    """Reasoning (chain-of-thought) should be prepended above a '---' sep."""
+
+    @patch("harness_core.terminal_io.display.console")
+    def test_reasoning_prepended_with_separator(self, mock_console):
+        from harness_core.terminal_io.display import display_agent_response
+
+        display_agent_response("Final answer.", {"usage": {}}, 1000, reasoning="I think step by step.")
+
+        assert mock_console.print.called
+        panel = mock_console.print.call_args_list[0].args[0]
+        from rich.panel import Panel
+        assert isinstance(panel, Panel)
+        md = panel.renderable
+        # Rich Markdown stores the source text in `.markup`
+        text = md.markup
+        assert "I think step by step." in text
+        assert "Final answer." in text
+        assert "\n---\n" in text
+
+    @patch("harness_core.terminal_io.display.console")
+    def test_no_reasoning_renders_plain(self, mock_console):
+        from harness_core.terminal_io.display import display_agent_response
+
+        display_agent_response("Just the answer.", {"usage": {}}, 1000)
+
+        panel = mock_console.print.call_args_list[0].args[0]
+        md = panel.renderable
+        assert md.markup == "Just the answer."
+        assert "---" not in md.markup
+
+    @patch("harness_core.terminal_io.display.console")
+    def test_reasoning_with_empty_content_shows_no_separator(self, mock_console):
+        from harness_core.terminal_io.display import display_agent_response
+
+        display_agent_response(None, {"usage": {}}, 1000, reasoning="I thought hard.")
+
+        panel = mock_console.print.call_args_list[0].args[0]
+        md = panel.renderable
+        # No dangling separator when there is no body to separate.
+        assert md.markup == "I thought hard."
+        assert "---" not in md.markup
+
+    @patch("harness_core.terminal_io.display.console")
+    def test_fully_empty_response_shows_placeholder(self, mock_console):
+        from harness_core.terminal_io.display import display_agent_response
+
+        display_agent_response(None, {"usage": {}}, 1000)
+
+        panel = mock_console.print.call_args_list[0].args[0]
+        md = panel.renderable
+        assert md.markup == "(no response content)"
+
+
+class TestDisplayToolCallReasoning:
+    """Pre-tool-call text + reasoning rendered in an 'Agent' panel above call."""
+
+    @patch("harness_core.terminal_io.display.console")
+    def test_reasoning_and_precontent_agent_panel(self, mock_console):
+        from harness_core.terminal_io.display import display_tool_call
+
+        display_tool_call("run_x", '{"a": 1}', pre_content="About to run.", reasoning="Tool thinking.")
+
+        # The pre-content/reasoning panel is rendered first, titled "Agent".
+        from rich.panel import Panel
+        agent_panels = [
+            c.args[0] for c in mock_console.print.call_args_list
+            if isinstance(c.args[0], Panel) and c.args[0].title == "Agent"
+        ]
+        assert agent_panels, "expected an 'Agent' panel"
+        text = agent_panels[0].renderable.markup
+        assert "Tool thinking." in text
+        assert "About to run." in text
+        assert "\n---\n" in text

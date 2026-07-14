@@ -40,13 +40,13 @@ def _make_fakes(monkeypatch, agent):
     def fake_display_error(text):
         captured["displayed"].append(("error", text))
 
-    def fake_display_agent_response(content, resp, ctx):
+    def fake_display_agent_response(content, resp, ctx, **kwargs):
         captured["displayed"].append(("response", content))
 
     def fake_display_user_message(text):
         captured["displayed"].append(("user", text))
 
-    def fake_display_tool_call(name, args):
+    def fake_display_tool_call(name, args, **kwargs):
         captured["displayed"].append(("tool_call", name))
 
     def fake_display_tool_result(name, result):

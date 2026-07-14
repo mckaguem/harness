@@ -22,6 +22,15 @@ def _make_function_call_item(call_id="call_1", name="execute_bash", arguments='{
     return item
 
 
+def _make_reasoning_item(summary=None, content=None, item_id="r1"):
+    item = Mock()
+    item.type = "reasoning"
+    item.id = item_id
+    item.summary = [Mock(text=t) for t in (summary or [])]
+    item.content = [Mock(text=t) for t in (content or [])]
+    return item
+
+
 def _make_usage(input_tokens=10, output_tokens=5, total_tokens=15):
     usage = Mock()
     usage.input_tokens = input_tokens
@@ -87,6 +96,56 @@ class TestProviderNormalization:
 
         assert raised is not None
         assert str(raised).startswith("Provider chat request failed:")
+
+    def test_reasoning_item_extracted_into_message(self):
+        client = MagicMock()
+        provider = OpenAIProvider(client)
+
+        response = Mock()
+        response.output = [
+            _make_reasoning_item(summary=["Let me think. ", "The answer is 42."]),
+            _make_message_item("The answer is 42."),
+        ]
+        response.usage = _make_usage(10, 5, 15)
+        client.responses.create.return_value = response
+
+        result = provider.chat_completion(messages=[{"role": "user", "content": "Hi"}], model="gpt-x")
+
+        message = result["choices"][0]["message"]
+        assert message["content"] == "The answer is 42."
+        assert message["reasoning"] == "Let me think. The answer is 42."
+        assert result["usage"] == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+
+    def test_reasoning_item_falls_back_to_content(self):
+        client = MagicMock()
+        provider = OpenAIProvider(client)
+
+        response = Mock()
+        response.output = [
+            _make_reasoning_item(summary=[], content=["inner thought"]),
+            _make_message_item("done"),
+        ]
+        response.usage = _make_usage(1, 1, 2)
+        client.responses.create.return_value = response
+
+        result = provider.chat_completion(messages=[{"role": "user", "content": "Hi"}], model="gpt-x")
+        message = result["choices"][0]["message"]
+        assert message["reasoning"] == "inner thought"
+        assert message["content"] == "done"
+
+    def test_no_reasoning_yields_none(self):
+        client = MagicMock()
+        provider = OpenAIProvider(client)
+
+        response = Mock()
+        response.output = [_make_message_item("plain")]
+        response.usage = _make_usage(1, 1, 2)
+        client.responses.create.return_value = response
+
+        result = provider.chat_completion(messages=[{"role": "user", "content": "Hi"}], model="gpt-x")
+        message = result["choices"][0]["message"]
+        assert message.get("reasoning") is None
+        assert message["content"] == "plain"
 
 
 class TestProviderFactory:

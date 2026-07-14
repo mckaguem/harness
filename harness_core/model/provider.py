@@ -259,6 +259,7 @@ def _normalize_response(response) -> dict:
     """
     content_text = ""
     tool_calls = []
+    reasoning_text = ""
     for item in response.output:
         if item.type == "message":
             parts = []
@@ -274,8 +275,27 @@ def _normalize_response(response) -> dict:
                     "arguments": item.arguments,
                 },
             })
+        elif item.type == "reasoning":
+            # Responses API emits reasoning tokens as separate items.
+            # `summary` (when include=["reasoning.summary"] is requested) holds
+            # human-readable text; otherwise `content` holds the (often
+            # encrypted) reasoning text. Prefer summary, fall back to content.
+            item_text = ""
+            summary = getattr(item, "summary", None)
+            if summary:
+                item_text = "".join(getattr(s, "text", "") or "" for s in summary)
+            if not item_text:
+                content = getattr(item, "content", None)
+                if content:
+                    item_text = "".join(getattr(c, "text", "") or "" for c in content)
+            if item_text:
+                reasoning_text += item_text
 
-    message: dict[str, Any] = {"role": "assistant", "content": content_text or None}
+    message: dict[str, Any] = {
+        "role": "assistant",
+        "content": content_text or None,
+        "reasoning": reasoning_text or None,
+    }
     if tool_calls:
         message["tool_calls"] = tool_calls
 

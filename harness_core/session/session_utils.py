@@ -66,6 +66,11 @@ def format_session_yaml(messages: list[dict], agent_type_name: str = "main") -> 
                 yaml_lines.append("content: |-" )
                 for line in content.split("\n"):
                     yaml_lines.append(f"    {line}")
+            reasoning = msg.get("reasoning")
+            if reasoning:
+                yaml_lines.append("reasoning: |-")
+                for line in str(reasoning).split("\n"):
+                    yaml_lines.append(f"    {line}")
 
         elif role == "tool":
             yaml_lines.append(f"name: {msg.get('name', '')}")
@@ -135,6 +140,8 @@ def parse_session_yaml(yaml_content: str) -> tuple[list[dict], str | None]:
                     msg_dict["tool_calls"] = parsed_tool_calls
                 if content:
                     msg_dict["content"] = content
+                if doc.get("reasoning"):
+                    msg_dict["reasoning"] = doc["reasoning"]
                 messages.append(msg_dict)
 
             elif role == "tool":

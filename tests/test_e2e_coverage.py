@@ -154,10 +154,10 @@ def run_captured(agent, message):
     """
     captured = {"response": None, "tool_calls": [], "tool_results": [], "errors": []}
     with patch("harness_core.terminal_io.display_agent_response",
-               side_effect=lambda c, r, cl: captured.__setitem__("response", c)), \
+               side_effect=lambda c, r, cl, **k: captured.__setitem__("response", c)), \
          patch("harness_core.terminal_io.display_user_message"), \
          patch("harness_core.terminal_io.display_tool_call",
-               side_effect=lambda fn, a: captured["tool_calls"].append(fn)), \
+               side_effect=lambda fn, a, **k: captured["tool_calls"].append(fn)), \
          patch("harness_core.terminal_io.display_tool_result",
                side_effect=lambda fn, r: captured["tool_results"].append((fn, r))), \
          patch("harness_core.terminal_io.display_error",

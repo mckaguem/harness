@@ -179,10 +179,12 @@ class Agent:
         message_obj = choice.get("message", {})
         
         # Build a dict that contains both message content and usage data.
+        reasoning = message_obj.get("reasoning")
         resp_dict: dict = {
             "message": {
                 "role": message_obj.get("role") or "assistant",
                 "content": message_obj.get("content"),
+                "reasoning": reasoning,
             },
             "model": self._agent_type.model_name,
             "usage": {
@@ -191,6 +193,9 @@ class Agent:
                 "total_tokens": usage_data.get("total_tokens"),
             },
         }
+        # Top-level reasoning mirror so downstream display/loop code can read it
+        # without digging into resp_dict["message"].
+        resp_dict["reasoning"] = reasoning
 
         # Track timing for performance metrics.
         end_time = time.time()

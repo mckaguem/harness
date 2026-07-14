@@ -210,11 +210,17 @@ def run_non_interactive(agent, message):
         if kind == RESPONSE:
             _, content, ollama_response, _ = output
             elapsed = time.time() - turn_start
-            display_agent_response(content, ollama_response, agent._context_length)
+            reasoning = (
+                (ollama_response or {}).get("reasoning")
+                if isinstance(ollama_response, dict) else None
+            )
+            display_agent_response(content, ollama_response, agent._context_length, reasoning=reasoning)
             display_turn_stats(ollama_response, agent._context_length, elapsed_seconds=elapsed)
         elif kind == TOOL_CALL:
             _, func_name, args_str, response_data = output
-            display_tool_call(func_name, args_str)
+            pre_content = (response_data or {}).get("pre_tool_content", "") or ""
+            reasoning = (response_data or {}).get("reasoning", "") or ""
+            display_tool_call(func_name, args_str, pre_content=pre_content, reasoning=reasoning)
         elif kind == TOOL_RESULT:
             _, func_name, result, response_data = output
             display_tool_result(func_name, result)

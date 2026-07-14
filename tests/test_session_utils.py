@@ -33,6 +33,19 @@ class TestSessionYamlRoundTrip:
         # Either empty messages or an error string — never raise.
         assert err is None or isinstance(err, str)
 
+    def test_reasoning_round_trips(self):
+        messages = [
+            {"role": "system", "content": "sys prompt"},
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi there", "reasoning": "I thought about it.\nStep two."},
+        ]
+        text = format_session_yaml(messages, agent_type_name="main")
+        parsed, err = parse_session_yaml(text)
+        assert err is None
+        assistant = [m for m in parsed if m.get("role") == "assistant"][0]
+        assert assistant["content"] == "hi there"
+        assert assistant.get("reasoning") == "I thought about it.\nStep two."
+
 
 class TestRunFolder:
     """create_run_folder / ensure_sessions_dir filesystem side effects."""
