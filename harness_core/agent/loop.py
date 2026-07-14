@@ -1,5 +1,6 @@
 """Interactive user loop for the agent harness."""
 
+import asyncio
 import time as _time
 from rich.console import Console
 
@@ -19,6 +20,7 @@ from harness_core.tools.dispatcher import summarize
 import json
 from harness_core.commands import COMMANDS
 from harness_core.skills.interceptor import intercept_message, InterceptorKind
+from harness_core.eventbus import Event, event_bus, get_event_loop
 
 def _count_approx_tokens(messages: list) -> int:
     """Approximate token count from a message list using character estimation.
@@ -122,6 +124,44 @@ def _emit_system_event(agent, topic: str, title: str, message: str) -> None:
         except RuntimeError:
             pass
 
+
+def _emit_control_event(agent, topic: str) -> None:
+    """Emit a control event (e.g. agent.turn.start/stop) on the TUI event loop.
+
+    These are lightweight control events without payload. They are only emitted
+    when the textual TUI is active; in non-TUI mode they are no-ops (the classic
+    REPL does not need spinner/turn control events).
+    """
+    from harness_core.terminal_io.tui import get_tui
+
+    tui = get_tui()
+    tui_active = getattr(tui, "is_active", None)
+    if not (callable(tui_active) and tui_active()):
+        # Non-TUI mode: control events are no-ops.
+        return
+
+    import asyncio
+    from harness_core.eventbus import Event, event_bus, get_event_loop
+
+    event = Event(
+        topic=topic,
+        sender=agent.id,
+        payload=None,
+    )
+    loop = get_event_loop()
+    if loop is not None and loop.is_running():
+        # Marshal delivery onto the app loop (worker-thread safe).
+        loop.call_soon_threadsafe(
+            lambda: asyncio.ensure_future(event_bus.publish(event), loop=loop)
+        )
+    else:
+        # No app loop available — best-effort inline delivery.
+        try:
+            asyncio.run(event_bus.publish(event))
+        except RuntimeError:
+            pass
+
+
 def user_loop(agent: "Agent", on_exit=None) -> None:
     """Run the interactive chat loop.
 
@@ -191,13 +231,12 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
         else:
             effective_input = user_input
 
-        # Show a spinner at the bottom of the messages panel while the agent is
-        # actively working through its handle_prompt loop (LLM calls, tool
-        # dispatches, etc.).  show/hide are no-ops when no textual TUI is active,
-        # so the classic REPL keeps its original behaviour.
-        from harness_core.terminal_io.tui import get_tui
-        _tui = get_tui()
-        _tui.show_spinner()
+        # Emit a control event to show a spinner at the bottom of the messages
+        # panel while the agent is actively working through its handle_prompt
+        # loop (LLM calls, tool dispatches, etc.).  The event is a no-op when
+        # no textual TUI is active, so the classic REPL keeps its original
+        # behaviour.
+        _emit_control_event(agent, "agent.turn.start")
         try:
             # Iterate defensively: agent.handle_prompt() is a generator, so the
             # provider/LLM call (and any tool dispatch) runs lazily as we pull
@@ -244,7 +283,9 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                 + (traceback.format_exc() if Console().is_terminal else "")
             )
         finally:
-            _tui.hide_spinner()
+            # Emit a control event to hide the spinner at the bottom of the
+            # messages panel.  No-op when no textual TUI is active.
+            _emit_control_event(agent, "agent.turn.stop")
         
         # Auto-compression check: after each agent response to a user message,
         # if context utilization exceeds 50%, trigger compression.

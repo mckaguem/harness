@@ -95,6 +95,14 @@ def make_event_listener(agent_id: str, bus: EventBus = None) -> EventListener:
         async def handle_agent_status_ready(self, event: Event) -> None:
             await system_message(self, event)
 
+        @filter_by_sender(pattern)
+        async def handle_agent_turn_start(self, event: Event) -> None:
+            get_tui().show_spinner()
+
+        @filter_by_sender(pattern)
+        async def handle_agent_turn_stop(self, event: Event) -> None:
+            get_tui().hide_spinner()
+
     return HarnessEventListener()
 
 
@@ -107,6 +115,8 @@ def subscribe_event_listener(agent_id: str, bus: EventBus = None) -> EventListen
         "agent.tasklist.reset",
         "agent.session.autocompress",
         "agent.status.ready",
+        "agent.turn.start",
+        "agent.turn.stop",
     ])
     return listener
 
