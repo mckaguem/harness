@@ -293,6 +293,56 @@ def _emit_agent_response_event(agent, content: str | None, ollama_response: dict
             display_agent_response(content, ollama_response, context_length, reasoning=reasoning)
 
 
+
+def _emit_turn_stats_event(agent, ollama_response: dict | None, context_length: int, elapsed_seconds: float) -> None:
+    """Emit an 'agent.turn.stats' event so terminal_io can render it via display_turn_stats.
+
+    When the textual TUI is active the event is published on the registered app
+    loop so the subscribed :class:`~harness_core.terminal_io.event_listener.HarnessEventListener`
+    can pick it up and call ``display_turn_stats``.  In non-TUI contexts (classic
+    REPL, tests, non-interactive) there is no listener subscribed for this topic,
+    so we fall back to calling :func:`harness_core.terminal_io.display.display_turn_stats` directly.
+
+    Args:
+        agent: The Agent instance (used for its id as the event sender).
+        ollama_response: Additional provider metadata dict (usage counts), or None when absent.
+        context_length: Length of the model's context window used for the call.
+        elapsed_seconds: Wall-clock time spent on the turn in seconds.
+    """
+
+    from harness_core.eventbus import Event, event_bus, get_event_loop
+    from harness_core.event_types import TurnStatsPayload
+
+    tui = get_tui()
+    tui_active = getattr(tui, "is_active", None)
+    if not (callable(tui_active) and tui_active()):
+        # Non-TUI mode: no listener subscribed — render directly.
+        display_turn_stats(ollama_response, context_length, elapsed_seconds=elapsed_seconds)
+        return
+
+    event = Event(
+        topic="agent.turn.stats",
+        sender=agent.id,
+        payload=TurnStatsPayload(
+            response=ollama_response,
+            context_length=context_length,
+            elapsed_seconds=elapsed_seconds,
+        ),
+    )
+    loop = get_event_loop()
+    if loop is not None and loop.is_running():
+        try:
+            asyncio.run_coroutine_threadsafe(event_bus.publish(event), loop)
+        except RuntimeError:
+            display_turn_stats(ollama_response, context_length, elapsed_seconds=elapsed_seconds)
+    else:
+        try:
+            asyncio.run(event_bus.publish(event))
+        except RuntimeError:
+            display_turn_stats(ollama_response, context_length, elapsed_seconds=elapsed_seconds)
+
+
+
 def user_loop(agent: "Agent", on_exit=None) -> None:
     """Run the interactive chat loop.
 
@@ -387,7 +437,7 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                         if isinstance(ollama_response, dict) else None
                     )
                     _emit_agent_response_event(agent, content, ollama_response, agent._context_length, reasoning=reasoning)
-                    display_turn_stats(ollama_response, agent._context_length, elapsed_seconds=elapsed)
+                    _emit_turn_stats_event(agent, ollama_response, agent._context_length, elapsed)
                 elif kind == TOOL_CALL:
                     _, func_name, args_str, response_data = output
                     args_dict = json.loads(args_str)

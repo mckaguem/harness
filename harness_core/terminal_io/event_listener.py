@@ -17,6 +17,8 @@ Handled topics:
     whose sender matches the filtered agent id, e.g. ``Agent.main``).
 * ``agent.turn.response``
   -> render the agent's response via :func:`.display.display_agent_response`.
+* ``agent.turn.stats``
+  -> push turn usage + elapsed time to the sidebar via :func:`.speed.display_turn_stats`.
 """
 
 from __future__ import annotations
@@ -26,10 +28,10 @@ from typing import Callable
 
 from harness_core.eventbus import Event, EventBus, EventListener, event_bus, filter_by_sender
 from harness_core.event_types import (
-    AgentResponsePayload, SessionErrorPayload, SystemMessagePayload, TaskListPayload, ToolErrorPayload,
+    AgentResponsePayload, SessionErrorPayload, SystemMessagePayload, TaskListPayload, ToolErrorPayload, TurnStatsPayload,
 )
 
-from .display import display_agent_response, display_error, print_system
+from .display import display_agent_response, display_error, display_turn_stats, print_system
 from .task_display import render_task_list_markdown_from_payload
 from .tui import get_tui
 
@@ -137,6 +139,17 @@ def make_event_listener(agent_id: str, bus: EventBus = None) -> EventListener:
                 reasoning=payload.reasoning,
             )
 
+        @filter_by_sender(pattern)
+        async def handle_agent_turn_stats(self, event: Event) -> None:
+            payload = event.payload
+            if not isinstance(payload, TurnStatsPayload):
+                return
+            display_turn_stats(
+                payload.response,
+                payload.context_length,
+                elapsed_seconds=payload.elapsed_seconds,
+            )
+
     return HarnessEventListener()
 
 
@@ -152,6 +165,7 @@ def subscribe_event_listener(agent_id: str, bus: EventBus = None) -> EventListen
         "agent.status.ready",
         "agent.tool.error",
         "agent.turn.response",
+        "agent.turn.stats",
         "agent.turn.start",
         "agent.turn.stop",
     ])

@@ -205,3 +205,21 @@ class AgentResponsePayload(EventPayload):
     response: dict | None = None
     context_length: int = 0
     reasoning: str | None = None
+
+@dataclass(kw_only=True)
+class TurnStatsPayload(EventPayload):
+    """Event payload for post-turn usage + elapsed-time stats pushed to the sidebar.
+
+    Carries everything needed to render a single ``display_turn_stats`` call.
+    Subscribers reconstruct the display by forwarding all fields back through
+    :func:`harness_core.terminal_io.display.display_turn_stats`.
+
+    Attributes:
+        response: The raw LLM response dict (usage, eval counts, etc.), or None when absent.
+        context_length: Length of the model's context window used for the call.
+        elapsed_seconds: Wall-clock time spent on the turn in seconds, or None if not tracked.
+    """
+
+    response: dict | None = None
+    context_length: int = 0
+    elapsed_seconds: float | None = None
