@@ -147,3 +147,39 @@ class SystemMessagePayload(EventPayload):
 
     title: str = ""
     message: str = ""
+
+
+@dataclass(kw_only=True)
+class ToolErrorPayload(EventPayload):
+    """Event payload for an error reported by a tool call.
+
+    Carries a ``title`` (short identifier, e.g. "Tool Error") and a longer
+    ``message`` body describing what went wrong. Mirrors the signature of
+    :func:`harness_core.terminal_io.display.print_system` so that subscribers
+    can render it through the existing ``display_error`` helper.
+
+    Attributes:
+        title: Short error title (e.g. "Tool Error"). Defaults to "Tool Error".
+        message: Human-readable description of the tool-related failure.
+    """
+
+    title: str = "Tool Error"
+    message: str = ""
+
+
+@dataclass(kw_only=True)
+class SessionErrorPayload(EventPayload):
+    """Event payload for an error reported at session level (e.g. auto-compression).
+
+    Carries a ``title`` and a longer ``message`` body. Mirrors the signature of
+    :func:`harness_core.terminal_io.display.print_system` so that subscribers
+    can render it through the existing ``display_error`` helper.
+
+    Attributes:
+        title: Short error title (e.g. "Auto-Compression Error"). Defaults to
+            "Auto-Compression Error".
+        message: Human-readable description of the session-level failure.
+    """
+
+    title: str = "Auto-Compression Error"
+    message: str = ""

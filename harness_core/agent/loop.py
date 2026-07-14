@@ -20,6 +20,7 @@ from harness_core.terminal_io import (
     display_agent_response, display_user_message, display_turn_stats,
     format_speed,
 )
+from harness_core.terminal_io.tui import get_tui
 from harness_core.tools.dispatcher import summarize
 import json
 from harness_core.commands import COMMANDS
@@ -41,13 +42,8 @@ def _count_approx_tokens(messages: list) -> int:
     # Rough approximation: ~4 characters per token
     return total_chars // 4
 
-def _check_and_compress_if_needed(agent, display_error) -> None:
-    """Check context utilization and trigger compression if above threshold.
-    
-    Args:
-        agent: The Agent instance with .messages and ._context_length attributes.
-        display_error: Error display callback from harness_core.terminal_io.
-    """
+def _check_and_compress_if_needed(agent) -> None:
+    """Check context utilization and trigger compression if above threshold."""
     try:
         messages = getattr(agent, 'messages', None) or (getattr(agent, '_session', None) and getattr(agent, '_session').messages)
         context_length = getattr(agent, '_context_length', 1 << 17)  # default ~131072
@@ -83,7 +79,7 @@ def _check_and_compress_if_needed(agent, display_error) -> None:
                         f"Context utilization was {pre_util:.1%} of {context_length} max tokens. Auto-compressed to {post_util:.1%}.",
                     )
             except Exception as e:
-                display_error(f"Auto-compression failed: {e}")
+                _emit_session_error_event(agent, f"Auto-compression failed: {e}")
     except Exception as e:
         pass  # silently skip on any error
 
@@ -176,6 +172,77 @@ def _emit_control_event(agent, topic: str) -> None:
             pass
 
 
+def _emit_tool_error_event(agent, description: str) -> None:
+    """Emit an 'agent.tool.error' event so terminal_io can render it via display_error.
+
+    When the textual TUI is active the event is published on the registered app
+    loop so the subscribed :class:`~harness_core.terminal_io.event_listener.HarnessEventListener`
+    can pick it up and call ``display_error``.  In non-TUI contexts (classic REPL,
+    tests, non-interactive) there is no listener subscribed, so we fall back to
+    calling :func:`harness_core.terminal_io.display.display_error` directly.
+    """
+
+    from harness_core.eventbus import Event, event_bus, get_event_loop
+    from harness_core.event_types import ToolErrorPayload
+
+    tui = get_tui()
+    tui_active = getattr(tui, "is_active", None)
+    if not (callable(tui_active) and tui_active()):
+        # Non-TUI mode: no listener subscribed — render directly.
+        display_error(description)
+        return
+
+    event = Event(
+        topic="agent.tool.error",
+        sender=agent.id,
+        payload=ToolErrorPayload(message=description),
+    )
+    loop = get_event_loop()
+    if loop is not None and loop.is_running():
+        try:
+            asyncio.run_coroutine_threadsafe(event_bus.publish(event), loop)
+        except RuntimeError:
+            display_error(description)
+    else:
+        try:
+            asyncio.run(event_bus.publish(event))
+        except RuntimeError:
+            display_error(description)
+
+
+def _emit_session_error_event(agent, description: str) -> None:
+    """Emit an 'agent.session.error' event (e.g. auto-compression failures).
+
+    Same TUI/non-TUI fallback pattern as :func:`_emit_tool_error_event`.
+    """
+
+    from harness_core.eventbus import Event, event_bus, get_event_loop
+    from harness_core.event_types import SessionErrorPayload
+
+    tui = get_tui()
+    tui_active = getattr(tui, "is_active", None)
+    if not (callable(tui_active) and tui_active()):
+        display_error(description)
+        return
+
+    event = Event(
+        topic="agent.session.error",
+        sender=agent.id,
+        payload=SessionErrorPayload(message=description),
+    )
+    loop = get_event_loop()
+    if loop is not None and loop.is_running():
+        try:
+            asyncio.run_coroutine_threadsafe(event_bus.publish(event), loop)
+        except RuntimeError:
+            display_error(description)
+    else:
+        try:
+            asyncio.run(event_bus.publish(event))
+        except RuntimeError:
+            display_error(description)
+
+
 def user_loop(agent: "Agent", on_exit=None) -> None:
     """Run the interactive chat loop.
 
@@ -237,7 +304,7 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                 agent.inject_text(outcome.payload or "")
                 effective_input = outcome.stripped_message if outcome.stripped_message else user_input
             elif outcome.kind == InterceptorKind.RESTRICTED:
-                display_error(outcome.payload or "")
+                _emit_tool_error_event(agent, outcome.payload or "")
                 effective_input = outcome.stripped_message if outcome.stripped_message else user_input
             else:
                 # UNKNOWN or SKIP: treat as regular text and send to LLM.
@@ -291,8 +358,8 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                     from harness_core.terminal_io import display as _display
                     _display.reset_pending_tool_panel()
         except Exception as exc:  # pragma: no cover - defensive
-            import traceback
-            display_error(
+            _emit_tool_error_event(
+                agent,
                 f"Agent turn failed: {exc}\n"
                 + (traceback.format_exc() if Console().is_terminal else "")
             )
@@ -305,6 +372,6 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
         # if context utilization exceeds 50%, trigger compression.
         if not (user_input.startswith('/') and effective_input == user_input):
             try:
-                _check_and_compress_if_needed(agent, display_error)
+                _check_and_compress_if_needed(agent)
             except Exception as e:
-                display_error(f"Auto-compression check failed: {e}")
+                _emit_session_error_event(agent, f"Auto-compression check failed: {e}")
