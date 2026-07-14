@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from typing import Callable
 
-from harness_core.eventbus import Event, EventListener, filter_by_sender
+from harness_core.eventbus import Event, EventBus, EventListener, event_bus, filter_by_sender
 from harness_core.event_types import TaskListPayload, SystemMessagePayload
 
 from .display import print_system
@@ -51,7 +51,7 @@ def _make_system_message_handler() -> "Callable":
     return _system_message
 
 
-def make_event_listener(agent_id: str) -> EventListener:
+def make_event_listener(agent_id: str, bus: EventBus = None) -> EventListener:
     """Create a :class:`HarnessEventListener` filtered to ``agent_id``.
 
     The returned listener subscribes to the five ``agent.*`` topics.  Each
@@ -59,12 +59,22 @@ def make_event_listener(agent_id: str) -> EventListener:
     using a per-agent regex (e.g. ``^Agent\\.main$``), so only events published
     by that agent (sender == its id, e.g. ``Agent.main``) reach the TUI — other
     agents' events are silently ignored.
+
+    Args:
+        agent_id: The agent identifier to filter events for (e.g. "Agent.main")
+        bus: Optional EventBus instance (defaults to global event_bus singleton)
     """
+    if bus is None:
+        bus = event_bus
+
     pattern = f"^{re.escape(agent_id)}$"
     refresh = _make_refresh_handler()
     system_message = _make_system_message_handler()
 
     class HarnessEventListener(EventListener):
+        def __init__(self):
+            super().__init__(agent_id, bus)
+
         @filter_by_sender(pattern)
         async def handle_agent_tasklist_initialize(self, event: Event) -> None:
             await refresh(self, event)
@@ -88,10 +98,10 @@ def make_event_listener(agent_id: str) -> EventListener:
     return HarnessEventListener()
 
 
-async def subscribe_event_listener(agent_id: str) -> EventListener:
+def subscribe_event_listener(agent_id: str, bus: EventBus = None) -> EventListener:
     """Create and subscribe a :class:`HarnessEventListener` for ``agent_id``."""
-    listener = make_event_listener(agent_id)
-    await listener.subscribe([
+    listener = make_event_listener(agent_id, bus)
+    listener.subscribe([
         "agent.tasklist.initialize",
         "agent.tasklist.update",
         "agent.tasklist.reset",
@@ -101,11 +111,11 @@ async def subscribe_event_listener(agent_id: str) -> EventListener:
     return listener
 
 
-def make_task_list_listener(agent_id: str) -> EventListener:
+def make_task_list_listener(agent_id: str, bus: EventBus = None) -> EventListener:
     """Backward-compatible alias for :func:`make_event_listener`."""
-    return make_event_listener(agent_id)
+    return make_event_listener(agent_id, bus)
 
 
-async def subscribe_task_list_listener(agent_id: str) -> EventListener:
+def subscribe_task_list_listener(agent_id: str, bus: EventBus = None) -> EventListener:
     """Backward-compatible alias for :func:`subscribe_event_listener`."""
-    return await subscribe_event_listener(agent_id)
+    return subscribe_event_listener(agent_id, bus)

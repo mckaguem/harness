@@ -645,7 +645,7 @@ class TextualHarnessApp(App):
             from .event_listener import subscribe_event_listener
 
             if self._agent is not None:
-                await subscribe_event_listener(self._agent.id)
+                subscribe_event_listener(self._agent.id)
         except Exception:
             pass
 

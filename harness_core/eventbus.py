@@ -4,7 +4,10 @@ Event bus implementation for asynchronous event-driven communication.
 This module provides:
 - Event: A dataclass representing an event with topic, sender, and payload
 - EventListener: Base class for objects that can listen to and handle events
-- EventBus: A singleton event bus for publishing and subscribing to events
+- EventBus: A mailbox-pattern event bus for publishing and subscribing to events
+- filter_by_sender: Decorator for filtering events by sender
+- generate_unique_id: Utility for generating unique identifiers
+- set_event_loop/get_event_loop: Functions to manage the application event loop for cross-thread event delivery
 """
 
 import asyncio
@@ -12,7 +15,7 @@ import functools
 import re
 import uuid
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Set
 
 
 # Reference to the application's main running event loop, if one has been
@@ -59,12 +62,15 @@ def filter_by_sender(sender_regex: str):
     sender id matches the supplied regular expression.
 
     If the sender does not match, the handler is skipped entirely.
+
+    Args:
+        sender_regex: Regular expression pattern to match against event.sender
     """
     pattern = re.compile(sender_regex)
 
     def decorator(func):
         @functools.wraps(func)
-        async def wrapper(self, event: Event):
+        async def wrapper(self, event: "Event"):
             if pattern.search(event.sender):
                 await func(self, event)
         return wrapper
@@ -76,28 +82,221 @@ class Event:
     """Represents an event in the event bus system.
 
     Attributes:
-        topic: The event topic/name (e.g., 'user_created', 'message_received')
+        topic: The event topic/name (e.g., 'user_created', 'message_received').
+               None for direct messages.
         sender: The identifier of the event sender
         payload: Arbitrary data associated with the event
     """
-    topic: str
+    topic: Optional[str]
     sender: str
     payload: Any
 
 
+class EventBus:
+    """Mailbox-pattern event bus for asynchronous agent communication.
+
+    The event bus maintains a mailbox (asyncio.Queue) for each registered agent.
+    Agents subscribe to topics, and publishing to a topic delivers the event to
+    all subscribed agents' mailboxes. Agents process messages sequentially from
+    their mailbox via a background listener task.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the event bus with empty mailboxes, bindings, and task tracking."""
+        # Maps unique agent_id -> their single Mailbox (asyncio.Queue)
+        self._mailboxes: Dict[str, asyncio.Queue] = {}
+        # Maps topic -> set of agent_ids subscribed to it (Bindings)
+        self._bindings: Dict[str, Set[str]] = {}
+        # Keep strong references to background tasks to prevent GC cleanup
+        self._running_tasks: Set[asyncio.Task] = set()
+
+    def register_agent(self, agent_id: str) -> asyncio.Queue:
+        """Register an agent and give them their unique mailbox.
+
+        Args:
+            agent_id: Unique identifier for the agent
+
+        Returns:
+            The agent's mailbox (asyncio.Queue)
+
+        Raises:
+            ValueError: If the agent_id is already registered
+        """
+        if agent_id in self._mailboxes:
+            raise ValueError(f"Agent '{agent_id}' is already registered.")
+
+        mailbox = asyncio.Queue()
+        self._mailboxes[agent_id] = mailbox
+        return mailbox
+
+    def deregister_agent(self, agent_id: str) -> None:
+        """Clean up an agent's mailbox and all of their topic subscriptions.
+
+        Args:
+            agent_id: Unique identifier for the agent to deregister
+        """
+        self._mailboxes.pop(agent_id, None)
+        for subscribed_agents in self._bindings.values():
+            subscribed_agents.discard(agent_id)
+
+    def subscribe(self, agent_id: str, topic: str) -> None:
+        """Bind an agent's existing mailbox to a specific topic.
+
+        Args:
+            agent_id: Unique identifier for the agent
+            topic: The topic to subscribe to
+
+        Raises:
+            ValueError: If the agent_id is not registered
+        """
+        if agent_id not in self._mailboxes:
+            raise ValueError(f"Agent '{agent_id}' must be registered before subscribing.")
+
+        if topic not in self._bindings:
+            self._bindings[topic] = set()
+        self._bindings[topic].add(agent_id)
+
+    def unsubscribe(self, agent_id: str, topic: str) -> None:
+        """Unsubscribe an agent from a specific topic.
+
+        Args:
+            agent_id: Unique identifier for the agent
+            topic: The topic to unsubscribe from
+        """
+        if topic in self._bindings:
+            self._bindings[topic].discard(agent_id)
+            # Clean up empty topic sets
+            if not self._bindings[topic]:
+                del self._bindings[topic]
+
+    def send_direct(self, sender: str, target_agent_id: str, payload: Any) -> None:
+        """Deliver a message directly to a specific agent's mailbox.
+
+        This is a point-to-point message (topic is None).
+
+        Args:
+            sender: Identifier of the sender
+            target_agent_id: Unique identifier of the target agent
+            payload: Arbitrary data to send
+        """
+        mailbox = self._mailboxes.get(target_agent_id)
+        if mailbox:
+            event = Event(topic=None, sender=sender, payload=payload)
+            mailbox.put_nowait(event)
+
+    def publish_to_topic(self, sender: str, topic: str, payload: Any) -> None:
+        """Broadcast a message to the mailboxes of all subscribed agents.
+
+        Args:
+            sender: Identifier of the sender
+            topic: The topic to publish to
+            payload: Arbitrary data to send
+        """
+        if topic not in self._bindings:
+            return
+
+        event = Event(topic=topic, sender=sender, payload=payload)
+        for agent_id in self._bindings[topic]:
+            mailbox = self._mailboxes.get(agent_id)
+            if mailbox:
+                mailbox.put_nowait(event)
+
+    def register_background_task(self, coro) -> asyncio.Task:
+        """Helper to run a task safely in the background with automatic cleanup.
+
+        Args:
+            coro: Coroutine to run as a background task
+
+        Returns:
+            The created asyncio.Task
+        """
+        task = asyncio.create_task(coro)
+        self._running_tasks.add(task)
+        task.add_done_callback(self._running_tasks.discard)
+        return task
+
+    async def publish(self, event: Event) -> None:
+        """Publish an event to all subscribers of its topic using the mailbox pattern.
+
+        This is the main entry point for publishing events. It uses the mailbox
+        pattern to deliver events asynchronously to all subscribed agents.
+
+        Args:
+            event: The event to publish (must have a topic, not None)
+        """
+        if event.topic is None:
+            # Direct message - not supported via publish, use send_direct instead
+            return
+
+        self.publish_to_topic(sender=event.sender, topic=event.topic, payload=event.payload)
+
+
 class EventListener:
-    """Base class for event listeners.
+    """Base class for event listeners using the mailbox pattern.
 
     Subclasses should implement handler methods named `handle_<topic>` where
-    `<topic>` is the event topic with underscores replacing special characters.
+    `<topic>` is the event topic with dots and hyphens replaced by underscores.
     For example, for topic 'user.created', implement `handle_user_created(self, event)`.
+
+    For direct messages (topic is None), implement `handle_direct(self, event)`.
 
     The `default_handler` method can be overridden to handle events without
     a specific handler method.
     """
 
+    def __init__(self, agent_id: str, bus: EventBus) -> None:
+        """Initialize the event listener.
+
+        Args:
+            agent_id: Unique identifier for this listener/agent
+            bus: The EventBus instance to use for communication
+        """
+        self.agent_id = agent_id
+        self.bus = bus
+
+        # 1. Get our single, personal mailbox
+        self.mailbox = self.bus.register_agent(self.agent_id)
+
+        # 2. Start our single, sequential message processor
+        self.bus.register_background_task(self._mailbox_listener())
+
+    async def _mailbox_listener(self) -> None:
+        """The single consumer loop. Processes everything sequentially."""
+        try:
+            while True:
+                # Yields control to the loop if the mailbox is empty.
+                # Once a message arrives, this wakes up.
+                message = await self.mailbox.get()
+
+                await self._handle_incoming(message)
+
+                self.mailbox.task_done()
+        except asyncio.CancelledError:
+            self.bus.deregister_agent(self.agent_id)
+            raise
+
+    async def _handle_incoming(self, message: Event) -> None:
+        """Dispatch incoming message to the appropriate handler method.
+
+        Args:
+            message: The event message to handle
+        """
+        if message.topic is None:
+            # Direct message - use a special handler if available
+            handler = getattr(self, "handle_direct", None)
+            if handler is not None and callable(handler):
+                await handler(message)
+            else:
+                await self.default_handler(message)
+        else:
+            # Topic-based message - use the standard handle() dispatch
+            await self.handle(message)
+
     async def handle(self, event: Event) -> None:
         """Dispatch event to the appropriate handler method.
+
+        Converts the topic to a valid method name (replacing . and - with _)
+        and calls handle_<topic> if it exists, otherwise calls default_handler.
 
         Args:
             event: The event to handle
@@ -121,7 +320,7 @@ class EventListener:
         """
         pass  # Do nothing by default
 
-    async def subscribe(self, topics: Optional[List[str]] = None) -> None:
+    def subscribe(self, topics: List[str]) -> None:
         """Subscribe this listener to the specified topics and auto-discovered topics.
 
         This method:
@@ -129,7 +328,7 @@ class EventListener:
         2. Subscribes self to each topic in `topics` list AND discovered topics
 
         Args:
-            topics: Optional list of additional topics to subscribe to
+            topics: List of additional topics to subscribe to
         """
         if topics is None:
             topics = []
@@ -137,7 +336,7 @@ class EventListener:
         # Auto-discover handler methods
         discovered_topics = []
         for attr_name in dir(self):
-            if attr_name.startswith('handle_') and attr_name != 'handle':
+            if attr_name.startswith('handle_') and attr_name not in ('handle', 'handle_direct', 'handle_event'):
                 # Convert method name back to topic
                 # handle_user_created -> user.created
                 topic = attr_name[7:]  # Remove 'handle_'
@@ -147,99 +346,36 @@ class EventListener:
         # Combine explicit topics with discovered topics
         all_topics = list(set(topics + discovered_topics))
 
-        # Subscribe to all topics on the singleton event bus
+        # Subscribe to all topics on the bus
         for topic in all_topics:
-            event_bus.subscribe(topic, self)
+            self.bus.subscribe(self.agent_id, topic)
 
-
-class EventBus:
-    """Singleton event bus for publishing and subscribing to events.
-
-    The event bus maintains a mapping of topics to lists of listeners.
-    When an event is published, it is delivered to all subscribed listeners
-    concurrently using asyncio tasks.
-    """
-
-    def __init__(self) -> None:
-        """Initialize the event bus with an empty topic-to-listeners mapping."""
-        self._subscribers: Dict[str, List[EventListener]] = {}
-
-    def subscribe(self, topic: str, listener: EventListener) -> None:
-        """Subscribe a listener to a topic.
+    def unsubscribe(self, topics: List[str]) -> None:
+        """Unsubscribe this listener from the specified topics.
 
         Args:
-            topic: The event topic to subscribe to
-            listener: The EventListener instance to subscribe
+            topics: List of topics to unsubscribe from
         """
-        if topic not in self._subscribers:
-            self._subscribers[topic] = []
+        for topic in topics:
+            self.bus.unsubscribe(self.agent_id, topic)
 
-        # Avoid duplicate subscriptions
-        if listener not in self._subscribers[topic]:
-            self._subscribers[topic].append(listener)
-
-    def unsubscribe(self, topic: str, listener: EventListener) -> None:
-        """Unsubscribe a listener from a topic.
+    def send_direct(self, target: str, payload: Any) -> None:
+        """Send a message straight to another agent without blocking.
 
         Args:
-            topic: The event topic to unsubscribe from
-            listener: The EventListener instance to unsubscribe
+            target: The target agent_id
+            payload: Arbitrary data to send
         """
-        if topic in self._subscribers:
-            if listener in self._subscribers[topic]:
-                self._subscribers[topic].remove(listener)
-            # Clean up empty topic lists
-            if not self._subscribers[topic]:
-                del self._subscribers[topic]
+        self.bus.send_direct(sender=self.agent_id, target_agent_id=target, payload=payload)
 
-    async def publish(self, event: Event) -> None:
-        """Publish an event to all subscribers of its topic.
-
-        Delivery is safe to call from any thread:
-
-        * When called from an async context that already has a running loop on
-          the current thread (e.g. unit tests or when awaited directly on the
-          app loop), listeners are invoked inline via ``asyncio.gather`` so the
-          caller can ``await`` completion and observe side effects immediately.
-        * When called from a thread with no running loop (e.g. a worker thread
-          running the agent loop), delivery is marshalled onto the registered
-          application loop (set via :func:`set_event_loop`) using
-          ``call_soon_threadsafe``. If no application loop is registered, a
-          temporary loop is spun up to deliver inline.
+    def publish(self, topic: str, payload: Any) -> None:
+        """Broadcast to a topic without blocking.
 
         Args:
-            event: The event to publish
+            topic: The topic to publish to
+            payload: Arbitrary data to send
         """
-        listeners = self._subscribers.get(event.topic, [])
-        if not listeners:
-            return  # No subscribers for this topic
-
-        async def _deliver() -> None:
-            tasks = [listener.handle(event) for listener in listeners]
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
-
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop is not None and loop.is_running():
-            # We are on a running loop's thread -- deliver inline so callers
-            # that await publish() observe handler side effects synchronously.
-            await _deliver()
-            return
-
-        # No running loop on this thread. Marshal to the registered app loop if
-        # available (thread-safe, even from another thread); otherwise run a
-        # throwaway loop inline to deliver the event.
-        if _event_loop is not None and _event_loop.is_running():
-            _event_loop.call_soon_threadsafe(
-                lambda: asyncio.ensure_future(_deliver(), loop=_event_loop)
-            )
-            return
-
-        asyncio.run(_deliver())
+        self.bus.publish_to_topic(sender=self.agent_id, topic=topic, payload=payload)
 
 
 # Singleton instance of the event bus
