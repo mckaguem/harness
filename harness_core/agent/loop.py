@@ -342,6 +342,167 @@ def _emit_turn_stats_event(agent, ollama_response: dict | None, context_length: 
             display_turn_stats(ollama_response, context_length, elapsed_seconds=elapsed_seconds)
 
 
+def _emit_tool_call_event(
+    agent, func_name: str, args_str: str, summary: str | None = None,
+    pre_content: str = "", reasoning: str | None = None,
+) -> None:
+    """Emit an 'agent.tool.call' event for in-progress tool calls.
+
+    When the textual TUI is active the event is published on the registered app
+    loop so the subscribed :class:`~harness_core.terminal_io.event_listener.HarnessEventListener`
+    can pick it up and call ``display_tool_call`` (which handles panel state,
+    collapsible stack push, pre-content rendering).  In non-TUI contexts we fall
+    back to calling :func:`harness_core.terminal_io.display.display_tool_call` directly.
+
+    Args:
+        agent: The Agent instance (used for its id as the event sender).
+        func_name: Name of the tool being called.
+        args_str: JSON-encoded arguments string passed to the tool.
+        summary: Optional panel title override; if None, display falls back to
+            ``"Tool: <func_name>"``.
+        pre_content: Agent text said *before* the tool call (rendered in an "Agent"
+            panel above). Defaults to empty string.
+        reasoning: Chain-of-thought / reasoning to prepend before pre_content.
+    """
+
+    from harness_core.eventbus import Event, event_bus, get_event_loop
+    from harness_core.event_types import ToolCallPayload
+
+    tui = get_tui()
+    tui_active = getattr(tui, "is_active", None)
+    if not (callable(tui_active) and tui_active()):
+        # Non-TUI mode: no listener subscribed — render directly.
+        display_tool_call(func_name, args_str, summary, pre_content=pre_content, reasoning=reasoning)
+        return
+
+    event = Event(
+        topic="agent.tool.call",
+        sender=agent.id,
+        payload=ToolCallPayload(
+            func_name=func_name,
+            args_str=args_str,
+            summary=summary,
+            pre_content=pre_content or "",
+            reasoning=reasoning,
+        ),
+    )
+    loop = get_event_loop()
+    if loop is not None and loop.is_running():
+        try:
+            asyncio.run_coroutine_threadsafe(event_bus.publish(event), loop)
+        except RuntimeError:
+            display_tool_call(func_name, args_str, summary, pre_content=pre_content, reasoning=reasoning)
+    else:
+        try:
+            asyncio.run(event_bus.publish(event))
+        except RuntimeError:
+            display_tool_call(func_name, args_str, summary, pre_content=pre_content, reasoning=reasoning)
+
+
+def _emit_tool_result_event(
+    agent, func_name: str, result_title: str | None = None,
+    result_display_text: str = "", result_theme: str = "info",
+    result_type_tag: str = "text",
+) -> None:
+    """Emit an 'agent.tool.result' event for tool results.
+
+    When the textual TUI is active the event is published on the registered app
+    loop so the subscribed :class:`~harness_core.terminal_io.event_listener.HarnessEventListener`
+    can pick it up and call ``display_tool_result`` (which handles panel state,
+    collapsible stack pop).  In non-TUI contexts we fall back to calling
+    :func:`harness_core.terminal_io.display.display_tool_result` directly.
+
+    Args:
+        agent: The Agent instance (used for its id as the event sender).
+        func_name: Name of the tool that produced the result.
+        result_title: Title override from the ToolResult, or None.
+        result_display_text: Display text content of the ToolResult.
+        result_theme: Color/theme string for rendering (e.g. "info", "error").
+        result_type_tag: Type tag from the ToolResult, defaults to "text".
+    """
+
+    from harness_core.eventbus import Event, event_bus, get_event_loop
+    from harness_core.event_types import ToolResultPayload
+
+    tui = get_tui()
+    tui_active = getattr(tui, "is_active", None)
+    if not (callable(tui_active) and tui_active()):
+        # Non-TUI mode: no listener subscribed — render directly.
+        display_tool_result(func_name, result_display_text)
+        return
+
+    event = Event(
+        topic="agent.tool.result",
+        sender=agent.id,
+        payload=ToolResultPayload(
+            func_name=func_name,
+            result_title=result_title,
+            result_display_text=result_display_text or "",
+            result_theme=result_theme or "info",
+            result_type_tag=result_type_tag or "text",
+        ),
+    )
+    loop = get_event_loop()
+    if loop is not None and loop.is_running():
+        try:
+            asyncio.run_coroutine_threadsafe(event_bus.publish(event), loop)
+        except RuntimeError:
+            display_tool_result(func_name, result_display_text)
+    else:
+        try:
+            asyncio.run(event_bus.publish(event))
+        except RuntimeError:
+            display_tool_result(func_name, result_display_text)
+
+
+def _emit_tool_error_event_direct(agent, description: str) -> None:
+    """Emit an 'agent.tool.error' event for tool-call errors (from handle_prompt ERROR outputs).
+
+    This is distinct from the existing ``_emit_tool_error_event`` which handles
+    high-level agent turn failures.  When the textual TUI is active the event is
+    published on the registered app loop so the subscribed listener can pick it up
+    and call ``display_error`` + ``reset_pending_tool_panel`` (to clear any stale
+    tool-panel state).  In non-TUI contexts we fall back to calling those functions
+    directly.
+
+    Args:
+        agent: The Agent instance (used for its id as the event sender).
+        description: Human-readable error description from an ERROR kind output.
+    """
+
+    from harness_core.eventbus import Event, event_bus, get_event_loop
+    from harness_core.event_types import ToolErrorPayload
+
+    tui = get_tui()
+    tui_active = getattr(tui, "is_active", None)
+    if not (callable(tui_active) and tui_active()):
+        # Non-TUI mode: render directly.
+        display_error(description or "")
+        from harness_core.terminal_io import display as _display
+        _display.reset_pending_tool_panel()
+        return
+
+    event = Event(
+        topic="agent.tool.error",
+        sender=agent.id,
+        payload=ToolErrorPayload(message=description or ""),
+    )
+    loop = get_event_loop()
+    if loop is not None and loop.is_running():
+        try:
+            asyncio.run_coroutine_threadsafe(event_bus.publish(event), loop)
+        except RuntimeError:
+            display_error(description or "")
+            from harness_core.terminal_io import display as _display
+            _display.reset_pending_tool_panel()
+    else:
+        try:
+            asyncio.run(event_bus.publish(event))
+        except RuntimeError:
+            display_error(description or "")
+            from harness_core.terminal_io import display as _display
+            _display.reset_pending_tool_panel()
+
 
 def user_loop(agent: "Agent", on_exit=None) -> None:
     """Run the interactive chat loop.
@@ -444,19 +605,24 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                     summary = summarize(func_name, args_dict)
                     pre_content = (response_data or {}).get("pre_tool_content", "") or ""
                     reasoning = (response_data or {}).get("reasoning", "") or ""
-                    display_tool_call(func_name, args_str, summary, pre_content=pre_content, reasoning=reasoning)
+                    _emit_tool_call_event(agent, func_name, args_str, summary=summary, pre_content=pre_content, reasoning=reasoning)
                 elif kind == TOOL_RESULT:
                     _, func_name, result, response_data = output
-                    display_tool_result(func_name, result)
+                    # Extract ToolResult fields for event payload.
+                    result_title = getattr(result, "title", None)
+                    result_display_text = getattr(result, "display_text", "") or ""
+                    result_theme = getattr(result, "theme", "info") or "info"
+                    result_type_tag = getattr(result, "type_tag", "text") or "text"
+                    _emit_tool_result_event(
+                        agent, func_name,
+                        result_title=result_title,
+                        result_display_text=result_display_text,
+                        result_theme=result_theme,
+                        result_type_tag=result_type_tag,
+                    )
                 elif kind == ERROR:
                     _, description, _, _ = output
-                    display_error(description or "")
-                    # An ERROR means no matching tool result will follow for the
-                    # most recent tool call, so reset the "pending tool call"
-                    # tracking so a later result does not merge into the wrong
-                    # panel.
-                    from harness_core.terminal_io import display as _display
-                    _display.reset_pending_tool_panel()
+                    _emit_tool_error_event_direct(agent, description or "")
         except Exception as exc:  # pragma: no cover - defensive
             _emit_tool_error_event(
                 agent,

@@ -150,24 +150,6 @@ class SystemMessagePayload(EventPayload):
 
 
 @dataclass(kw_only=True)
-class ToolErrorPayload(EventPayload):
-    """Event payload for an error reported by a tool call.
-
-    Carries a ``title`` (short identifier, e.g. "Tool Error") and a longer
-    ``message`` body describing what went wrong. Mirrors the signature of
-    :func:`harness_core.terminal_io.display.print_system` so that subscribers
-    can render it through the existing ``display_error`` helper.
-
-    Attributes:
-        title: Short error title (e.g. "Tool Error"). Defaults to "Tool Error".
-        message: Human-readable description of the tool-related failure.
-    """
-
-    title: str = "Tool Error"
-    message: str = ""
-
-
-@dataclass(kw_only=True)
 class SessionErrorPayload(EventPayload):
     """Event payload for an error reported at session level (e.g. auto-compression).
 
@@ -223,3 +205,68 @@ class TurnStatsPayload(EventPayload):
     response: dict | None = None
     context_length: int = 0
     elapsed_seconds: float | None = None
+
+
+@dataclass(kw_only=True)
+class ToolCallPayload(EventPayload):
+    """Event payload for an in-progress tool call.
+
+    Carries everything needed to render a single ``display_tool_call`` invocation.
+    Subscribers reconstruct the display by forwarding all fields back through
+    :func:`harness_core.terminal_io.display.display_tool_call`.
+
+    Attributes:
+        func_name: Name of the tool being called (e.g. "read_file").
+        args_str: JSON-encoded arguments string passed to the tool.
+        summary: Optional panel title override; if None, display falls back
+            to ``"Tool: <func_name>"``.
+        pre_content: Agent text said *before* the tool call, rendered in an
+            "Agent" panel above the tool-call panel. Defaults to empty string.
+        reasoning: Chain-of-thought / reasoning to prepend (above a "---")
+            before ``pre_content``. Optional.
+    """
+
+    func_name: str = ""
+    args_str: str = ""
+    summary: str | None = None
+    pre_content: str = ""
+    reasoning: str | None = None
+
+
+@dataclass(kw_only=True)
+class ToolResultPayload(EventPayload):
+    """Event payload for a tool result.
+
+    Carries everything needed to render a single ``display_tool_result`` invocation.
+    Subscribers reconstruct the display by forwarding all fields back through
+    :func:`harness_core.terminal_io.display.display_tool_result`.
+
+    Attributes:
+        func_name: Name of the tool that produced the result (used as fallback title).
+        result_title: Title override from the ToolResult object, or None.
+        result_display_text: The display text content of the ToolResult.
+        result_theme: Color/theme string for rendering (e.g. "info", "error").
+        result_type_tag: Type tag from the ToolResult, defaults to "text".
+    """
+
+    func_name: str = ""
+    result_title: str | None = None
+    result_display_text: str = ""
+    result_theme: str = "info"
+    result_type_tag: str = "text"
+
+
+@dataclass(kw_only=True)
+class ToolErrorPayload(EventPayload):
+    """Event payload for a tool-call error.
+
+    Carries everything needed to render a single ``display_error`` invocation
+    triggered by an ERROR kind output from agent.handle_prompt(). Subscribers
+    reconstruct the display by forwarding all fields back through
+    :func:`harness_core.terminal_io.display.display_error`.
+
+    Attributes:
+        message: The error description text, or None if no message provided.
+    """
+
+    message: str = ""

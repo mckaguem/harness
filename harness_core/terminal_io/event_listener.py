@@ -12,7 +12,11 @@ Handled topics:
   -> refresh the right-hand TUI task sidebar from the payload.
 * ``agent.session.autocompress`` / ``agent.status.ready``
   -> render a system banner via :func:`.display.print_system`.
-* ``agent.tool.error`` / ``agent.session.error``
+* ``agent.tool.call`` / ``agent.tool.result`` / ``agent.tool.error``
+  -> render tool call/result/error panels via :func:`.display.display_tool_call`,
+     :func:`.display.display_tool_result`, and :func:`.display.display_error` (only for events
+     whose sender matches the filtered agent id, e.g. ``Agent.main``).
+* ``agent.session.error``
   -> render an error message via :func:`.display.display_error` (only for events
     whose sender matches the filtered agent id, e.g. ``Agent.main``).
 * ``agent.turn.response``
@@ -28,10 +32,10 @@ from typing import Callable
 
 from harness_core.eventbus import Event, EventBus, EventListener, event_bus, filter_by_sender
 from harness_core.event_types import (
-    AgentResponsePayload, SessionErrorPayload, SystemMessagePayload, TaskListPayload, ToolErrorPayload, TurnStatsPayload,
+    AgentResponsePayload, SessionErrorPayload, SystemMessagePayload, TaskListPayload, ToolCallPayload, ToolErrorPayload, ToolResultPayload, TurnStatsPayload,
 )
 
-from .display import display_agent_response, display_error, display_turn_stats, print_system
+from .display import display_agent_response, display_error, display_tool_call, display_tool_result, display_turn_stats, print_system
 from .task_display import render_task_list_markdown_from_payload
 from .tui import get_tui
 
@@ -126,6 +130,31 @@ def make_event_listener(agent_id: str, bus: EventBus = None) -> EventListener:
                 return
             display_error(payload.message)
 
+        @filter_by_sender(pattern)
+        async def handle_agent_tool_call(self, event: Event) -> None:
+            payload = event.payload
+            if not isinstance(payload, ToolCallPayload):
+                return
+            display_tool_call(
+                payload.func_name,
+                payload.args_str,
+                summary=payload.summary,
+                pre_content=payload.pre_content or "",
+                reasoning=payload.reasoning,
+            )
+
+        @filter_by_sender(pattern)
+        async def handle_agent_tool_result(self, event: Event) -> None:
+            payload = event.payload
+            if not isinstance(payload, ToolResultPayload):
+                return
+            display_tool_result(
+                payload.func_name,
+                result_title=payload.result_title,
+                result_display_text=payload.result_display_text or "",
+                result_theme=payload.result_theme or "info",
+                result_type_tag=payload.result_type_tag or "text",
+            )
 
         @filter_by_sender(pattern)
         async def handle_agent_turn_response(self, event: Event) -> None:
@@ -163,7 +192,9 @@ def subscribe_event_listener(agent_id: str, bus: EventBus = None) -> EventListen
         "agent.session.autocompress",
         "agent.session.error",
         "agent.status.ready",
+        "agent.tool.call",
         "agent.tool.error",
+        "agent.tool.result",
         "agent.turn.response",
         "agent.turn.stats",
         "agent.turn.start",
