@@ -9,6 +9,7 @@
 - [DONE] Fix subagent session filenames to include the agent type name (e.g. `..._analyst.yaml`) instead of always `..._main.yaml`.
 - Idea: Add a `/sessions` command or list view to browse run folders.
 - Idea: Auto-prune old run folders beyond N days / keep only the last M runs.
+- Move .sessions/ folder to ./.harness_py/sessions
 
 ## Context efficiency
 

@@ -173,102 +173,39 @@ def _emit_control_event(agent, topic: str) -> None:
 
 
 def _emit_tool_error_event(agent, description: str) -> None:
-    """Emit an 'agent.tool.error' event so terminal_io can render it via display_error.
+    """Emit an 'agent.tool.error' event for tool-call errors.
 
-    When the textual TUI is active the event is published on the registered app
-    loop so the subscribed :class:`~harness_core.terminal_io.event_listener.HarnessEventListener`
-    can pick it up and call ``display_error``.  In non-TUI contexts (classic REPL,
-    tests, non-interactive) there is no listener subscribed, so we fall back to
-    calling :func:`harness_core.terminal_io.display.display_error` directly.
+    Handles both high-level agent turn failures and handle_prompt ERROR outputs.
+    The TUI listener handles display + panel reset on receipt.
     """
-
-    from harness_core.eventbus import Event, event_bus, get_event_loop
+    from harness_core.eventbus import Event, event_bus
     from harness_core.event_types import ToolErrorPayload
-
-    tui = get_tui()
-    tui_active = getattr(tui, "is_active", None)
-    if not (callable(tui_active) and tui_active()):
-        # Non-TUI mode: no listener subscribed — render directly.
-        display_error(description)
-        return
 
     event = Event(
         topic="agent.tool.error",
         sender=agent.id,
-        payload=ToolErrorPayload(message=description),
+        payload=ToolErrorPayload(message=description or ""),
     )
-    loop = get_event_loop()
-    if loop is not None and loop.is_running():
-        try:
-            asyncio.run_coroutine_threadsafe(event_bus.publish(event), loop)
-        except RuntimeError:
-            display_error(description)
-    else:
-        try:
-            asyncio.run(event_bus.publish(event))
-        except RuntimeError:
-            display_error(description)
+    event_bus.publish(event)
 
 
 def _emit_session_error_event(agent, description: str) -> None:
-    """Emit an 'agent.session.error' event (e.g. auto-compression failures).
-
-    Same TUI/non-TUI fallback pattern as :func:`_emit_tool_error_event`.
-    """
-
-    from harness_core.eventbus import Event, event_bus, get_event_loop
+    """Emit an 'agent.session.error' event (e.g. auto-compression failures)."""
+    from harness_core.eventbus import Event, event_bus
     from harness_core.event_types import SessionErrorPayload
-
-    tui = get_tui()
-    tui_active = getattr(tui, "is_active", None)
-    if not (callable(tui_active) and tui_active()):
-        display_error(description)
-        return
 
     event = Event(
         topic="agent.session.error",
         sender=agent.id,
         payload=SessionErrorPayload(message=description),
     )
-    loop = get_event_loop()
-    if loop is not None and loop.is_running():
-        try:
-            asyncio.run_coroutine_threadsafe(event_bus.publish(event), loop)
-        except RuntimeError:
-            display_error(description)
-    else:
-        try:
-            asyncio.run(event_bus.publish(event))
-        except RuntimeError:
-            display_error(description)
+    event_bus.publish(event)
 
 
 def _emit_agent_response_event(agent, content: str | None, ollama_response: dict | None, context_length: int, reasoning: str | None = None) -> None:
-    """Emit an 'agent.turn.response' event so terminal_io can render it via display_agent_response.
-
-    When the textual TUI is active the event is published on the registered app
-    loop so the subscribed :class:`~harness_core.terminal_io.event_listener.HarnessEventListener`
-    can pick it up and call ``display_agent_response``.  In non-TUI contexts
-    (classic REPL, tests, non-interactive) there is no listener subscribed for
-    this topic, so we fall back to calling :func:`harness_core.terminal_io.display.display_agent_response` directly.
-
-    Args:
-        agent: The Agent instance (used for its id as the event sender).
-        content: The raw text response from the agent (None → empty string in display).
-        ollama_response: Additional provider metadata dict, or None when absent.
-        context_length: Length of the model's context window used for the call.
-        reasoning: Chain-of-thought / reasoning text, or None if not present.
-    """
-
-    from harness_core.eventbus import Event, event_bus, get_event_loop
+    """Emit an 'agent.turn.response' event so terminal_io can render it via display_agent_response."""
+    from harness_core.eventbus import Event, event_bus
     from harness_core.event_types import AgentResponsePayload
-
-    tui = get_tui()
-    tui_active = getattr(tui, "is_active", None)
-    if not (callable(tui_active) and tui_active()):
-        # Non-TUI mode: no listener subscribed — render directly.
-        display_agent_response(content, ollama_response, context_length, reasoning=reasoning)
-        return
 
     event = Event(
         topic="agent.turn.response",
@@ -280,45 +217,13 @@ def _emit_agent_response_event(agent, content: str | None, ollama_response: dict
             reasoning=reasoning,
         ),
     )
-    loop = get_event_loop()
-    if loop is not None and loop.is_running():
-        try:
-            asyncio.run_coroutine_threadsafe(event_bus.publish(event), loop)
-        except RuntimeError:
-            display_agent_response(content, ollama_response, context_length, reasoning=reasoning)
-    else:
-        try:
-            asyncio.run(event_bus.publish(event))
-        except RuntimeError:
-            display_agent_response(content, ollama_response, context_length, reasoning=reasoning)
-
+    event_bus.publish(event)
 
 
 def _emit_turn_stats_event(agent, ollama_response: dict | None, context_length: int, elapsed_seconds: float) -> None:
-    """Emit an 'agent.turn.stats' event so terminal_io can render it via display_turn_stats.
-
-    When the textual TUI is active the event is published on the registered app
-    loop so the subscribed :class:`~harness_core.terminal_io.event_listener.HarnessEventListener`
-    can pick it up and call ``display_turn_stats``.  In non-TUI contexts (classic
-    REPL, tests, non-interactive) there is no listener subscribed for this topic,
-    so we fall back to calling :func:`harness_core.terminal_io.display.display_turn_stats` directly.
-
-    Args:
-        agent: The Agent instance (used for its id as the event sender).
-        ollama_response: Additional provider metadata dict (usage counts), or None when absent.
-        context_length: Length of the model's context window used for the call.
-        elapsed_seconds: Wall-clock time spent on the turn in seconds.
-    """
-
-    from harness_core.eventbus import Event, event_bus, get_event_loop
+    """Emit an 'agent.turn.stats' event so terminal_io can render it via display_turn_stats."""
+    from harness_core.eventbus import Event, event_bus
     from harness_core.event_types import TurnStatsPayload
-
-    tui = get_tui()
-    tui_active = getattr(tui, "is_active", None)
-    if not (callable(tui_active) and tui_active()):
-        # Non-TUI mode: no listener subscribed — render directly.
-        display_turn_stats(ollama_response, context_length, elapsed_seconds=elapsed_seconds)
-        return
 
     event = Event(
         topic="agent.turn.stats",
@@ -329,51 +234,16 @@ def _emit_turn_stats_event(agent, ollama_response: dict | None, context_length: 
             elapsed_seconds=elapsed_seconds,
         ),
     )
-    loop = get_event_loop()
-    if loop is not None and loop.is_running():
-        try:
-            asyncio.run_coroutine_threadsafe(event_bus.publish(event), loop)
-        except RuntimeError:
-            display_turn_stats(ollama_response, context_length, elapsed_seconds=elapsed_seconds)
-    else:
-        try:
-            asyncio.run(event_bus.publish(event))
-        except RuntimeError:
-            display_turn_stats(ollama_response, context_length, elapsed_seconds=elapsed_seconds)
+    event_bus.publish(event)
 
 
 def _emit_tool_call_event(
     agent, func_name: str, args_str: str, summary: str | None = None,
     pre_content: str = "", reasoning: str | None = None,
 ) -> None:
-    """Emit an 'agent.tool.call' event for in-progress tool calls.
-
-    When the textual TUI is active the event is published on the registered app
-    loop so the subscribed :class:`~harness_core.terminal_io.event_listener.HarnessEventListener`
-    can pick it up and call ``display_tool_call`` (which handles panel state,
-    collapsible stack push, pre-content rendering).  In non-TUI contexts we fall
-    back to calling :func:`harness_core.terminal_io.display.display_tool_call` directly.
-
-    Args:
-        agent: The Agent instance (used for its id as the event sender).
-        func_name: Name of the tool being called.
-        args_str: JSON-encoded arguments string passed to the tool.
-        summary: Optional panel title override; if None, display falls back to
-            ``"Tool: <func_name>"``.
-        pre_content: Agent text said *before* the tool call (rendered in an "Agent"
-            panel above). Defaults to empty string.
-        reasoning: Chain-of-thought / reasoning to prepend before pre_content.
-    """
-
-    from harness_core.eventbus import Event, event_bus, get_event_loop
+    """Emit an 'agent.tool.call' event for in-progress tool calls."""
+    from harness_core.eventbus import Event, event_bus
     from harness_core.event_types import ToolCallPayload
-
-    tui = get_tui()
-    tui_active = getattr(tui, "is_active", None)
-    if not (callable(tui_active) and tui_active()):
-        # Non-TUI mode: no listener subscribed — render directly.
-        display_tool_call(func_name, args_str, summary, pre_content=pre_content, reasoning=reasoning)
-        return
 
     event = Event(
         topic="agent.tool.call",
@@ -386,17 +256,7 @@ def _emit_tool_call_event(
             reasoning=reasoning,
         ),
     )
-    loop = get_event_loop()
-    if loop is not None and loop.is_running():
-        try:
-            asyncio.run_coroutine_threadsafe(event_bus.publish(event), loop)
-        except RuntimeError:
-            display_tool_call(func_name, args_str, summary, pre_content=pre_content, reasoning=reasoning)
-    else:
-        try:
-            asyncio.run(event_bus.publish(event))
-        except RuntimeError:
-            display_tool_call(func_name, args_str, summary, pre_content=pre_content, reasoning=reasoning)
+    event_bus.publish(event)
 
 
 def _emit_tool_result_event(
@@ -404,32 +264,9 @@ def _emit_tool_result_event(
     result_display_text: str = "", result_theme: str = "info",
     result_type_tag: str = "text",
 ) -> None:
-    """Emit an 'agent.tool.result' event for tool results.
-
-    When the textual TUI is active the event is published on the registered app
-    loop so the subscribed :class:`~harness_core.terminal_io.event_listener.HarnessEventListener`
-    can pick it up and call ``display_tool_result`` (which handles panel state,
-    collapsible stack pop).  In non-TUI contexts we fall back to calling
-    :func:`harness_core.terminal_io.display.display_tool_result` directly.
-
-    Args:
-        agent: The Agent instance (used for its id as the event sender).
-        func_name: Name of the tool that produced the result.
-        result_title: Title override from the ToolResult, or None.
-        result_display_text: Display text content of the ToolResult.
-        result_theme: Color/theme string for rendering (e.g. "info", "error").
-        result_type_tag: Type tag from the ToolResult, defaults to "text".
-    """
-
-    from harness_core.eventbus import Event, event_bus, get_event_loop
+    """Emit an 'agent.tool.result' event for tool results."""
+    from harness_core.eventbus import Event, event_bus
     from harness_core.event_types import ToolResultPayload
-
-    tui = get_tui()
-    tui_active = getattr(tui, "is_active", None)
-    if not (callable(tui_active) and tui_active()):
-        # Non-TUI mode: no listener subscribed — render directly.
-        display_tool_result(func_name, result_display_text)
-        return
 
     event = Event(
         topic="agent.tool.result",
@@ -442,66 +279,8 @@ def _emit_tool_result_event(
             result_type_tag=result_type_tag or "text",
         ),
     )
-    loop = get_event_loop()
-    if loop is not None and loop.is_running():
-        try:
-            asyncio.run_coroutine_threadsafe(event_bus.publish(event), loop)
-        except RuntimeError:
-            display_tool_result(func_name, result_display_text)
-    else:
-        try:
-            asyncio.run(event_bus.publish(event))
-        except RuntimeError:
-            display_tool_result(func_name, result_display_text)
+    event_bus.publish(event)
 
-
-def _emit_tool_error_event_direct(agent, description: str) -> None:
-    """Emit an 'agent.tool.error' event for tool-call errors (from handle_prompt ERROR outputs).
-
-    This is distinct from the existing ``_emit_tool_error_event`` which handles
-    high-level agent turn failures.  When the textual TUI is active the event is
-    published on the registered app loop so the subscribed listener can pick it up
-    and call ``display_error`` + ``reset_pending_tool_panel`` (to clear any stale
-    tool-panel state).  In non-TUI contexts we fall back to calling those functions
-    directly.
-
-    Args:
-        agent: The Agent instance (used for its id as the event sender).
-        description: Human-readable error description from an ERROR kind output.
-    """
-
-    from harness_core.eventbus import Event, event_bus, get_event_loop
-    from harness_core.event_types import ToolErrorPayload
-
-    tui = get_tui()
-    tui_active = getattr(tui, "is_active", None)
-    if not (callable(tui_active) and tui_active()):
-        # Non-TUI mode: render directly.
-        display_error(description or "")
-        from harness_core.terminal_io import display as _display
-        _display.reset_pending_tool_panel()
-        return
-
-    event = Event(
-        topic="agent.tool.error",
-        sender=agent.id,
-        payload=ToolErrorPayload(message=description or ""),
-    )
-    loop = get_event_loop()
-    if loop is not None and loop.is_running():
-        try:
-            asyncio.run_coroutine_threadsafe(event_bus.publish(event), loop)
-        except RuntimeError:
-            display_error(description or "")
-            from harness_core.terminal_io import display as _display
-            _display.reset_pending_tool_panel()
-    else:
-        try:
-            asyncio.run(event_bus.publish(event))
-        except RuntimeError:
-            display_error(description or "")
-            from harness_core.terminal_io import display as _display
-            _display.reset_pending_tool_panel()
 
 
 def user_loop(agent: "Agent", on_exit=None) -> None:
@@ -622,7 +401,7 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                     )
                 elif kind == ERROR:
                     _, description, _, _ = output
-                    _emit_tool_error_event_direct(agent, description or "")
+                    _emit_tool_error_event(agent, description or "")
         except Exception as exc:  # pragma: no cover - defensive
             _emit_tool_error_event(
                 agent,

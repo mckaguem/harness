@@ -122,6 +122,11 @@ def make_event_listener(agent_id: str, bus: EventBus = None) -> EventListener:
             if not isinstance(payload, ToolErrorPayload):
                 return
             display_error(payload.message)
+            # An 'agent.tool.error' signals the end of a tool call chain — no
+            # matching result will follow. Clear any pending panel state so a
+            # later spurious TOOL_RESULT does not fold into the wrong collapsible.
+            from harness_core.terminal_io import display as _display
+            _display.reset_pending_tool_panel()
 
         @filter_by_sender(pattern)
         async def handle_agent_session_error(self, event: Event) -> None:
