@@ -1,11 +1,14 @@
 """Regression test: user_loop must survive a failing agent turn.
 
-user_loop now emits events (instead of calling display_* directly). We
-subscribe a no-filter spy and assert the expected events are published,
-including that an agent-turn failure is surfaced as an agent.tool.error event
-and the loop keeps going (prompt is called again).
-"""
+Previously, when the provider/LLM call raised inside handle_prompt, the
+exception propagated out of user_loop. In the interactive (Textual) mode the
+loop worker's finally-block calls app.exit(), so the *entire app closed
+after a single message* ("type one thing then it exits").
 
+This test drives the real user_loop directly with fake I/O helpers and a fake
+agent whose handle_prompt raises, asserting the loop catches the error and
+returns normally (so the app stays alive for the next input).
+"""
 import sys
 from types import SimpleNamespace
 
@@ -13,41 +16,10 @@ import pytest
 
 from harness_core.agent import loop as loop_mod
 from harness_core.agent.constants import RESPONSE, ERROR
-from harness_core.eventbus import EventListener, event_bus
-
-
-class _EventSpy(EventListener):
-    """Collect every published event on the harness topics (no sender filter)."""
-
-    TOPICS = (
-        "agent.turn.start",
-        "agent.turn.response",
-        "agent.turn.stop",
-        "agent.tool.call",
-        "agent.tool.result",
-        "agent.tool.error",
-        "agent.status.usage",
-        "agent.status.ready",
-    )
-
-    def __init__(self) -> None:
-        self.events: list = []
-        for topic in self.TOPICS:
-            event_bus.subscribe(topic, self)
-
-    async def handle(self, event) -> None:
-        self.events.append(event)
-
-
-@pytest.fixture(autouse=True)
-def _reset_event_bus():
-    yield
-    event_bus._subscribers.clear()
 
 
 class _FakeConsole:
     """Minimal stand-in for rich.console.Console."""
-
     is_terminal = False
 
     def print(self, *a, **k):
@@ -56,7 +28,7 @@ class _FakeConsole:
 
 def _make_fakes(monkeypatch, agent):
     """Patch loop + downstream deps so we can call user_loop without a real TUI."""
-    captured = {"events": [], "exited": False, "prompt_calls": 0}
+    captured = {"displayed": [], "exited": False, "prompt_calls": 0}
 
     def fake_prompt_user(prompt=None):
         captured["prompt_calls"] += 1
@@ -65,8 +37,23 @@ def _make_fakes(monkeypatch, agent):
             return "/quit"
         return "hello"
 
+    def fake_display_error(text):
+        captured["displayed"].append(("error", text))
+
+    def fake_display_agent_response(content, resp, ctx, **kwargs):
+        captured["displayed"].append(("response", content))
+
     def fake_display_user_message(text):
-        pass
+        captured["displayed"].append(("user", text))
+
+    def fake_display_tool_call(name, args, **kwargs):
+        captured["displayed"].append(("tool_call", name))
+
+    def fake_display_tool_result(name, result):
+        captured["displayed"].append(("tool_result", name))
+
+    def fake_format_speed(*a, **k):
+        return ""
 
     def fake_print_system(*a, **k):
         pass
@@ -79,7 +66,12 @@ def _make_fakes(monkeypatch, agent):
             pass
 
     monkeypatch.setattr(loop_mod, "prompt_user", fake_prompt_user)
+    monkeypatch.setattr(loop_mod, "display_error", fake_display_error)
+    monkeypatch.setattr(loop_mod, "display_agent_response", fake_display_agent_response)
     monkeypatch.setattr(loop_mod, "display_user_message", fake_display_user_message)
+    monkeypatch.setattr(loop_mod, "display_tool_call", fake_display_tool_call)
+    monkeypatch.setattr(loop_mod, "display_tool_result", fake_display_tool_result)
+    monkeypatch.setattr(loop_mod, "format_speed", fake_format_speed)
     monkeypatch.setattr(loop_mod, "print_system", fake_print_system)
     # Avoid any real rich.Console construction in the exception handler.
     monkeypatch.setattr(loop_mod, "Console", lambda: _FakeConsole())
@@ -101,9 +93,6 @@ def _make_fakes(monkeypatch, agent):
 
     monkeypatch.setattr(tui_mod, "get_tui", lambda: _FakeTui())
 
-    # Spy on the event bus so we can assert what user_loop emits.
-    spy = _EventSpy()
-    captured["events"] = spy.events
     return captured
 
 
@@ -112,9 +101,7 @@ class TestUserLoopResilience:
 
     def test_user_loop_survives_provider_error(self, monkeypatch):
         """An exception from handle_prompt must NOT propagate out of user_loop."""
-
         class BoomAgent:
-            id = "test-agent"
             _context_length = 4096
             _agent_type = SimpleNamespace(name="test", model_name="test")
 
@@ -129,16 +116,14 @@ class TestUserLoopResilience:
         # Must return without raising.
         loop_mod.user_loop(agent)
 
-        # The error should have been surfaced as an event, and the loop should
-        # have tried to prompt again (i.e. it did NOT crash after the first turn).
-        assert any(e.topic == "agent.tool.error" for e in captured["events"])
-        assert captured["prompt_calls"] >= 2
+        # The error should have been surfaced, and the loop should have tried to
+        # prompt again (i.e. it did NOT crash after the first turn).
+        assert any(k == "error" for k, _ in captured["displayed"]), captured
+        assert captured["prompt_calls"] >= 2, captured
 
     def test_user_loop_normal_turn_still_works(self, monkeypatch):
         """Sanity: a normal successful turn still drives handle_prompt end-to-end."""
-
         class OkAgent:
-            id = "test-agent"
             _context_length = 4096
             _agent_type = SimpleNamespace(name="test", model_name="test")
 
@@ -150,9 +135,5 @@ class TestUserLoopResilience:
 
         loop_mod.user_loop(agent)
 
-        assert any(
-            e.topic == "agent.turn.response"
-            and getattr(e.payload, "content", None) == "I am the agent."
-            for e in captured["events"]
-        )
-        assert captured["prompt_calls"] >= 2
+        assert any(k == "response" and v == "I am the agent." for k, v in captured["displayed"]), captured
+        assert captured["prompt_calls"] >= 2, captured

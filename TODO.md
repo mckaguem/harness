@@ -41,7 +41,7 @@
 
 ## Infra
 
-- Finish migration to event-based architecture
+- Async everything and multiple agents running concurrently
 
 ## UI
 

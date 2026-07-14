@@ -11,11 +11,9 @@ if TYPE_CHECKING:
     from harness_core.agent.core import Agent
 from harness_core.terminal_io import (
     print_system, prompt_user,
-    display_user_message,
-)
-from harness_core.event_types import (
-    ToolErrorPayload, ToolCallPayload, ToolResultPayload,
-    UsagePayload, TurnStartPayload, TurnResponsePayload, TurnStopPayload,
+    display_tool_call, display_tool_result, display_error,
+    display_agent_response, display_user_message, display_turn_stats,
+    format_speed,
 )
 from harness_core.tools.dispatcher import summarize
 import json
@@ -124,28 +122,6 @@ def _emit_system_event(agent, topic: str, title: str, message: str) -> None:
         except RuntimeError:
             pass
 
-def _emit_event(agent, topic: str, payload) -> None:
-    """Publish an event on the bus, marshalling onto the registered app loop.
-
-    Mirrors _emit_system_event's delivery pattern so events published from the
-    worker thread (where user_loop runs in TUI mode) are delivered on the app
-    loop where the TUI listener lives.  No direct TUI fallback is provided —
-    routing to the display is the listener's job.
-    """
-    import asyncio
-    from harness_core.eventbus import Event, event_bus, get_event_loop
-    event = Event(topic=topic, sender=agent.id, payload=payload)
-    loop = get_event_loop()
-    if loop is not None and loop.is_running():
-        loop.call_soon_threadsafe(
-            lambda: asyncio.ensure_future(event_bus.publish(event), loop=loop)
-        )
-    else:
-        try:
-            asyncio.run(event_bus.publish(event))
-        except RuntimeError:
-            pass
-
 def user_loop(agent: "Agent", on_exit=None) -> None:
     """Run the interactive chat loop.
 
@@ -207,7 +183,7 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                 agent.inject_text(outcome.payload or "")
                 effective_input = outcome.stripped_message if outcome.stripped_message else user_input
             elif outcome.kind == InterceptorKind.RESTRICTED:
-                _emit_event(agent, "agent.tool.error", ToolErrorPayload(message=outcome.payload or ""))
+                display_error(outcome.payload or "")
                 effective_input = outcome.stripped_message if outcome.stripped_message else user_input
             else:
                 # UNKNOWN or SKIP: treat as regular text and send to LLM.
@@ -215,7 +191,13 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
         else:
             effective_input = user_input
 
-        _emit_event(agent, "agent.turn.start", TurnStartPayload())
+        # Show a spinner at the bottom of the messages panel while the agent is
+        # actively working through its handle_prompt loop (LLM calls, tool
+        # dispatches, etc.).  show/hide are no-ops when no textual TUI is active,
+        # so the classic REPL keeps its original behaviour.
+        from harness_core.terminal_io.tui import get_tui
+        _tui = get_tui()
+        _tui.show_spinner()
         try:
             # Iterate defensively: agent.handle_prompt() is a generator, so the
             # provider/LLM call (and any tool dispatch) runs lazily as we pull
@@ -234,48 +216,21 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                         (ollama_response or {}).get("reasoning")
                         if isinstance(ollama_response, dict) else None
                     )
-                    _emit_event(
-                        agent, "agent.turn.response",
-                        TurnResponsePayload(
-                            content=content,
-                            response=ollama_response,
-                            context_length=agent._context_length,
-                            reasoning=reasoning,
-                        ),
-                    )
-                    _emit_event(
-                        agent, "agent.status.usage",
-                        UsagePayload(
-                            response=ollama_response,
-                            context_length=agent._context_length,
-                            elapsed_seconds=elapsed,
-                        ),
-                    )
+                    display_agent_response(content, ollama_response, agent._context_length, reasoning=reasoning)
+                    display_turn_stats(ollama_response, agent._context_length, elapsed_seconds=elapsed)
                 elif kind == TOOL_CALL:
                     _, func_name, args_str, response_data = output
                     args_dict = json.loads(args_str)
                     summary = summarize(func_name, args_dict)
                     pre_content = (response_data or {}).get("pre_tool_content", "") or ""
                     reasoning = (response_data or {}).get("reasoning", "") or ""
-                    _emit_event(
-                        agent, "agent.tool.call",
-                        ToolCallPayload(
-                            func_name=func_name,
-                            args_str=args_str,
-                            summary=summary,
-                            pre_content=pre_content,
-                            reasoning=reasoning,
-                        ),
-                    )
+                    display_tool_call(func_name, args_str, summary, pre_content=pre_content, reasoning=reasoning)
                 elif kind == TOOL_RESULT:
                     _, func_name, result, response_data = output
-                    _emit_event(
-                        agent, "agent.tool.result",
-                        ToolResultPayload(func_name=func_name, result=result),
-                    )
+                    display_tool_result(func_name, result)
                 elif kind == ERROR:
                     _, description, _, _ = output
-                    _emit_event(agent, "agent.tool.error", ToolErrorPayload(message=description or ""))
+                    display_error(description or "")
                     # An ERROR means no matching tool result will follow for the
                     # most recent tool call, so reset the "pending tool call"
                     # tracking so a later result does not merge into the wrong
@@ -284,25 +239,17 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                     _display.reset_pending_tool_panel()
         except Exception as exc:  # pragma: no cover - defensive
             import traceback
-            _emit_event(
-                agent, "agent.tool.error",
-                ToolErrorPayload(
-                    message=(
-                        f"Agent turn failed: {exc}\n"
-                        + (traceback.format_exc() if Console().is_terminal else "")
-                    )
-                ),
+            display_error(
+                f"Agent turn failed: {exc}\n"
+                + (traceback.format_exc() if Console().is_terminal else "")
             )
         finally:
-            _emit_event(agent, "agent.turn.stop", TurnStopPayload())
+            _tui.hide_spinner()
         
         # Auto-compression check: after each agent response to a user message,
         # if context utilization exceeds 50%, trigger compression.
         if not (user_input.startswith('/') and effective_input == user_input):
             try:
-                _check_and_compress_if_needed(
-                    agent,
-                    lambda msg: _emit_event(agent, "agent.tool.error", ToolErrorPayload(message=msg)),
-                )
+                _check_and_compress_if_needed(agent, display_error)
             except Exception as e:
-                _emit_event(agent, "agent.tool.error", ToolErrorPayload(message=f"Auto-compression check failed: {e}"))
+                display_error(f"Auto-compression check failed: {e}")

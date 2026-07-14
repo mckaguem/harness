@@ -285,11 +285,7 @@ class HarnessTUI:
             output.mount(collapsible)
             output.scroll_end(animate=False)
 
-        app_thread = getattr(app, "_thread_id", None)
-        if app_thread is not None and app_thread == threading.current_thread().ident:
-            _do()
-        else:
-            app.call_from_thread(_do)
+        app.call_from_thread(_do)
 
     def complete_tool_panel(self, result_renderable) -> None:
         """Append a tool result into the most recent tool-call collapsible.
@@ -338,11 +334,7 @@ class HarnessTUI:
             collapsible.query_one("#tool-content", Static).update(merged)
             output.scroll_end(animate=False)
 
-        app_thread = getattr(app, "_thread_id", None)
-        if app_thread is not None and app_thread == threading.current_thread().ident:
-            _do()
-        else:
-            app.call_from_thread(_do)
+        app.call_from_thread(_do)
 
     def write_count(self) -> int:
         """Number of times :meth:`write` committed to the output pane.
