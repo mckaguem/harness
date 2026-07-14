@@ -12,6 +12,11 @@ Handled topics:
   -> refresh the right-hand TUI task sidebar from the payload.
 * ``agent.session.autocompress`` / ``agent.status.ready``
   -> render a system banner via :func:`.display.print_system`.
+* ``agent.tool.error`` / ``agent.tool.call`` / ``agent.tool.result`` /
+  ``agent.status.usage`` / ``agent.turn.start`` / ``agent.turn.response`` /
+  ``agent.turn.stop``
+  -> render tool/agent/turn output by calling the matching
+  :mod:`.display` helper (or the TUI spinner) for live event-driven display.
 """
 
 from __future__ import annotations
@@ -20,9 +25,26 @@ import re
 from typing import Callable
 
 from harness_core.eventbus import Event, EventListener, filter_by_sender
-from harness_core.event_types import TaskListPayload, SystemMessagePayload
+from harness_core.event_types import (
+    TaskListPayload,
+    SystemMessagePayload,
+    ToolErrorPayload,
+    ToolCallPayload,
+    ToolResultPayload,
+    UsagePayload,
+    TurnStartPayload,
+    TurnResponsePayload,
+    TurnStopPayload,
+)
 
-from .display import print_system
+from .display import (
+    print_system,
+    display_error,
+    display_tool_call,
+    display_tool_result,
+    display_turn_stats,
+    display_agent_response,
+)
 from .task_display import render_task_list_markdown_from_payload
 from .tui import get_tui
 
@@ -85,6 +107,70 @@ def make_event_listener(agent_id: str) -> EventListener:
         async def handle_agent_status_ready(self, event: Event) -> None:
             await system_message(self, event)
 
+        @filter_by_sender(pattern)
+        async def handle_agent_tool_error(self, event: Event) -> None:
+            payload = event.payload
+            if not isinstance(payload, ToolErrorPayload):
+                return
+            display_error(payload.message)
+
+        @filter_by_sender(pattern)
+        async def handle_agent_tool_call(self, event: Event) -> None:
+            payload = event.payload
+            if not isinstance(payload, ToolCallPayload):
+                return
+            display_tool_call(
+                payload.func_name,
+                payload.args_str,
+                payload.summary,
+                pre_content=payload.pre_content,
+                reasoning=payload.reasoning,
+            )
+
+        @filter_by_sender(pattern)
+        async def handle_agent_tool_result(self, event: Event) -> None:
+            payload = event.payload
+            if not isinstance(payload, ToolResultPayload):
+                return
+            display_tool_result(payload.func_name, payload.result)
+
+        @filter_by_sender(pattern)
+        async def handle_agent_status_usage(self, event: Event) -> None:
+            payload = event.payload
+            if not isinstance(payload, UsagePayload):
+                return
+            display_turn_stats(
+                payload.response,
+                payload.context_length,
+                elapsed_seconds=payload.elapsed_seconds,
+            )
+
+        @filter_by_sender(pattern)
+        async def handle_agent_turn_start(self, event: Event) -> None:
+            payload = event.payload
+            if not isinstance(payload, TurnStartPayload):
+                return
+            get_tui().show_spinner()
+
+        @filter_by_sender(pattern)
+        async def handle_agent_turn_response(self, event: Event) -> None:
+            payload = event.payload
+            if not isinstance(payload, TurnResponsePayload):
+                return
+            display_agent_response(
+                payload.content,
+                payload.response,
+                payload.context_length,
+                reasoning=payload.reasoning,
+            )
+
+        @filter_by_sender(pattern)
+        async def handle_agent_turn_stop(self, event: Event) -> None:
+            payload = event.payload
+            if not isinstance(payload, TurnStopPayload):
+                return
+            get_tui().hide_spinner()
+
     return HarnessEventListener()
 
 
@@ -97,6 +183,13 @@ async def subscribe_event_listener(agent_id: str) -> EventListener:
         "agent.tasklist.reset",
         "agent.session.autocompress",
         "agent.status.ready",
+        "agent.tool.error",
+        "agent.tool.call",
+        "agent.tool.result",
+        "agent.status.usage",
+        "agent.turn.start",
+        "agent.turn.response",
+        "agent.turn.stop",
     ])
     return listener
 

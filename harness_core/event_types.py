@@ -11,6 +11,7 @@ from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from harness_core.agent.task_list import TaskList
+    from harness_core.tools.tool_result import ToolResult
 
 
 @dataclass(kw_only=True)
@@ -147,3 +148,105 @@ class SystemMessagePayload(EventPayload):
 
     title: str = ""
     message: str = ""
+
+
+@dataclass(kw_only=True)
+class ToolErrorPayload(EventPayload):
+    """Event payload for an agent tool error.
+
+    Belongs to the ``agent.tool.error`` topic. Carries a single human-readable
+    error ``message`` and triggers a call to
+    :func:`harness_core.terminal_io.display.display_error` with that message.
+    """
+
+    message: str = ""
+
+
+@dataclass(kw_only=True)
+class ToolCallPayload(EventPayload):
+    """Event payload for a tool invocation by the agent.
+
+    Belongs to the ``agent.tool.call`` topic. Mirrors the signature of
+    :func:`harness_core.terminal_io.display.display_tool_call`. Carries the
+    ``func_name`` of the tool, its ``args_str`` (formatted argument string),
+    an optional ``summary`` describing the call, optional ``pre_content``
+    (additional content to render before the call), and optional ``reasoning``
+    text behind the call.
+    """
+
+    func_name: str
+    args_str: str
+    summary: str | None = None
+    pre_content: str = ""
+    reasoning: str | None = None
+
+
+@dataclass(kw_only=True)
+class ToolResultPayload(EventPayload):
+    """Event payload for the result returned by a tool.
+
+    Belongs to the ``agent.tool.result`` topic. Mirrors the signature of
+    :func:`harness_core.terminal_io.display.display_tool_result`. Carries the
+    ``func_name`` of the tool along with the ``result`` — a
+    :class:`~harness_core.tools.tool_result.ToolResult` object describing the
+    tool's output (``llm_text``, ``display_text``, ``type_tag``, ``title``,
+    ``theme``). The handler calls ``display_tool_result(func_name, result)``.
+    """
+
+    func_name: str
+    result: "ToolResult | None" = None
+
+
+@dataclass(kw_only=True)
+class UsagePayload(EventPayload):
+    """Event payload for per-turn token/usage statistics.
+
+    Belongs to the ``agent.status.usage`` topic. Mirrors the signature of
+    :func:`harness_core.terminal_io.display.display_turn_stats`. Carries the
+    model ``response`` dict (or ``None``), the ``context_length`` used, and the
+    ``elapsed_seconds`` the turn took (or ``None``).
+    """
+
+    response: dict | None = None
+    context_length: int = 0
+    elapsed_seconds: float | None = None
+
+
+@dataclass(kw_only=True)
+class TurnStartPayload(EventPayload):
+    """Event payload marking the start of an agent turn.
+
+    Belongs to the ``agent.turn.start`` topic. Triggers a call to
+    :func:`harness_core.terminal_io.display.show_spinner`, which takes no
+    arguments, so this payload carries no additional data beyond the inherited
+    ``metadata``.
+    """
+
+
+@dataclass(kw_only=True)
+class TurnResponsePayload(EventPayload):
+    """Event payload for the agent's response content in a turn.
+
+    Belongs to the ``agent.turn.response`` topic. Mirrors the signature of
+    :func:`harness_core.terminal_io.display.display_agent_response`. Carries the
+    response ``content`` (or ``None``), the model ``response`` dict (or
+    ``None``), the ``context_length`` used, and optional ``reasoning`` text.
+    Note: the handler ignores ``prompt_token_count`` as it is unused by the
+    display function, so it is intentionally omitted.
+    """
+
+    content: str | None = None
+    response: dict | None = None
+    context_length: int = 0
+    reasoning: str | None = None
+
+
+@dataclass(kw_only=True)
+class TurnStopPayload(EventPayload):
+    """Event payload marking the end of an agent turn.
+
+    Belongs to the ``agent.turn.stop`` topic. Triggers a call to
+    :func:`harness_core.terminal_io.display.hide_spinner`, which takes no
+    arguments, so this payload carries no additional data beyond the inherited
+    ``metadata``.
+    """
