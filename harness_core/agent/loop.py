@@ -243,6 +243,56 @@ def _emit_session_error_event(agent, description: str) -> None:
             display_error(description)
 
 
+def _emit_agent_response_event(agent, content: str | None, ollama_response: dict | None, context_length: int, reasoning: str | None = None) -> None:
+    """Emit an 'agent.turn.response' event so terminal_io can render it via display_agent_response.
+
+    When the textual TUI is active the event is published on the registered app
+    loop so the subscribed :class:`~harness_core.terminal_io.event_listener.HarnessEventListener`
+    can pick it up and call ``display_agent_response``.  In non-TUI contexts
+    (classic REPL, tests, non-interactive) there is no listener subscribed for
+    this topic, so we fall back to calling :func:`harness_core.terminal_io.display.display_agent_response` directly.
+
+    Args:
+        agent: The Agent instance (used for its id as the event sender).
+        content: The raw text response from the agent (None → empty string in display).
+        ollama_response: Additional provider metadata dict, or None when absent.
+        context_length: Length of the model's context window used for the call.
+        reasoning: Chain-of-thought / reasoning text, or None if not present.
+    """
+
+    from harness_core.eventbus import Event, event_bus, get_event_loop
+    from harness_core.event_types import AgentResponsePayload
+
+    tui = get_tui()
+    tui_active = getattr(tui, "is_active", None)
+    if not (callable(tui_active) and tui_active()):
+        # Non-TUI mode: no listener subscribed — render directly.
+        display_agent_response(content, ollama_response, context_length, reasoning=reasoning)
+        return
+
+    event = Event(
+        topic="agent.turn.response",
+        sender=agent.id,
+        payload=AgentResponsePayload(
+            content=content or "",
+            response=ollama_response,
+            context_length=context_length,
+            reasoning=reasoning,
+        ),
+    )
+    loop = get_event_loop()
+    if loop is not None and loop.is_running():
+        try:
+            asyncio.run_coroutine_threadsafe(event_bus.publish(event), loop)
+        except RuntimeError:
+            display_agent_response(content, ollama_response, context_length, reasoning=reasoning)
+    else:
+        try:
+            asyncio.run(event_bus.publish(event))
+        except RuntimeError:
+            display_agent_response(content, ollama_response, context_length, reasoning=reasoning)
+
+
 def user_loop(agent: "Agent", on_exit=None) -> None:
     """Run the interactive chat loop.
 
@@ -336,7 +386,7 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                         (ollama_response or {}).get("reasoning")
                         if isinstance(ollama_response, dict) else None
                     )
-                    display_agent_response(content, ollama_response, agent._context_length, reasoning=reasoning)
+                    _emit_agent_response_event(agent, content, ollama_response, agent._context_length, reasoning=reasoning)
                     display_turn_stats(ollama_response, agent._context_length, elapsed_seconds=elapsed)
                 elif kind == TOOL_CALL:
                     _, func_name, args_str, response_data = output

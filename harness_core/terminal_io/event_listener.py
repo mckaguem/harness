@@ -15,6 +15,8 @@ Handled topics:
 * ``agent.tool.error`` / ``agent.session.error``
   -> render an error message via :func:`.display.display_error` (only for events
     whose sender matches the filtered agent id, e.g. ``Agent.main``).
+* ``agent.turn.response``
+  -> render the agent's response via :func:`.display.display_agent_response`.
 """
 
 from __future__ import annotations
@@ -24,10 +26,10 @@ from typing import Callable
 
 from harness_core.eventbus import Event, EventBus, EventListener, event_bus, filter_by_sender
 from harness_core.event_types import (
-    SessionErrorPayload, SystemMessagePayload, TaskListPayload, ToolErrorPayload,
+    AgentResponsePayload, SessionErrorPayload, SystemMessagePayload, TaskListPayload, ToolErrorPayload,
 )
 
-from .display import display_error, print_system
+from .display import display_agent_response, display_error, print_system
 from .task_display import render_task_list_markdown_from_payload
 from .tui import get_tui
 
@@ -122,6 +124,19 @@ def make_event_listener(agent_id: str, bus: EventBus = None) -> EventListener:
                 return
             display_error(payload.message)
 
+
+        @filter_by_sender(pattern)
+        async def handle_agent_turn_response(self, event: Event) -> None:
+            payload = event.payload
+            if not isinstance(payload, AgentResponsePayload):
+                return
+            display_agent_response(
+                payload.content,
+                payload.response,
+                payload.context_length,
+                reasoning=payload.reasoning,
+            )
+
     return HarnessEventListener()
 
 
@@ -136,6 +151,7 @@ def subscribe_event_listener(agent_id: str, bus: EventBus = None) -> EventListen
         "agent.session.error",
         "agent.status.ready",
         "agent.tool.error",
+        "agent.turn.response",
         "agent.turn.start",
         "agent.turn.stop",
     ])

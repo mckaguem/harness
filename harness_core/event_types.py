@@ -183,3 +183,25 @@ class SessionErrorPayload(EventPayload):
 
     title: str = "Auto-Compression Error"
     message: str = ""
+
+
+@dataclass(kw_only=True)
+class AgentResponsePayload(EventPayload):
+    """Event payload for an agent turn response (the LLM's text reply).
+
+    Carries everything needed to render a single ``display_agent_response`` call.
+    Subscribers reconstruct the display by forwarding all fields back through
+    :func:`harness_core.terminal_io.display.display_agent_response`.
+
+    Attributes:
+        content: The raw agent response text (may be empty string).
+        response: Additional metadata dict from the provider (e.g. token usage),
+            or ``None`` when absent.
+        context_length: Length of the model's context window used for the call.
+        reasoning: Chain-of-thought / reasoning text, or ``None`` if not present.
+    """
+
+    content: str = ""
+    response: dict | None = None
+    context_length: int = 0
+    reasoning: str | None = None
