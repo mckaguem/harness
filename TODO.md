@@ -2,8 +2,10 @@
 
 ## Broken things
 
-- tool call and result messages
-- Usage scoll bar dragging
+- Scoll bar dragging
+- Can't select text to copy
+- Quit doesn't fully quit
+- Collapsables don't open/close until move mouse off it
 
 ## Testing
 

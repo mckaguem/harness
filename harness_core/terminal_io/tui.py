@@ -518,6 +518,8 @@ class TextualHarnessApp(App):
     VerticalScroll {
         height: 1fr;
         border: round $primary;
+        overflow-y: auto;
+        overflow-x: hidden;
     }
     .--sidebar {
         width: 44;
@@ -531,6 +533,8 @@ class TextualHarnessApp(App):
     }
     Static {
         height: auto;
+    }
+    Collapsible {
     }
     StatusSpinner {
         height: 1;
@@ -579,19 +583,14 @@ class TextualHarnessApp(App):
         if not self.is_running:
             return
 
-        def _do() -> None:
-            try:
-                sidebar = self.query_one("#task-sidebar", TaskListSidebar)
-            except Exception:
-                return
-            sidebar.set_usage(text)
-            sidebar.refresh_tasks()
-
         try:
-            self.call_from_thread(_do)
+            sidebar = self.query_one("#task-sidebar", TaskListSidebar)
         except Exception:
-            pass
-
+            return
+        
+        sidebar.set_usage(text)
+        sidebar.refresh_tasks()
+        
     def update_sidebar_tasks_from_payload(self, payload: TaskListPayload) -> None:
         """Push a TaskListPayload snapshot to the right sidebar (thread-safe).
 
