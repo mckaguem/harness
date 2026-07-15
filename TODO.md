@@ -1,5 +1,10 @@
 # Harness.py things to work on
 
+## Broken things
+
+- tool call and result messages
+- Usage scoll bar dragging
+
 ## Testing
 
 
@@ -49,8 +54,9 @@
 - code review and refactor
 - sidebar on right
     - format usage stats better
+- modle name in sidebar
+- 
 - turn time under agent response
-- textual sluggishness
 - Streaming responses (including thinking)
 - Collapsable thinking
 - for long things in message window, have a separate panel with scrollbar (eg. file_read, thinking)

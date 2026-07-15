@@ -3,12 +3,16 @@
 import json
 import os
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch
 
 import pytest
 
 from harness_core.session.context_compression import (
+    TRUNCATED_PREFIX,
+    _already_truncated,
+    compress_list_dir,
+    compress_file_operation,
     compress_messages,
     should_auto_compress,
     build_compressed_filepath,
@@ -44,14 +48,9 @@ class TestCompressMessages:
         result_25 = compress_messages(messages, fraction=0.25)
         tail_start = int(len(messages) * 0.25)
 
-        # First few messages should be shorter (compressed)
-        compressed_count = sum(
-            1 
-            for orig, comp in zip(messages[:tail_start], result_25[:tail_start])
-            if len(comp["content"]) < len(orig["content"])
-        )
-        
-        assert compressed_count > 0
+        # User/assistant messages without tool_calls are no longer truncated.
+        for orig, comp in zip(messages[:tail_start], result_25[:tail_start]):
+            assert comp["content"] == orig["content"], f"User message {orig['role']} was incorrectly modified"
 
     def test_fraction_zero(self):
         """With fraction=0, all messages should be compressed."""
@@ -59,10 +58,9 @@ class TestCompressMessages:
         
         result = compress_messages(messages, fraction=0)
 
-        # All messages should have shorter content (except those ≤100 chars)
+        # User/assistant messages with long content remain unchanged under new behavior.
         for orig, comp in zip(messages, result):
-            if len(orig["content"]) > 100:
-                assert len(comp["content"]) < len(orig["content"])
+            assert comp["content"] == orig["content"], "User message was incorrectly truncated"
 
     def test_fraction_one(self):
         """With fraction=1.0, no messages should be compressed."""
@@ -107,6 +105,182 @@ class TestCompressMessages:
         assert len(result) == 3
         # First message should be preserved as-is (None content)
         assert result[0]["content"] is None
+
+    def test_list_dir_message_fully_truncated(self):
+        """list_dir tool results must be fully truncated to TRUNCATED_PREFIX."""
+        messages = [
+            {"role": "system", "content": "short system"},
+            {
+                "role": "tool",
+                "content": "a" * 300,
+                "name": "list_dir",
+                "timestamp": "2024-01-01T00:00:00+00:00",
+            },
+        ] + [{"role": "user", "content": f"user_{i}_X" * 34} for i in range(5)]
+
+        result = compress_messages(messages, fraction=0.2)
+
+        tool_msgs = [m for m in result if m.get("role") == "tool"]
+        assert len(tool_msgs) == 1
+        assert tool_msgs[0]["content"] == TRUNCATED_PREFIX
+
+    def test_read_file_result_not_truncated_when_unmodified(self):
+        """read_file results whose file is NOT modified since message should stay intact."""
+        # Use the current source file (context_compression.py itself) which
+        # won't be changing during this test.
+        import harness_core.session.context_compression as mod
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        messages = [
+            {"role": "system", "content": "short"},
+            {
+                "role": "tool",
+                "content": f'<file path="{mod.__file__}" lines="1-30" total_lines="230">\nold content\n</file>',
+                "name": "read_file",
+                "timestamp": now_iso,
+            },
+        ]
+
+        result = compress_messages(messages, fraction=0)
+        tool_msgs = [m for m in result if m.get("role") == "tool"]
+        assert len(tool_msgs) == 1
+        # File was NOT modified since the message -> content must be preserved.
+        assert tool_msgs[0]["content"] != TRUNCATED_PREFIX
+
+    def test_read_file_result_truncated_when_modified(self):
+        """read_file results whose file IS modified after message creation get truncated."""
+        import os, tempfile
+
+        # Create a temp file with initial content.
+        f = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
+        try:
+            f.write(b"initial content")
+            f.close()
+
+            old_ts = "2024-01-01T00:00:00+00:00"
+            # Build 6 messages with fraction=0.5 so prefix_to_compress gets the first 3 and
+            # preserved_suffix gets the last 3. Place read_file at index 2 (in the prefix).
+            messages = [
+                {"role": "system", "content": "short"},
+                {"role": "user", "content": f"user_1_X" * 34},
+                {
+                    "role": "tool",
+                    "content": f'<file path="{f.name}" lines="1-5" total_lines="5">\nold content\n</file>',
+                    "name": "read_file",
+                    "timestamp": old_ts,
+                },
+                {"role": "user", "content": f"user_3_Y" * 34},
+                {"role": "user", "content": f"user_4_Z" * 34},
+                {"role": "assistant", "content": "short reply"},
+            ]
+
+            # Use fraction=0 to ensure the write_file message is in the prefix and gets evaluated.
+            result = compress_messages(messages, fraction=0)
+            tool_msgs = [m for m in result if m.get("role") == "tool"]
+            assert len(tool_msgs) == 1
+            # File exists and was modified after the message timestamp (which is far in the past).
+            assert tool_msgs[0]["content"] == TRUNCATED_PREFIX
+        finally:
+            os.unlink(f.name)
+
+    def test_write_file_result_not_truncated_without_filename(self):
+        """write_file results (which don't carry a filename in their output) are left alone."""
+        messages = [
+            {"role": "system", "content": "short"},
+            {
+                "role": "tool",
+                "content": '{"status": "ok", "filename": "test.py", "bytes": 123}',
+                "name": "write_file",
+                "timestamp": "2024-01-01T00:00:00+00:00",
+            },
+        ]
+
+        result = compress_messages(messages, fraction=0.5)
+        tool_msgs = [m for m in result if m.get("role") == "tool"]
+        assert len(tool_msgs) == 1
+        # write_file output doesn't carry a path - helper returns unchanged.
+        assert tool_msgs[0]["content"] != TRUNCATED_PREFIX
+
+    def test_already_truncated_not_re_truncated(self):
+        """Messages already truncated by a prior pass must not be touched again."""
+        messages = [
+            {"role": "system", "content": "short"},
+            {
+                "role": "tool",
+                "content": TRUNCATED_PREFIX,
+                "name": "list_dir",
+                "timestamp": "2024-01-01T00:00:00+00:00",
+            },
+        ]
+
+        result = compress_messages(messages, fraction=0.5)
+        tool_msgs = [m for m in result if m.get("role") == "tool"]
+        assert len(tool_msgs) == 1
+        # Must still be exactly TRUNCATED_PREFIX - not a nested/doubled version.
+        assert tool_msgs[0]["content"] == TRUNCATED_PREFIX
+
+    def test_already_truncated_helper(self):
+        """_already_truncated detects messages correctly."""
+        assert _already_truncated({"role": "tool", "content": TRUNCATED_PREFIX}) is True
+        assert (
+            _already_truncated(
+                {"role": "user", "content": f"{TRUNCATED_PREFIX} extra"}
+            )
+            is True
+        )
+        assert _already_truncated({"role": "user", "content": "plain content"}) is False
+        assert _already_truncated({"role": "tool", "content": None}) is False
+
+    def test_write_file_truncated_via_tool_call_mapping(self):
+        """write_file results should be truncated when filename is known and mtime > timestamp."""
+        import tempfile, os
+        from datetime import datetime, timezone, timedelta
+
+        # Create a temp file with future mtime.
+        f = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
+        try:
+            f.write(b"future content")
+            f.close()
+
+            future_time = (datetime.now(timezone.utc) + timedelta(hours=2)).timestamp()
+            os.utime(f.name, (future_time, future_time))
+
+            old_ts = "2024-01-01T00:00:00+00:00"
+            tool_call_id = "call_write_test"
+
+            messages = [
+                {"role": "system", "content": "short"},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{
+                        "id": tool_call_id,
+                        "function": {
+                            "name": "write_file",
+                            "arguments": {"filename": f.name, "content": "old content"}
+                        }
+                    }]
+                },
+                {
+                    "role": "tool",
+                    "content": '{"status": "ok", "bytes": 123}',
+                    "name": "write_file",
+                    "tool_call_id": tool_call_id,
+                    "timestamp": old_ts,
+                },
+            ]
+
+            # Use fraction=0 so the write_file message (at index 2 of 3) falls in the prefix and gets evaluated.
+            result = compress_messages(messages, fraction=0)
+
+            # The write_file result should be truncated because mtime > timestamp.
+            tool_msgs = [m for m in result if m.get("role") == "tool"]
+            assert len(tool_msgs) == 1
+            assert tool_msgs[0]["content"] == TRUNCATED_PREFIX
+
+        finally:
+            os.unlink(f.name)
 
 
 # ============================================================================
@@ -314,13 +488,9 @@ class TestEndToEnd:
         for i in range(len(messages) - n_preserved, len(messages)):
             assert messages[i] == result[i], f"Message {i} should be preserved but was modified"
         
-        # Older messages compressed (shorter content)
-        older_compressed = sum(
-            1 
-            for orig, comp in zip(messages[:len(messages) - n_preserved], result[:len(messages) - n_preserved])
-            if len(comp["content"]) < len(orig["content"])
-        )
-        assert older_compressed > 0
+        # Older user messages should remain unchanged (only tool results get truncated).
+        for orig, comp in zip(messages[:len(messages) - n_preserved], result[:len(messages) - n_preserved]):
+            assert comp["content"] == orig["content"], "Older message was incorrectly modified"
 
     def test_context_utilization_check(self):
         """Test the auto-compression trigger logic."""
@@ -474,8 +644,15 @@ class TestCompressCommandE2E:
         """/compress compresses messages and preserves the system prompt."""
         from harness_core.commands.compress import compress_handler
 
+        # Build a message list where a tool result sits in the prefix (early) so it gets truncated.
         messages = [
             {"role": "system", "content": "You are a helpful assistant." * 5},
+            {
+                "role": "tool",
+                "content": "a" * 300,
+                "name": "list_dir",
+                "timestamp": "2024-01-01T00:00:00+00:00",
+            },
         ]
         for i in range(20):
             messages.append({"role": "user", "content": f"long message number {i} " * 15})
@@ -488,12 +665,16 @@ class TestCompressCommandE2E:
         result = compress_handler("0.5", agent=agent)
 
         assert result is False
-        # Some prefix messages should have been truncated.
-        truncated = [
-            m for m in session.messages
-            if "[truncated for context compression" in m.get("content", "")
-        ]
-        assert truncated, "expected at least one message to be truncated"
+        # User messages remain unchanged (no truncation for non-tool content).
+        for i in range(2, 22):  # indices 2-21 are user messages
+            comp = session.messages[i]
+            orig_content = f"long message number {i-2} " * 15
+            assert comp["content"] == orig_content, f"User message {i} was incorrectly modified"
+
+        # The list_dir tool result should be truncated.
+        tool_msgs = [m for m in session.messages if m.get("role") == "tool"]
+        assert len(tool_msgs) == 1
+        assert tool_msgs[0]["content"] == TRUNCATED_PREFIX
         # System prompt preserved verbatim.
         assert session.messages[0]["role"] == "system"
         assert session.messages[0]["content"] == "You are a helpful assistant." * 5
@@ -527,17 +708,25 @@ class TestAutoCompressionLoop:
         from harness_core.agent.loop import _check_and_compress_if_needed
 
         agent, long_system = self._build_agent(tmp_path, context_length=4000)
+
+        # Add a list_dir tool result that should be truncated (placed early so it falls in the prefix).
+        agent.session.messages.insert(1, {
+            "role": "tool",
+            "content": "x" * 300,
+            "name": "list_dir",
+            "timestamp": "2024-01-01T00:00:00+00:00",
+        })
+
         # ~60 * 200 chars // 4 = ~3000 tokens over a 4000 window => > 50%
         _check_and_compress_if_needed(agent)
 
         # System prompt preserved verbatim.
         assert agent.session.messages[0]["content"] == long_system
-        # Some prefix messages were truncated.
-        truncated = [
-            m for m in agent.session.messages
-            if "[truncated for context compression" in m.get("content", "")
-        ]
-        assert truncated, "expected auto-compression to truncate some messages"
+
+        # The list_dir result should be truncated.
+        tool_msgs = [m for m in agent.session.messages if m.get("role") == "tool"]
+        assert len(tool_msgs) == 1, f"Expected exactly one tool message, got {len(tool_msgs)}"
+        assert tool_msgs[0]["content"] == TRUNCATED_PREFIX, "list_dir result was not truncated"
 
     def test_auto_compress_skips_when_low_utilization(self, tmp_path):
         from harness_core.agent.loop import _check_and_compress_if_needed
@@ -567,18 +756,25 @@ class TestAutoCompressionLoop:
 
         long_system = "system prompt " * 20
         messages = [{"role": "system", "content": long_system}]
+        # Insert list_dir tool result early (index 1) so it falls in the prefix.
+        messages.insert(1, {
+            "role": "tool",
+            "content": "x" * 300,
+            "name": "list_dir",
+            "timestamp": "2024-01-01T00:00:00+00:00",
+        })
         for i in range(60):
             messages.append({"role": "user", "content": "x" * 200})
         session = _FakeSession(messages, str(tmp_path / "harness_core.session.json"))
         agent = _BareAgent(session, context_length=4000)
 
         _check_and_compress_if_needed(agent)
-        truncated = [
-            m for m in agent._session.messages
-            if "[truncated for context compression" in m.get("content", "")
-        ]
-        assert truncated, (
-            "loop must fall back to agent._session when no properties exist"
+
+        # The list_dir result should be truncated.
+        tool_msgs = [m for m in agent._session.messages if m.get("role") == "tool"]
+        assert len(tool_msgs) == 1, f"Expected exactly one tool message, got {len(tool_msgs)}"
+        assert tool_msgs[0]["content"] == TRUNCATED_PREFIX, (
+            "loop must fall back to agent._session when no properties exist and list_dir was not truncated"
         )
 
 

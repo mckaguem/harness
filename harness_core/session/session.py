@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -60,36 +61,53 @@ class Session:
     def add_user_message(self, content: str) -> None:
         """Append a user message to the conversation.
 
+        Each appended message carries a ``timestamp`` key for mtime-based compression checks.
+
         Args:
             content: The text content of the user message.
         """
-        self.messages.append({"role": "user", "content": content})
+        msg = {
+            "role": "user",
+            "content": content,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        self.messages.append(msg)
         if self._auto_save:
             self._auto_save_session()
 
     def add_assistant_message(self, message_dict: dict) -> None:
         """Append an assistant response (or tool-call response) to the conversation.
 
+        Each appended message carries a ``timestamp`` key for mtime-based compression checks.
+        If ``message_dict`` already has a ``timestamp``, it is preserved as-is (e.g., when replayed from file).
+
         Args:
             message_dict: The full message dictionary with 'role', 'content', etc.
         """
-        self.messages.append(message_dict)
+        msg = dict(message_dict)  # shallow copy — never mutate caller's input
+        if "timestamp" not in msg:
+            msg["timestamp"] = datetime.now(timezone.utc).isoformat()
+        self.messages.append(msg)
         if self._auto_save:
             self._auto_save_session()
 
     def add_tool_result(self, func_name: str, llm_text: str, tool_call_id: str) -> None:
         """Append a tool result message to the conversation.
 
+        Each appended message carries a ``timestamp`` key for mtime-based compression checks.
+
         Args:
             func_name: The name of the tool that was called.
             llm_text: The text content for the LLM (ToolResult.llm_text).
         """
-        self.messages.append({
+        msg = {
             "role": "tool",
             "content": llm_text,
             "name": func_name,
-            "tool_call_id": tool_call_id
-        })
+            "tool_call_id": tool_call_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        self.messages.append(msg)
         if self._auto_save:
             self._auto_save_session()
 
