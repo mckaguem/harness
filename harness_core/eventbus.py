@@ -14,13 +14,24 @@ import asyncio
 import functools
 import logging
 import re
+import threading
 import uuid
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 
 # Module-level logger for the event bus
 logger = logging.getLogger(__name__)
+
+DEBUG_LOG = "/tmp/harness_debug.log"
+def _debug_log(msg: str) -> None:
+    """Write a debug message to a file so we can see it even if stdout is captured."""
+    try:
+        with open(DEBUG_LOG, "a") as f:
+            f.write(f"{msg}\n")
+            f.flush()
+    except Exception:
+        pass  # Never let logging failures crash the event bus
 
 
 # Reference to the application's main running event loop, if one has been
@@ -108,31 +119,32 @@ class EventBus:
 
     def __init__(self) -> None:
         """Initialize the event bus with empty mailboxes, bindings, and task tracking."""
-        # Maps unique agent_id -> their single Mailbox (asyncio.Queue)
-        self._mailboxes: Dict[str, asyncio.Queue] = {}
         # Maps topic -> set of agent_ids subscribed to it (Bindings)
         self._bindings: Dict[str, Set[str]] = {}
-        # Keep strong references to background tasks to prevent GC cleanup
-        self._running_tasks: Set[asyncio.Task] = set()
+        # Maps agent_id -> tuple of (mailbox, event_loop_bound_to_thread)
+        self._mailboxes: Dict[str, Tuple[asyncio.Queue, asyncio.AbstractEventLoop]] = {}
 
-    def register_agent(self, agent_id: str) -> asyncio.Queue:
-        """Register an agent and give them their unique mailbox.
+    def register_agent(self, agent_id: str) -> Tuple[asyncio.Queue, asyncio.AbstractEventLoop]:
+        """Registers an agent using the event loop of the CALLING thread.
 
         Args:
             agent_id: Unique identifier for the agent
-
+            
         Returns:
-            The agent's mailbox (asyncio.Queue)
-
+            A tuple of (mailbox, loop) where mailbox is bound to this thread's loop
+            
         Raises:
             ValueError: If the agent_id is already registered
         """
         if agent_id in self._mailboxes:
             raise ValueError(f"Agent '{agent_id}' is already registered.")
-
-        mailbox = asyncio.Queue()
-        self._mailboxes[agent_id] = mailbox
-        return mailbox
+        
+        # Capture the event loop running on the current thread
+        loop = asyncio.get_running_loop()
+        mailbox = asyncio.Queue()  # Bound to this thread's loop
+        
+        self._mailboxes[agent_id] = (mailbox, loop)
+        return mailbox  
 
     def deregister_agent(self, agent_id: str) -> None:
         """Clean up an agent's mailbox and all of their topic subscriptions.
@@ -184,8 +196,9 @@ class EventBus:
             target_agent_id: Unique identifier of the target agent
             payload: Arbitrary data to send
         """
-        mailbox = self._mailboxes.get(target_agent_id)
-        if mailbox:
+        entry = self._mailboxes.get(target_agent_id)
+        if entry:
+            mailbox, loop = entry  # Unpack (mailbox, loop) tuple
             event = Event(topic=None, sender=sender, payload=payload)
             mailbox.put_nowait(event)
 
@@ -202,39 +215,77 @@ class EventBus:
 
         event = Event(topic=topic, sender=sender, payload=payload)
         for agent_id in self._bindings[topic]:
-            mailbox = self._mailboxes.get(agent_id)
-            if mailbox:
+            entry = self._mailboxes.get(agent_id)
+            if entry:
+                mailbox, loop = entry  # Unpack (mailbox, loop) tuple
                 mailbox.put_nowait(event)
 
-    def register_background_task(self, coro) -> asyncio.Task:
-        """Helper to run a task safely in the background with automatic cleanup.
-
+    def publish(self, event: Event):
+        """Broadcasts a message to all subscribed loops safely across threads.
+        
+        When called from a worker thread, schedules delivery onto each target's
+        event loop via call_soon_threadsafe. When called on the same thread as
+        the target (e.g., non-TUI mode), delivers directly.
+        
         Args:
-            coro: Coroutine to run as a background task
-
-        Returns:
-            The created asyncio.Task
-        """
-        task = asyncio.create_task(coro)
-        self._running_tasks.add(task)
-        task.add_done_callback(self._running_tasks.discard)
-        return task
-
-    async def publish(self, event: Event) -> None:
-        """Publish an event to all subscribers of its topic using the mailbox pattern.
-
-        This is the main entry point for publishing events. It uses the mailbox
-        pattern to deliver events asynchronously to all subscribed agents.
-
-        Args:
-            event: The event to publish (must have a topic, not None)
+            event: The event to publish (must have a topic)
         """
         if event.topic is None:
-            # Direct message - not supported via publish, use send_direct instead
+            _debug_log(f"publish() RETURNING - event has no topic")
             return
 
-        self.publish_to_topic(sender=event.sender, topic=event.topic, payload=event.payload)
+        if event.topic not in self._bindings:
+            _debug_log(f"publish() RETURNING - no bindings for topic '{event.topic}'")
+            return
 
+        _debug_log(f"publish() ENTERING delivery loop for topic '{event.topic}', {len(self._bindings[event.topic])} agents bound")
+
+        for agent_id in self._bindings[event.topic]:
+            entry = self._mailboxes.get(agent_id)
+            if entry:
+                mailbox, loop = entry
+
+                _debug_log(f"publish() processing binding for agent {agent_id}")
+
+                try:
+                    current_thread = threading.current_thread()
+                    target_loop_thread = getattr(loop, '_thread', None)
+
+                    same_thread = (current_thread is target_loop_thread) if target_loop_thread else False
+                    _debug_log(f"publish() thread check - current={current_thread.name}, target={target_loop_thread}, same_thread={same_thread}")
+
+                    if same_thread:
+                        # Same thread - direct put_nowait (fast path)
+                        _debug_log(f"publish() SAME THREAD path - calling mailbox.put_nowait for agent {agent_id}")
+                        mailbox.put_nowait(event)
+                        _debug_log(f"publish() SUCCESS - put_nowait completed for agent {agent_id}")
+                    else:
+                        # Different thread - use call_soon_threadsafe to schedule delivery
+                        _debug_log(f"publish() DIFFERENT THREAD path - calling loop.call_soon_threadsafe for agent {agent_id}")
+                        try:
+                            loop.call_soon_threadsafe(mailbox.put_nowait, event)
+                            _debug_log(f"publish() SUCCESS - call_soon_threadsafe scheduled for agent {agent_id}")
+                        except RuntimeError as exc:
+                            _debug_log(f"publish() call_soon_threadsafe failed with RuntimeError: {exc}, falling back to put_nowait")
+                            try:
+                                mailbox.put_nowait(event)
+                                _debug_log(f"publish() SUCCESS - fallback put_nowait completed for agent {agent_id}")
+                            except Exception as e2:
+                                _debug_log(f"publish() FAILED even on fallback put_nowait: {e2}")
+                except AttributeError as exc:
+                    _debug_log(f"publish() AttributeError getting loop._thread (loop={type(loop).__name__}): {exc}, assuming different thread")
+                    try:
+                        loop.call_soon_threadsafe(mailbox.put_nowait, event)
+                        _debug_log(f"publish() SUCCESS - call_soon_threadsafe after AttributeError for agent {agent_id}")
+                    except RuntimeError as exc2:
+                        _debug_log(f"publish() call_soon_threadsafe failed (RuntimeError after AttributeError): {exc2}, falling back to put_nowait")
+                        try:
+                            mailbox.put_nowait(event)
+                            _debug_log(f"publish() SUCCESS - fallback put_nowait after AttributeError for agent {agent_id}")
+                        except Exception as e3:
+                            _debug_log(f"publish() FAILED even on fallback after AttributeError: {e3}")
+
+        _debug_log("publish() completed loop iteration")
 
 class EventListener:
     """Base class for event listeners using the mailbox pattern.
@@ -249,9 +300,9 @@ class EventListener:
     a specific handler method.
     """
 
-    def __init__(self, agent_id: str, bus: EventBus) -> None:
+    def __init__(self, agent_id: str, bus: EventBus):
         """Initialize the event listener.
-
+        
         Args:
             agent_id: Unique identifier for this listener/agent
             bus: The EventBus instance to use for communication
@@ -259,35 +310,59 @@ class EventListener:
         self.agent_id = agent_id
         self.bus = bus
 
-        # 1. Get our single, personal mailbox
-        self.mailbox = self.bus.register_agent(self.agent_id)
+        logger.debug("Creating EventListener for agent %s on loop %r", self.agent_id, asyncio.get_running_loop())
 
-        # 2. Start our single, sequential message processor
-        self.bus.register_background_task(self._mailbox_listener())
+        logger.info("Initializing EventListener for agent %s", self.agent_id)
+
+        # 1. Register with the bus. This binds our mailbox to 
+        #    the current worker thread's event loop.
+        self.mailbox = self.bus.register_agent(self.agent_id)
+        
+        # 2. Keep a local strong reference to the listener task
+        #    to prevent garbage collection while we're running.
+        self._listener_task = asyncio.create_task(self._mailbox_listener())
+        _debug_log(f"Created listener task for agent {agent_id}")
+        # Verify the listener task started successfully
+        if self._listener_task.done():
+            # Get any exception that occurred during startup
+            try:
+                self._listener_task.result()
+            except Exception as e:
+                logger.error("Listener task failed immediately in __init__: %s", e)
+        logger.info("Listener for agent %s registered with bus on loop %r", self.agent_id)
 
     async def _mailbox_listener(self) -> None:
         """The single consumer loop. Processes everything sequentially."""
+        logger.info("Mailbox listener started for agent %s", self.agent_id)
         try:
             while True:
                 # Yields control to the loop if the mailbox is empty.
                 # Once a message arrives, this wakes up.
                 message = await self.mailbox.get()
 
+                topic = message.topic or "direct"
+                _debug_log(f"Listener received event on topic '{topic}' for agent {self.agent_id}")
+                logger.debug("Processing event for agent %s on topic '%s'", self.agent_id, topic)
+
                 try:
                     await self._handle_incoming(message)
+                    logger.debug("Successfully handled event on topic '%s' for agent %s", topic, self.agent_id)
                 except Exception as e:
-                    # Catch any exception in message handling to prevent the
-                    # listener from crashing and silently dropping messages.
+                    # Log full traceback with handler name and payload details — but DON'T re-raise!
+                    # Re-raising would kill the listener task and silently stop all future events.
+                    import traceback
                     logger.exception(
-                        "Error handling message in %s._mailbox_listener: %s",
+                        "Unhandled exception in handler for agent %s on topic '%s':\n%s\nPayload: %r",
                         self.agent_id,
+                        topic,
                         e,
+                        message.payload if hasattr(message.payload, 'to_dict') else str(message.payload)
                     )
 
                 self.mailbox.task_done()
         except asyncio.CancelledError:
-            self.bus.deregister_agent(self.agent_id)
-            raise
+            # Listener cancelled — the bus will handle cleanup via deregister_agent
+            logger.info("Mailbox listener cancelled for agent %s", self.agent_id)
 
     async def _handle_incoming(self, message: Event) -> None:
         """Dispatch incoming message to the appropriate handler method.
@@ -299,12 +374,45 @@ class EventListener:
             # Direct message - use a special handler if available
             handler = getattr(self, "handle_direct", None)
             if handler is not None and callable(handler):
+                logger.debug("Dispatching direct message to handler")
                 await handler(message)
             else:
-                await self.default_handler(message)
+                logger.warning(
+                    "Received direct message for agent %s with no handle_direct method",
+                    self.agent_id,
+                )
         else:
-            # Topic-based message - use the standard handle() dispatch
-            await self.handle(message)
+            # Topic-based dispatch
+            topic = message.topic.replace(".", "_").replace("-", "_")
+            handler_name = f"handle_{topic}"
+
+            _debug_log(f"Looking up handler '{handler_name}' for agent {self.agent_id}")
+            logger.debug("Looking up handler '%s' for agent %s", handler_name, self.agent_id)
+
+            handler = getattr(self, handler_name, None)
+            if handler is not None and callable(handler):
+                logger.debug("Calling handler '%s'", handler_name)
+                try:
+                    await handler(message)
+                    logger.debug("Successfully called handler '%s' for agent %s", handler_name, self.agent_id)
+                except Exception as e:
+                    # Log full traceback with payload details for debugging
+                    import traceback
+                    logger.exception(
+                        "Handler '%s' failed for agent %s:\n%s\nPayload type: %r\nPayload data: %r",
+                        handler_name,
+                        self.agent_id,
+                        e,
+                        type(message.payload).__name__,
+                        message.payload.to_dict() if hasattr(message.payload, 'to_dict') else str(message.payload)
+                    )
+                    # Re-raise to break the loop — this prevents silent failures
+            else:
+                logger.warning(
+                    "No handler found for topic '%s' on agent %s",
+                    topic,
+                    self.agent_id,
+                )
 
     async def handle(self, event: Event) -> None:
         """Dispatch event to the appropriate handler method.

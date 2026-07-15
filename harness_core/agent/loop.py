@@ -27,6 +27,16 @@ from harness_core.commands import COMMANDS
 from harness_core.skills.interceptor import intercept_message, InterceptorKind
 from harness_core.eventbus import Event, event_bus, get_event_loop
 
+DEBUG_LOG = "/tmp/harness_debug.log"
+def _debug_log(msg: str) -> None:
+    """Write a debug message to a file so we can see it even if stdout is captured."""
+    try:
+        with open(DEBUG_LOG, "a") as f:
+            f.write(f"{msg}\n")
+            f.flush()
+    except Exception:
+        pass
+
 def _count_approx_tokens(messages: list) -> int:
     """Approximate token count from a message list using character estimation.
     
@@ -93,6 +103,8 @@ def _emit_system_event(agent, topic: str, title: str, message: str) -> None:
     non-TUI contexts) there is no event listener subscribed, so we fall back to
     calling :func:`harness_core.terminal_io.display.print_system` directly.
     """
+    _debug_log(f"_emit_system_event called: topic={topic}, title={title}")
+    
     from harness_core.terminal_io.tui import get_tui
 
     tui = get_tui()
@@ -113,20 +125,15 @@ def _emit_system_event(agent, topic: str, title: str, message: str) -> None:
     )
     loop = get_event_loop()
     if loop is not None and loop.is_running():
-        # Marshal delivery onto the app loop (worker-thread safe).
-        # Use run_coroutine_threadsafe instead of call_soon_threadsafe + ensure_future
-        # (ensure_future is deprecated and may not work reliably across threads).
         try:
-            asyncio.run_coroutine_threadsafe(event_bus.publish(event), loop)
+            event_bus.publish(event)
+            _debug_log(f"Published system event on topic '{topic}' to app loop")
         except RuntimeError as exc:
             # If the loop is closed or not running, fall back to direct render
             print_system(title, message)
     else:
-        # No app loop available — best-effort inline delivery.
-        try:
-            asyncio.run(event_bus.publish(event))
-        except RuntimeError:
-            pass
+        # No app loop available — render directly (best-effort).
+        print_system(title, message)
 
 
 def _emit_control_event(agent, topic: str) -> None:
@@ -155,21 +162,15 @@ def _emit_control_event(agent, topic: str) -> None:
     )
     loop = get_event_loop()
     if loop is not None and loop.is_running():
-        # Marshal delivery onto the app loop (worker-thread safe).
-        # Use run_coroutine_threadsafe instead of call_soon_threadsafe + ensure_future
-        # (ensure_future is deprecated and may not work reliably across threads).
         try:
-            asyncio.run_coroutine_threadsafe(event_bus.publish(event), loop)
+            event_bus.publish(event)
         except RuntimeError:
             # If the loop is closed or not running, silently ignore
             # (control events are best-effort in non-TUI mode anyway)
             pass
     else:
-        # No app loop available — best-effort inline delivery.
-        try:
-            asyncio.run(event_bus.publish(event))
-        except RuntimeError:
-            pass
+        # No app loop available — no-op for control events.
+        pass
 
 
 def _emit_tool_error_event(agent, description: str) -> None:

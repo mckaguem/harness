@@ -46,6 +46,7 @@
 
 ## UI
 
+- code review and refactor
 - sidebar on right
     - format usage stats better
 - turn time under agent response
