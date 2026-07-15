@@ -197,7 +197,7 @@ class HarnessTUI:
         # while the app thread resolves it from the input widget.
         self._pending: threading.Event | None = None
         self._pending_value: str = ""
-        self._pending_prompt: str | None = "You> "
+        self._pending_prompt: str | None = ""
 
     # ── lifecycle ───────────────────────────────────────────────────────
 
@@ -412,7 +412,7 @@ class HarnessTUI:
 
     # ── blocking prompt (used by prompt_user inside the TUI) ────────────
 
-    def prompt(self, prompt_str: str = "You> ") -> str:
+    def prompt(self, prompt_str: str = "") -> str:
         """Block the calling (loop) thread until the user submits input.
 
         Mirrors the ``prompt_toolkit`` contract: returns the assembled text
@@ -449,7 +449,7 @@ class HarnessTUI:
         """Focus + clear the input box. Called from the app thread only."""
         if self._input is None:
             return
-        self._input.placeholder = self._pending_prompt or "You> "
+        self._input.placeholder = self._pending_prompt or ""
         # Setting .text requires an active app; only valid on the app thread
         # while the widget is mounted, which is always the case here.
         self._input.text = ""
@@ -484,7 +484,7 @@ class HarnessTUI:
         self._spinner = None
         self._pending = None
         self._pending_value = ""
-        self._pending_prompt = "You> "
+        self._pending_prompt = ""
         self._bound = False
         self._tool_stack = []
 
@@ -511,7 +511,7 @@ class TextualHarnessApp(App):
 
     CSS = """
     TextArea {
-        height: 5;
+        height: 10;
         border: round $accent;
         background: $surface;
     }
@@ -547,6 +547,7 @@ class TextualHarnessApp(App):
 
     BINDINGS = [
         ("ctrl+q", "quit", "Quit"),
+        ("ctrl+g", "submit_input", "Submit")
     ]
 
     def __init__(self, agent=None, on_exit=None) -> None:
@@ -703,13 +704,6 @@ class TextualHarnessApp(App):
                     )
                 )
             )
-
-    def on_key(self, event) -> None:
-        # Ctrl+Enter submits the current input to the pending prompt.
-        if event.key == "ctrl+enter":
-            event.prevent_default()
-            event.stop()
-            get_tui().submit()
 
     def action_submit_input(self) -> None:
         get_tui().submit()

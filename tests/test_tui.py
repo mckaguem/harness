@@ -147,7 +147,7 @@ class TestPromptFlow:
         def worker() -> None:
             # This runs on a *different* thread than the app, exactly like the
             # real user_loop worker; call_from_thread is then legal.
-            result["value"] = get_tui().prompt("You> ")
+            result["value"] = get_tui().prompt("")
 
         async def _body():
             async with tui_app.run_test() as pilot:
@@ -335,7 +335,7 @@ class TestControllerLifecycle:
         import pytest as _pytest
 
         with _pytest.raises(RuntimeError):
-            controller.prompt("You> ")
+            controller.prompt("")
 
 
 class TestStatusSpinner:

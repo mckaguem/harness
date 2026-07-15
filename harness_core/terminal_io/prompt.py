@@ -39,7 +39,7 @@ def prompt_user(prompt: str | None = None) -> str:
 
     controller = _tui.get_tui()
     if controller.is_active():
-        return controller.prompt(prompt if prompt is not None else "You> ")
+        return controller.prompt(prompt if prompt is not None else "")
 
     from prompt_toolkit.history import FileHistory
 
@@ -60,7 +60,7 @@ def prompt_user(prompt: str | None = None) -> str:
 
     while True:
         try:
-            display_prompt = prompt if prompt is not None else "You> "
+            display_prompt = prompt if prompt is not None else ""
             text = session.prompt(display_prompt, multiline=True)
             if not text.strip():
                 continue  # skip accidental empty submissions
