@@ -528,7 +528,7 @@ class TestAutoCompressionLoop:
 
         agent, long_system = self._build_agent(tmp_path, context_length=4000)
         # ~60 * 200 chars // 4 = ~3000 tokens over a 4000 window => > 50%
-        _check_and_compress_if_needed(agent, display_error=lambda m: None)
+        _check_and_compress_if_needed(agent)
 
         # System prompt preserved verbatim.
         assert agent.session.messages[0]["content"] == long_system
@@ -544,7 +544,7 @@ class TestAutoCompressionLoop:
 
         agent, long_system = self._build_agent(tmp_path, context_length=10_000_000)
         # Utilization far below 50% -> no compression.
-        _check_and_compress_if_needed(agent, display_error=lambda m: None)
+        _check_and_compress_if_needed(agent)
 
         truncated = [
             m for m in agent.session.messages
@@ -572,7 +572,7 @@ class TestAutoCompressionLoop:
         session = _FakeSession(messages, str(tmp_path / "harness_core.session.json"))
         agent = _BareAgent(session, context_length=4000)
 
-        _check_and_compress_if_needed(agent, display_error=lambda m: None)
+        _check_and_compress_if_needed(agent)
         truncated = [
             m for m in agent._session.messages
             if "[truncated for context compression" in m.get("content", "")

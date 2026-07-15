@@ -28,7 +28,7 @@ Handled topics:
 from __future__ import annotations
 
 import re
-from typing import Callable
+from typing import Callable, Optional
 
 from harness_core.eventbus import Event, EventBus, EventListener, event_bus, filter_by_sender
 from harness_core.event_types import (
@@ -38,18 +38,6 @@ from harness_core.event_types import (
 from .display import display_agent_response, display_error, display_tool_call, display_tool_result, display_turn_stats, print_system
 from .task_display import render_task_list_markdown_from_payload
 from .tui import get_tui
-
-
-DEBUG_LOG = "/tmp/harness_debug.log"
-
-def _debug_log(msg: str) -> None:
-    """Write a debug message to a file so we can see it even if stdout is captured."""
-    try:
-        with open(DEBUG_LOG, "a") as f:
-            f.write(f"{msg}\n")
-            f.flush()
-    except Exception:
-        pass  # Never let logging failures crash the event listener
 
 
 def _make_refresh_handler() -> "Callable":
@@ -76,7 +64,7 @@ def _make_system_message_handler() -> "Callable":
     return _system_message
 
 
-def make_event_listener(agent_id: str, bus: EventBus = None) -> EventListener:
+def make_event_listener(agent_id: str, bus: Optional[EventBus] = None) -> EventListener:
     """Create a :class:`HarnessEventListener` filtered to ``agent_id``.
 
     The returned listener subscribes to the five ``agent.*`` topics.  Each
@@ -89,7 +77,6 @@ def make_event_listener(agent_id: str, bus: EventBus = None) -> EventListener:
         agent_id: The agent identifier to filter events for (e.g. "Agent.main")
         bus: Optional EventBus instance (defaults to global event_bus singleton)
     """
-    _debug_log(f"make_event_listener called for agent {agent_id}")
 
     if bus is None:
         bus = event_bus
@@ -104,42 +91,34 @@ def make_event_listener(agent_id: str, bus: EventBus = None) -> EventListener:
 
         @filter_by_sender(pattern)
         async def handle_agent_tasklist_initialize(self, event: Event) -> None:
-            _debug_log(f"handle_agent_tasklist_initialize called for agent {self.agent_id}")
             await refresh(self, event)
 
         @filter_by_sender(pattern)
         async def handle_agent_tasklist_update(self, event: Event) -> None:
-            _debug_log(f"handle_agent_tasklist_update called for agent {self.agent_id}")
             await refresh(self, event)
 
         @filter_by_sender(pattern)
         async def handle_agent_tasklist_reset(self, event: Event) -> None:
-            _debug_log(f"handle_agent_tasklist_reset called for agent {self.agent_id}")
             await refresh(self, event)
 
         @filter_by_sender(pattern)
         async def handle_agent_session_autocompress(self, event: Event) -> None:
-            _debug_log(f"handle_agent_session_autocompress called for agent {self.agent_id}")
             await system_message(self, event)
 
         @filter_by_sender(pattern)
         async def handle_agent_status_ready(self, event: Event) -> None:
-            _debug_log(f"handle_agent_status_ready called for agent {self.agent_id}")
             await system_message(self, event)
 
         @filter_by_sender(pattern)
         async def handle_agent_turn_start(self, event: Event) -> None:
-            _debug_log(f"handle_agent_turn_start called for agent {self.agent_id}")
             get_tui().show_spinner()
 
         @filter_by_sender(pattern)
         async def handle_agent_turn_stop(self, event: Event) -> None:
-            _debug_log(f"handle_agent_turn_stop called for agent {self.agent_id}")
             get_tui().hide_spinner()
 
         @filter_by_sender(pattern)
         async def handle_agent_tool_error(self, event: Event) -> None:
-            _debug_log(f"handle_agent_tool_error called for agent {self.agent_id}")
             payload = event.payload
             if not isinstance(payload, ToolErrorPayload):
                 return
@@ -152,7 +131,6 @@ def make_event_listener(agent_id: str, bus: EventBus = None) -> EventListener:
 
         @filter_by_sender(pattern)
         async def handle_agent_session_error(self, event: Event) -> None:
-            _debug_log(f"handle_agent_session_error called for agent {self.agent_id}")
             payload = event.payload
             if not isinstance(payload, SessionErrorPayload):
                 return
@@ -160,7 +138,6 @@ def make_event_listener(agent_id: str, bus: EventBus = None) -> EventListener:
 
         @filter_by_sender(pattern)
         async def handle_agent_tool_call(self, event: Event) -> None:
-            _debug_log(f"handle_agent_tool_call called for agent {self.agent_id}")
             payload = event.payload
             if not isinstance(payload, ToolCallPayload):
                 return
@@ -174,7 +151,6 @@ def make_event_listener(agent_id: str, bus: EventBus = None) -> EventListener:
 
         @filter_by_sender(pattern)
         async def handle_agent_tool_result(self, event: Event) -> None:
-            _debug_log(f"handle_agent_tool_result called for agent {self.agent_id}")
             payload = event.payload
             if not isinstance(payload, ToolResultPayload):
                 return
@@ -188,7 +164,6 @@ def make_event_listener(agent_id: str, bus: EventBus = None) -> EventListener:
 
         @filter_by_sender(pattern)
         async def handle_agent_turn_response(self, event: Event) -> None:
-            _debug_log(f"handle_agent_turn_response called for agent {self.agent_id}")
             payload = event.payload
             if not isinstance(payload, AgentResponsePayload):
                 return
@@ -201,7 +176,6 @@ def make_event_listener(agent_id: str, bus: EventBus = None) -> EventListener:
 
         @filter_by_sender(pattern)
         async def handle_agent_turn_stats(self, event: Event) -> None:
-            _debug_log(f"handle_agent_turn_stats called for agent {self.agent_id}")
             payload = event.payload
             if not isinstance(payload, TurnStatsPayload):
                 return
@@ -214,11 +188,9 @@ def make_event_listener(agent_id: str, bus: EventBus = None) -> EventListener:
     return HarnessEventListener()
 
 
-def subscribe_event_listener(agent_id: str, bus: EventBus = None) -> EventListener:
+def subscribe_event_listener(agent_id: str, bus: Optional[EventBus] = None) -> EventListener:
     """Create and subscribe a :class:`HarnessEventListener` for ``agent_id``."""
-    _debug_log(f"Subscribing event listener for agent {agent_id}")
 
-    _debug_log(f"Calling listener.subscribe with topics")
 
     listener = make_event_listener(agent_id, bus)
     listener.subscribe([
@@ -237,15 +209,14 @@ def subscribe_event_listener(agent_id: str, bus: EventBus = None) -> EventListen
         "agent.turn.stop",
     ])
 
-    _debug_log(f"Successfully subscribed and returning listener for agent {agent_id}")
     return listener
 
 
-def make_task_list_listener(agent_id: str, bus: EventBus = None) -> EventListener:
+def make_task_list_listener(agent_id: str, bus: Optional[EventBus] = None) -> EventListener:
     """Backward-compatible alias for :func:`make_event_listener`."""
     return make_event_listener(agent_id, bus)
 
 
-def subscribe_task_list_listener(agent_id: str, bus: EventBus = None) -> EventListener:
+def subscribe_task_list_listener(agent_id: str, bus: Optional[EventBus] = None) -> EventListener:
     """Backward-compatible alias for :func:`subscribe_event_listener`."""
     return subscribe_event_listener(agent_id, bus)

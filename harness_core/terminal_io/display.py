@@ -12,6 +12,8 @@ existing test-suite, which patches this ``console``) keep working unchanged.
 
 from __future__ import annotations
 
+from typing import Optional, Union
+
 from rich.console import Console, RenderableType
 from rich.panel import Panel
 from rich.markdown import Markdown
@@ -218,7 +220,13 @@ def display_message_panel(text: str, theme: str = "status", title: str = "",
     return None
 
 
-def display_tool_result(func_name: str, result) -> None:
+def display_tool_result(
+    func_name: str,
+    result_title: Optional[str] = None,
+    result_display_text: Optional[str] = None,
+    result_theme: Optional[str] = None,
+    result_type_tag: Optional[str] = None,
+) -> None:
     """Print a truncated tool-result panel with syntax highlighting.
 
     When a textual TUI is active and the result corresponds to the most
@@ -231,15 +239,17 @@ def display_tool_result(func_name: str, result) -> None:
 
     Args:
         func_name: Name of the tool that produced the result.
-        result: A :class:`ToolResult` object from harness_core.tools.
+        result_title: Title override from the ToolResult object, or None.
+        result_display_text: The display text content of the ToolResult.
+        result_theme: Color/theme string for rendering (e.g. "info", "error").
+        result_type_tag: Type tag from the ToolResult, defaults to "text".
     """
-    # Unwrap ToolResult; content must be a ToolResult object.
-    title_override = result.title or func_name
+    title_override = result_title or func_name
     result_panel = display_message_panel(
-        text=result.display_text,
-        theme=result.theme,
+        text=result_display_text or "",
+        theme=result_theme or "info",
         title=title_override,
-        result_type=result.type_tag or "text",
+        result_type=result_type_tag or "text",
         return_renderable=True,
     )
 

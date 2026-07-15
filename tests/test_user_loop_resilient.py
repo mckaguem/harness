@@ -88,6 +88,27 @@ def _make_fakes(monkeypatch, agent):
     )
     monkeypatch.setattr(loop_mod, "_check_and_compress_if_needed", lambda *a, **k: None)
 
+    # After the refactor, emit_*_event helpers publish through EventBus. In sync
+    # test contexts with no listener subscribed, events are silently dropped —
+    # so patch each emit helper to call the corresponding display function
+    # directly. This makes the patched display_* functions above actually fire.
+    monkeypatch.setattr(
+        loop_mod, "_emit_agent_response_event",
+        lambda agent, content, resp, ctx_len, reasoning=None: fake_display_agent_response(content, resp, ctx_len),
+    )
+    monkeypatch.setattr(
+        loop_mod, "_emit_tool_call_event",
+        lambda agent, func_name, args_str, summary=None, pre_content="", reasoning=None: fake_display_tool_call(func_name, args_str),
+    )
+    monkeypatch.setattr(
+        loop_mod, "_emit_tool_result_event",
+        lambda agent, func_name, result_title=None, result_display_text="", result_theme="info", result_type_tag="text": fake_display_tool_result(func_name, result_display_text),
+    )
+    monkeypatch.setattr(
+        loop_mod, "_emit_tool_error_event",
+        lambda agent, description: fake_display_error(description or ""),
+    )
+
     # get_tui() must return our no-op spinner holder.
     import harness_core.terminal_io.tui as tui_mod
 
@@ -102,6 +123,7 @@ class TestUserLoopResilience:
     def test_user_loop_survives_provider_error(self, monkeypatch):
         """An exception from handle_prompt must NOT propagate out of user_loop."""
         class BoomAgent:
+            id = "boom-agent"
             _context_length = 4096
             _agent_type = SimpleNamespace(name="test", model_name="test")
 
@@ -124,6 +146,7 @@ class TestUserLoopResilience:
     def test_user_loop_normal_turn_still_works(self, monkeypatch):
         """Sanity: a normal successful turn still drives handle_prompt end-to-end."""
         class OkAgent:
+            id = "ok-agent"
             _context_length = 4096
             _agent_type = SimpleNamespace(name="test", model_name="test")
 

@@ -23,16 +23,6 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 # Module-level logger for the event bus
 logger = logging.getLogger(__name__)
 
-DEBUG_LOG = "/tmp/harness_debug.log"
-def _debug_log(msg: str) -> None:
-    """Write a debug message to a file so we can see it even if stdout is captured."""
-    try:
-        with open(DEBUG_LOG, "a") as f:
-            f.write(f"{msg}\n")
-            f.flush()
-    except Exception:
-        pass  # Never let logging failures crash the event bus
-
 
 # Reference to the application's main running event loop, if one has been
 # registered (e.g. by the TUI on mount). When set, events published from any
@@ -122,29 +112,71 @@ class EventBus:
         # Maps topic -> set of agent_ids subscribed to it (Bindings)
         self._bindings: Dict[str, Set[str]] = {}
         # Maps agent_id -> tuple of (mailbox, event_loop_bound_to_thread)
-        self._mailboxes: Dict[str, Tuple[asyncio.Queue, asyncio.AbstractEventLoop]] = {}
+        self._mailboxes: Dict[str, Tuple[asyncio.Queue, Optional[asyncio.AbstractEventLoop]]] = {}
+        # Kept for backward compatibility with tests that reference it.
+        self._running_tasks: Set["asyncio.Task"] = set()
 
-    def register_agent(self, agent_id: str) -> Tuple[asyncio.Queue, asyncio.AbstractEventLoop]:
+    def register_background_task(self, coro: Any):
+        """Register a background task so it is not garbage-collected prematurely.
+
+        This method exists for backward-compatibility with older test fixtures;
+        the current publish path does synchronous delivery and no longer needs
+        explicit task tracking. Callers may still pass coroutines here — they are
+        scheduled as :class:`asyncio.Task` objects, stored in
+        :attr:`_running_tasks`, and automatically removed when they complete.
+
+        Args:
+            coro: A coroutine (or existing Task) to register and run.
+
+        Returns:
+            The registered :class:`asyncio.Task` so callers can await it directly.
+        """
+        if asyncio.iscoroutine(coro):
+            task = asyncio.create_task(coro)
+        elif isinstance(coro, asyncio.Task):
+            task = coro
+        else:  # pragma: no cover - defensive; callers pass coroutines or Tasks
+            raise TypeError(
+                f"register_background_task expects a coroutine or Task, got {type(coro).__name__}"
+            )
+
+        def _on_done(t: "asyncio.Task") -> None:
+            self._running_tasks.discard(t)
+
+        task.add_done_callback(_on_done)
+        self._running_tasks.add(task)
+        return task
+
+    def register_agent(self, agent_id: str) -> asyncio.Queue[Any]:
         """Registers an agent using the event loop of the CALLING thread.
+
+        If no event loop is currently running (e.g. when called from a
+        synchronous context such as unit tests), stores ``None`` as the bound
+        loop — calls to :meth:`publish` will then deliver directly via
+        :meth:`asyncio.Queue.put_nowait` on the same thread, which is always
+        safe for synchronous callers.
 
         Args:
             agent_id: Unique identifier for the agent
-            
+
         Returns:
-            A tuple of (mailbox, loop) where mailbox is bound to this thread's loop
-            
+            The ``asyncio.Queue`` mailbox bound to this thread's loop.
+
         Raises:
             ValueError: If the agent_id is already registered
         """
         if agent_id in self._mailboxes:
             raise ValueError(f"Agent '{agent_id}' is already registered.")
-        
-        # Capture the event loop running on the current thread
-        loop = asyncio.get_running_loop()
-        mailbox = asyncio.Queue()  # Bound to this thread's loop
-        
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No event loop running on this thread (e.g. sync test context).
+            loop = None  # type: ignore[assignment]
+        mailbox: asyncio.Queue[Any] = asyncio.Queue()
+
         self._mailboxes[agent_id] = (mailbox, loop)
-        return mailbox  
+        return mailbox
 
     def deregister_agent(self, agent_id: str) -> None:
         """Clean up an agent's mailbox and all of their topic subscriptions.
@@ -231,61 +263,53 @@ class EventBus:
             event: The event to publish (must have a topic)
         """
         if event.topic is None:
-            _debug_log(f"publish() RETURNING - event has no topic")
             return
 
         if event.topic not in self._bindings:
-            _debug_log(f"publish() RETURNING - no bindings for topic '{event.topic}'")
             return
-
-        _debug_log(f"publish() ENTERING delivery loop for topic '{event.topic}', {len(self._bindings[event.topic])} agents bound")
 
         for agent_id in self._bindings[event.topic]:
             entry = self._mailboxes.get(agent_id)
             if entry:
                 mailbox, loop = entry
 
-                _debug_log(f"publish() processing binding for agent {agent_id}")
-
-                try:
-                    current_thread = threading.current_thread()
-                    target_loop_thread = getattr(loop, '_thread', None)
-
-                    same_thread = (current_thread is target_loop_thread) if target_loop_thread else False
-                    _debug_log(f"publish() thread check - current={current_thread.name}, target={target_loop_thread}, same_thread={same_thread}")
-
-                    if same_thread:
-                        # Same thread - direct put_nowait (fast path)
-                        _debug_log(f"publish() SAME THREAD path - calling mailbox.put_nowait for agent {agent_id}")
+                # If no loop was bound (e.g. synchronous context), deliver directly.
+                if loop is None:
+                    try:
                         mailbox.put_nowait(event)
-                        _debug_log(f"publish() SUCCESS - put_nowait completed for agent {agent_id}")
-                    else:
-                        # Different thread - use call_soon_threadsafe to schedule delivery
-                        _debug_log(f"publish() DIFFERENT THREAD path - calling loop.call_soon_threadsafe for agent {agent_id}")
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        current_thread = threading.current_thread()
+                        target_loop_thread = getattr(loop, '_thread', None)
+
+                        same_thread = (current_thread is target_loop_thread) if target_loop_thread else False
+
+                        if same_thread:
+                            # Same thread - direct put_nowait (fast path)
+                            mailbox.put_nowait(event)
+                        else:
+                            # Different thread - use call_soon_threadsafe to schedule delivery
+                            try:
+                                loop.call_soon_threadsafe(mailbox.put_nowait, event)
+                            except RuntimeError as exc:
+                                try:
+                                    mailbox.put_nowait(event)
+                                except Exception:
+                                    pass
+                    except AttributeError:
+                        # Some AbstractEventLoop implementations don't expose _thread.
+                        # Fall back to call_soon_threadsafe anyway; if that fails too,
+                        # direct put_nowait is a last-resort delivery.
                         try:
                             loop.call_soon_threadsafe(mailbox.put_nowait, event)
-                            _debug_log(f"publish() SUCCESS - call_soon_threadsafe scheduled for agent {agent_id}")
-                        except RuntimeError as exc:
-                            _debug_log(f"publish() call_soon_threadsafe failed with RuntimeError: {exc}, falling back to put_nowait")
+                        except RuntimeError:
                             try:
                                 mailbox.put_nowait(event)
-                                _debug_log(f"publish() SUCCESS - fallback put_nowait completed for agent {agent_id}")
-                            except Exception as e2:
-                                _debug_log(f"publish() FAILED even on fallback put_nowait: {e2}")
-                except AttributeError as exc:
-                    _debug_log(f"publish() AttributeError getting loop._thread (loop={type(loop).__name__}): {exc}, assuming different thread")
-                    try:
-                        loop.call_soon_threadsafe(mailbox.put_nowait, event)
-                        _debug_log(f"publish() SUCCESS - call_soon_threadsafe after AttributeError for agent {agent_id}")
-                    except RuntimeError as exc2:
-                        _debug_log(f"publish() call_soon_threadsafe failed (RuntimeError after AttributeError): {exc2}, falling back to put_nowait")
-                        try:
-                            mailbox.put_nowait(event)
-                            _debug_log(f"publish() SUCCESS - fallback put_nowait after AttributeError for agent {agent_id}")
-                        except Exception as e3:
-                            _debug_log(f"publish() FAILED even on fallback after AttributeError: {e3}")
+                            except Exception:
+                                pass
 
-        _debug_log("publish() completed loop iteration")
 
 class EventListener:
     """Base class for event listeners using the mailbox pattern.
@@ -321,7 +345,6 @@ class EventListener:
         # 2. Keep a local strong reference to the listener task
         #    to prevent garbage collection while we're running.
         self._listener_task = asyncio.create_task(self._mailbox_listener())
-        _debug_log(f"Created listener task for agent {agent_id}")
         # Verify the listener task started successfully
         if self._listener_task.done():
             # Get any exception that occurred during startup
@@ -341,7 +364,6 @@ class EventListener:
                 message = await self.mailbox.get()
 
                 topic = message.topic or "direct"
-                _debug_log(f"Listener received event on topic '{topic}' for agent {self.agent_id}")
                 logger.debug("Processing event for agent %s on topic '%s'", self.agent_id, topic)
 
                 try:
@@ -377,16 +399,17 @@ class EventListener:
                 logger.debug("Dispatching direct message to handler")
                 await handler(message)
             else:
+                # Fall back to default_handler for direct messages without handle_direct
                 logger.warning(
                     "Received direct message for agent %s with no handle_direct method",
                     self.agent_id,
                 )
+                await self.default_handler(message)
         else:
             # Topic-based dispatch
             topic = message.topic.replace(".", "_").replace("-", "_")
             handler_name = f"handle_{topic}"
 
-            _debug_log(f"Looking up handler '{handler_name}' for agent {self.agent_id}")
             logger.debug("Looking up handler '%s' for agent %s", handler_name, self.agent_id)
 
             handler = getattr(self, handler_name, None)
@@ -423,8 +446,9 @@ class EventListener:
         Args:
             event: The event to handle
         """
-        # Convert topic to valid method name (replace . and - with _)
-        method_name = f"handle_{event.topic.replace('.', '_').replace('-', '_')}"
+        # Convert topic to valid method name (replace . and - with _); treat None as direct message.
+        topic = event.topic or "direct"
+        method_name = f"handle_{topic.replace('.', '_').replace('-', '_')}"
 
         handler = getattr(self, method_name, None)
         if handler is not None and callable(handler):

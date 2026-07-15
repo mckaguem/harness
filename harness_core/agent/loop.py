@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import time as _time
+import traceback
 from rich.console import Console
 
 from typing import TYPE_CHECKING
@@ -26,16 +27,6 @@ import json
 from harness_core.commands import COMMANDS
 from harness_core.skills.interceptor import intercept_message, InterceptorKind
 from harness_core.eventbus import Event, event_bus, get_event_loop
-
-DEBUG_LOG = "/tmp/harness_debug.log"
-def _debug_log(msg: str) -> None:
-    """Write a debug message to a file so we can see it even if stdout is captured."""
-    try:
-        with open(DEBUG_LOG, "a") as f:
-            f.write(f"{msg}\n")
-            f.flush()
-    except Exception:
-        pass
 
 def _count_approx_tokens(messages: list) -> int:
     """Approximate token count from a message list using character estimation.
@@ -103,8 +94,6 @@ def _emit_system_event(agent, topic: str, title: str, message: str) -> None:
     non-TUI contexts) there is no event listener subscribed, so we fall back to
     calling :func:`harness_core.terminal_io.display.print_system` directly.
     """
-    _debug_log(f"_emit_system_event called: topic={topic}, title={title}")
-    
     from harness_core.terminal_io.tui import get_tui
 
     tui = get_tui()
@@ -127,7 +116,6 @@ def _emit_system_event(agent, topic: str, title: str, message: str) -> None:
     if loop is not None and loop.is_running():
         try:
             event_bus.publish(event)
-            _debug_log(f"Published system event on topic '{topic}' to app loop")
         except RuntimeError as exc:
             # If the loop is closed or not running, fall back to direct render
             print_system(title, message)

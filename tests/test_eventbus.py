@@ -148,7 +148,7 @@ class TestEventBus:
 
         self.bus.send_direct("sender", "agent2", "direct message")
 
-        mailbox = self.bus._mailboxes["agent2"]
+        mailbox = self.bus._mailboxes["agent2"][0]  # (mailbox, loop) tuple
         assert not mailbox.empty()
         event = mailbox.get_nowait()
         assert event.topic is None
@@ -172,9 +172,9 @@ class TestEventBus:
 
         self.bus.publish_to_topic("sender", "topic1", "broadcast message")
 
-        event1 = self.bus._mailboxes["agent1"].get_nowait()
-        event2 = self.bus._mailboxes["agent2"].get_nowait()
-        assert self.bus._mailboxes["agent3"].empty()
+        event1 = self.bus._mailboxes["agent1"][0].get_nowait()
+        event2 = self.bus._mailboxes["agent2"][0].get_nowait()
+        assert self.bus._mailboxes["agent3"][0].empty()
 
         assert event1.topic == "topic1"
         assert event1.sender == "sender"
@@ -187,7 +187,7 @@ class TestEventBus:
         self.bus.register_agent("agent1")
         # agent1 not subscribed to topic1
         self.bus.publish_to_topic("sender", "topic1", "message")
-        assert self.bus._mailboxes["agent1"].empty()
+        assert self.bus._mailboxes["agent1"][0].empty()
 
     @ pytest.mark.asyncio
     async def test_register_background_task_tracks_task(self):

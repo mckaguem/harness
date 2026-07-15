@@ -7,9 +7,45 @@ from pathlib import Path
 import pytest
 
 
-
 class TestRunLoop:
     """Tests for run_loop() function."""
+
+    def _setup_event_bridge(self, monkeypatch):
+        """Route emit_*_event helpers to call display_* functions directly.
+
+        After the refactor, emit_*_event helpers publish through EventBus rather
+        than calling display functions directly. In test contexts with no listener
+        subscribed, publishes are silently dropped — so patch each emit helper
+        to call the corresponding display function directly (which is what the
+        patched display_* mocks in each test capture).
+        """
+        import harness_core.agent.loop as loop_mod
+
+        monkeypatch.setattr(
+            loop_mod, "_emit_agent_response_event",
+            lambda agent, content, resp, ctx_len, reasoning=None: 
+                loop_mod.display_agent_response(content, resp, ctx_len, reasoning=reasoning),
+        )
+        monkeypatch.setattr(
+            loop_mod, "_emit_tool_call_event",
+            lambda agent, func_name, args_str, summary=None, pre_content="", reasoning=None:
+                loop_mod.display_tool_call(func_name, args_str, summary=summary,
+                                           pre_content=pre_content or "", reasoning=reasoning),
+        )
+        monkeypatch.setattr(
+            loop_mod, "_emit_tool_result_event",
+            lambda agent, func_name, result_title=None, result_display_text="", 
+                   result_theme="info", result_type_tag="text":
+                loop_mod.display_tool_result(func_name, result_title=result_title,
+                                             result_display_text=result_display_text or "",
+                                             result_theme=result_theme or "info",
+                                             result_type_tag=result_type_tag or "text"),
+        )
+        monkeypatch.setattr(
+            loop_mod, "_emit_tool_error_event",
+            lambda agent, description: 
+                loop_mod.display_error(description or ""),
+        )
 
     def test_run_loop_calls_print_system_on_start(self):
         """run_loop should print a welcome message on startup."""
@@ -96,8 +132,10 @@ class TestRunLoop:
             assert mock_agent.handle_prompt.call_count == 0
             assert mock_display.call_count == 0
 
-    def test_run_loop_displays_agent_response(self):
+    def test_run_loop_displays_agent_response(self, monkeypatch):
         """run_loop should display agent responses."""
+        self._setup_event_bridge(monkeypatch)
+
         from harness_core.agent.loop import user_loop
         
         mock_agent = MagicMock()
@@ -128,8 +166,10 @@ class TestRunLoop:
                     # Should have called display_agent_response once
                     assert mock_display.call_count == 1
 
-    def test_run_loop_displays_tool_calls(self):
+    def test_run_loop_displays_tool_calls(self, monkeypatch):
         """run_loop should display tool calls."""
+        self._setup_event_bridge(monkeypatch)
+
         from harness_core.agent.loop import user_loop
         
         mock_agent = MagicMock()
@@ -160,8 +200,10 @@ class TestRunLoop:
                     # Should have called display_tool_call once
                     assert mock_display.call_count == 1
 
-    def test_run_loop_displays_tool_results(self):
+    def test_run_loop_displays_tool_results(self, monkeypatch):
         """run_loop should display tool results."""
+        self._setup_event_bridge(monkeypatch)
+
         from harness_core.agent.loop import user_loop
         from harness_core.tools.tool_result import ToolResult
         
@@ -200,8 +242,10 @@ class TestRunLoop:
                     # Should have called display_tool_result once
                     assert mock_display.call_count == 1
 
-    def test_run_loop_displays_errors(self):
+    def test_run_loop_displays_errors(self, monkeypatch):
         """run_loop should display error messages."""
+        self._setup_event_bridge(monkeypatch)
+
         from harness_core.agent.loop import user_loop
         
         mock_agent = MagicMock()
@@ -232,8 +276,10 @@ class TestRunLoop:
                     # Should have called display_error once
                     assert mock_display.call_count == 1
 
-    def test_run_loop_handles_multiple_outputs(self):
+    def test_run_loop_handles_multiple_outputs(self, monkeypatch):
         """run_loop should handle multiple outputs from a single prompt."""
+        self._setup_event_bridge(monkeypatch)
+
         from harness_core.agent.loop import user_loop
         from harness_core.tools.tool_result import ToolResult
         
@@ -278,8 +324,9 @@ class TestRunLoop:
                             assert mock_tool.call_count == 1
                             assert mock_result.call_count == 1
 
-    def test_run_loop_ignores_unknown_command(self):
+    def test_run_loop_ignores_unknown_command(self, monkeypatch):
         """run_loop should continue when encountering unknown slash commands."""
+        self._setup_event_bridge(monkeypatch)
         from harness_core.agent.loop import user_loop
         
         mock_agent = MagicMock()

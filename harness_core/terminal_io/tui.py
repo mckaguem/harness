@@ -35,18 +35,6 @@ import sys
 import time
 import traceback
 
-
-DEBUG_LOG = "/tmp/harness_debug.log"
-def _debug_log(msg: str) -> None:
-    """Write a debug message to a file so we can see it even if stdout is captured."""
-    try:
-        with open(DEBUG_LOG, "a") as f:
-            f.write(f"{msg}\n")
-            f.flush()
-    except Exception:
-        pass  # Never let logging failures crash the TUI
-
-
 from rich.panel import Panel
 from rich.console import Group
 from rich.rule import Rule
@@ -667,15 +655,10 @@ class TextualHarnessApp(App):
             from .event_listener import subscribe_event_listener
 
             if self._agent is not None:
-                _debug_log(f"Subscribing event listener for agent {self._agent.id}")  # Use our debug log helper
-                
                 listener = subscribe_event_listener(self._agent.id)
                 self._event_listener = listener  # Keep a reference so it's not garbage collected
-                _debug_log(f"Successfully subscribed and stored event listener")
         except Exception as e:
-            import traceback
-            _debug_log(f"\nERROR during listener subscription: {traceback.format_exc()}")
-            traceback.print_exc()
+            pass
 
         # Cache the output pane reference for _show_loop_error (worker-thread path).
         try:
@@ -747,11 +730,4 @@ def launch(agent, on_exit=None) -> None:
             :func:`agent.loop.user_loop`).
     """
     app = TextualHarnessApp(agent=agent, on_exit=on_exit)
-    try:
-        app.run()
-    except Exception as e:
-        import traceback
-        print("\n\n=== TUI CRASHED ===")
-        traceback.print_exc()
-        print("=== END CRASH REPORT ===\n\n")
-        input("Press Enter to exit...")
+    app.run()
