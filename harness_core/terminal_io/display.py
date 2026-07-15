@@ -222,6 +222,7 @@ def display_message_panel(text: str, theme: str = "status", title: str = "",
 
 def display_tool_result(
     func_name: str,
+    result: Optional[object] = None,
     result_title: Optional[str] = None,
     result_display_text: Optional[str] = None,
     result_theme: Optional[str] = None,
@@ -239,19 +240,36 @@ def display_tool_result(
 
     Args:
         func_name: Name of the tool that produced the result.
+        result: A ToolResult object, or None if using individual parameters.
         result_title: Title override from the ToolResult object, or None.
         result_display_text: The display text content of the ToolResult.
         result_theme: Color/theme string for rendering (e.g. "info", "error").
         result_type_tag: Type tag from the ToolResult, defaults to "text".
     """
-    title_override = result_title or func_name
-    result_panel = display_message_panel(
-        text=result_display_text or "",
-        theme=result_theme or "info",
-        title=title_override,
-        result_type=result_type_tag or "text",
-        return_renderable=True,
-    )
+    # Support both calling conventions:
+    # 1. display_tool_result(func_name, tool_result_object)
+    # 2. display_tool_result(func_name, result_title=..., result_display_text=..., ...)
+    if result is not None and not isinstance(result, str) and hasattr(result, 'display_text'):
+        # Called with a ToolResult object
+        tool_result = result
+        title_override = tool_result.title or func_name
+        result_panel = display_message_panel(
+            text=tool_result.display_text or "",
+            theme=tool_result.theme or "info",
+            title=title_override,
+            result_type=tool_result.type_tag or "text",
+            return_renderable=True,
+        )
+    else:
+        # Called with individual parameters (legacy/backward compatibility)
+        title_override = result_title or func_name
+        result_panel = display_message_panel(
+            text=result_display_text or "",
+            theme=result_theme or "info",
+            title=title_override,
+            result_type=result_type_tag or "text",
+            return_renderable=True,
+        )
 
     controller = _tui.get_tui()
     if controller.is_active():

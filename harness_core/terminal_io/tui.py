@@ -281,11 +281,8 @@ class HarnessTUI:
             # into the same Collapsible without re-mounting the whole widget.
             self._tool_stack.append((collapsible, call_renderable))
 
-        def _do() -> None:
-            output.mount(collapsible)
-            output.scroll_end(animate=False)
-
-        app.call_from_thread(_do)
+        output.mount(collapsible)
+        output.scroll_end(animate=False)
 
     def complete_tool_panel(self, result_renderable) -> None:
         """Append a tool result into the most recent tool-call collapsible.
@@ -307,34 +304,32 @@ class HarnessTUI:
         collapsible = entry[0] if entry else None
         call_panel = entry[1] if entry else None
 
-        def _do() -> None:
-            if collapsible is None or call_panel is None:
-                # No matching call on the stack (e.g. a stray result) \u2014 render
-                # it as a standalone panel so it is not lost.
-                output.mount(Static(result_renderable))
-                output.scroll_end(animate=False)
-                return
-            # Rebuild the single call Panel to include the separator + result
-            # inline, then swap it into the Collapsible via its inner content
-            # Static (NOT the title bar — the title is also a Static, so we
-            # target it by id).  Net effect: one Panel showing call + separator
-            # + result, all nested inside the Collapsible.  The result must be
-            # unwrapped (result.renderable) so we do not nest a second border
-            # inside the call Panel.
-            result_inner = (
-                result_renderable.renderable
-                if isinstance(result_renderable, Panel)
-                else result_renderable
-            )
-            merged = Panel(
-                Group(call_panel.renderable, TOOL_SEPARATOR, result_inner),
-                title=call_panel.title,
-                border_style=call_panel.border_style,
-            )
-            collapsible.query_one("#tool-content", Static).update(merged)
+        if collapsible is None or call_panel is None:
+            # No matching call on the stack (e.g. a stray result) \u2014 render
+            # it as a standalone panel so it is not lost.
+            output.mount(Static(result_renderable))
             output.scroll_end(animate=False)
+            return
+        # Rebuild the single call Panel to include the separator + result
+        # inline, then swap it into the Collapsible via its inner content
+        # Static (NOT the title bar — the title is also a Static, so we
+        # target it by id).  Net effect: one Panel showing call + separator
+        # + result, all nested inside the Collapsible.  The result must be
+        # unwrapped (result.renderable) so we do not nest a second border
+        # inside the call Panel.
+        result_inner = (
+            result_renderable.renderable
+            if isinstance(result_renderable, Panel)
+            else result_renderable
+        )
+        merged = Panel(
+            Group(call_panel.renderable, TOOL_SEPARATOR, result_inner),
+            title=call_panel.title,
+            border_style=call_panel.border_style,
+        )
+        collapsible.query_one("#tool-content", Static).update(merged)
+        output.scroll_end(animate=False)
 
-        app.call_from_thread(_do)
 
     def write_count(self) -> int:
         """Number of times :meth:`write` committed to the output pane.
