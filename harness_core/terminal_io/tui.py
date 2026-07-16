@@ -27,6 +27,8 @@ import asyncio
 import threading
 
 
+
+
 from textual.app import App
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Footer, Header, Collapsible, Static, TextArea
@@ -442,6 +444,9 @@ class HarnessTUI:
         (newlines preserved).  An empty submission returns ``""`` (equivalent to
         the classic Ctrl+D-on-blank behaviour).
         """
+        # Import here to avoid circular import with display.py
+        from harness_core.terminal_io.display import display_user_message
+        
         if not self.is_active() or self._app is None:
             raise RuntimeError("HarnessTUI.prompt called while TUI is inactive")
 
@@ -466,6 +471,8 @@ class HarnessTUI:
             self._pending = None
             self._pending_prompt = None
             value = self._pending_value
+        if value.strip():
+            display_user_message(value)
         return value
 
     def _arm_input(self) -> None:

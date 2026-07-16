@@ -157,6 +157,7 @@ class TestPromptFlow:
                 assert tui_app.focused == tui_app.query_one("#input", TextArea)
                 tui_app.query_one("#input", TextArea).text = "worker typed this"
                 get_tui().submit()
+                await pilot.pause()  # yield so the worker thread can finish
                 t.join(timeout=2.0)
                 assert result.get("value") == "worker typed this"
 

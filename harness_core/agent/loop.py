@@ -5,6 +5,7 @@ import traceback
 from harness_core.agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from harness_core.agent.core import Agent
 from harness_core.terminal_io import prompt_user, display_user_message
+from harness_core.terminal_io.tui import get_tui
 from harness_core.tools.dispatcher import summarize
 import json
 from harness_core.commands import COMMANDS
@@ -223,9 +224,11 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
 
         # Echo the user's own message into the output pane so it appears
         # alongside the agent's response.  (The classic REPL renders the typed
-        # text via prompt_toolkit; the TUI does not, so we echo it here.)
+        # text via prompt_toolkit; the TUI does not, so we echo it here only
+        # when the TUI is NOT active — the TUI's prompt() now echoes the message itself.)
         if user_input.strip():
-            display_user_message(user_input)
+            if not get_tui().is_active():
+                display_user_message(user_input)
 
         # Check for slash commands first.
         if user_input.startswith('/'):
