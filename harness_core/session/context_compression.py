@@ -28,6 +28,32 @@ LIST_DIR_TOOL_NAMES = {"list_dir"}
 FILE_OPERATING_TOOLS = {"read_file", "write_file", "edit_file"}
 
 
+def _count_approx_tokens(messages: list[dict]) -> int:
+    """Approximate token count from a message list using character estimation.
+
+    Uses a rough heuristic of ~4 characters per token (common heuristic for
+    English text). Sums the character length of all string content in the
+    message list and divides by 4.
+
+    Args:
+        messages: List of message dictionaries with string "content" fields.
+
+    Returns:
+        Approximate token count (integer).
+    """
+    total_chars = 0
+    for msg in messages:
+        content = msg.get("content")
+        if isinstance(content, str):
+            total_chars += len(content)
+        elif isinstance(content, list):
+            # Handle content that is a list of blocks (e.g., tool results with blocks)
+            for block in content:
+                if isinstance(block, dict) and isinstance(block.get("text"), str):
+                    total_chars += len(block["text"])
+    return max(1, total_chars // 4)
+
+
 def _already_truncated(msg: dict) -> bool:
     """Return True iff ``msg["content"]`` is a string starting with :data:`TRUNCATED_PREFIX`.
 
@@ -303,14 +329,81 @@ def should_auto_compress(context_utilization: float, threshold: float = 0.5) -> 
         True if the context utilization exceeds the threshold, False otherwise.
 
     Raises:
-        ValueError: If context_utilization is not between 0 and 1 inclusive.
+        ValueError: If context_utilization is negative.
     """
-    if not (0 <= context_utilization <= 1):
+    if context_utilization < 0:
         raise ValueError(
-            f"context_utilization must be between 0 and 1, got {context_utilization}"
+            f"context_utilization must be non-negative, got {context_utilization}"
         )
 
     return context_utilization > threshold
+
+
+def check_and_compress_if_needed(
+    session: Session,
+    context_length: int,
+    threshold: float = 0.5,
+    fraction: float = 0.1,
+) -> dict:
+    """Check if session needs compression and compress if needed.
+
+    Args:
+        session: Session object with messages and filepath attributes.
+        context_length: Maximum context length (in tokens) for the model.
+        threshold: Context utilization threshold (0-1) above which compression triggers.
+                   Defaults to 0.5 (50%).
+        fraction: Proportion of tail messages to preserve during compression.
+                  Defaults to 0.1 (10%).
+
+    Returns:
+        Dictionary with compression results:
+        - If compressed: {"compressed": True, "pre_util": float, "post_util": float,
+                          "context_length": int, "new_filepath": str}
+        - If not needed: {"compressed": False, "pre_util": float, "context_length": int}
+        - On error: {"compressed": False, "error": str}
+    """
+    try:
+        # Get messages and calculate token count
+        messages = getattr(session, "messages", None)
+        if messages is None:
+            return {"compressed": False, "pre_util": 0.0, "context_length": context_length}
+
+        token_count = _count_approx_tokens(messages)
+        utilization = token_count / context_length if context_length > 0 else 0.0
+
+        # Check if auto-compression should trigger
+        if not should_auto_compress(utilization, threshold):
+            return {"compressed": False, "pre_util": utilization, "context_length": context_length}
+
+        # Compression needed - calculate pre_util
+        pre_util = utilization
+
+        # Attempt compression
+        new_filepath = compress_session(session, fraction)
+
+        # If compression happened (returns non-None)
+        if new_filepath is not None:
+            # Calculate post_util from compressed messages
+            compressed_messages = getattr(session, "messages", None)
+            if compressed_messages:
+                post_token_count = _count_approx_tokens(compressed_messages)
+                post_util = post_token_count / context_length if context_length > 0 else 0.0
+            else:
+                post_util = 0.0
+
+            return {
+                "compressed": True,
+                "pre_util": pre_util,
+                "post_util": post_util,
+                "context_length": context_length,
+                "new_filepath": new_filepath,
+            }
+        else:
+            # Compression was attempted but no changes made
+            return {"compressed": False, "pre_util": pre_util, "context_length": context_length}
+
+    except Exception as e:
+        return {"compressed": False, "error": str(e)}
 
 
 def build_compressed_filepath(filepath: str) -> tuple[str, bool]:
@@ -407,5 +500,7 @@ __all__ = [
     "should_auto_compress",
     "build_compressed_filepath",
     "compress_session",
+    "check_and_compress_if_needed",
+    "_count_approx_tokens",
     "TRUNCATED_PREFIX",
 ]

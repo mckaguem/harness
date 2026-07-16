@@ -3,7 +3,7 @@
 from pathlib import Path
 from rich.console import Console
 console = Console()
-from harness_core.tools.utils import is_safe_path, _strip_ansi, make_error_result
+from harness_core.tools.utils import is_safe_path, make_error_result
 from harness_core.tools.tool_result import ToolResult
 
 
@@ -36,13 +36,6 @@ _EXT_FORMATS = {
     ".go": "go",
     ".php": "php",
 }
-
-
-def _detect_format(filename: str) -> str:
-    """Detect Rich syntax format from file extension."""
-    ext = Path(filename).suffix.lower()
-    return _EXT_FORMATS.get(ext, "text")
-
 
 def read_file(filename: str, offset: int, limit: int) -> ToolResult:
     """Read a file and return its contents with auto-detected format. Supports offset and limit parameters to read specific line ranges.
@@ -101,7 +94,7 @@ function_def = {
             "type": "object",
             "properties": {
                 "filename": {"type": "string", "description": "The name of the file to read."},
-                "offset": {"type": "integer", "description": "Zero‑based line number to start reading from."},
+                "offset": {"type": "integer", "description": "Zero-based line number to start reading from."},
                 "limit": {"type": "integer", "description": "Maximum number of lines to read (max 300)."}
             },
             "required": ["filename", "offset", "limit"]

@@ -128,7 +128,7 @@ class TestPromptFlow:
                 text_area = tui_app.query_one("#input", TextArea)
                 text_area.text = "hello world\nsecond line"
                 text_area.focus()
-                await pilot.press("ctrl+enter")
+                await pilot.press("ctrl+g")
 
                 # The submit handler ran synchronously during pilot.press.
                 assert controller._pending_value == "hello world\nsecond line"

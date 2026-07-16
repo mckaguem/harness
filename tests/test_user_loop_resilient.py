@@ -16,6 +16,7 @@ import pytest
 
 from harness_core.agent import loop as loop_mod
 from harness_core.agent.constants import RESPONSE, ERROR
+from harness_core import terminal_io
 
 
 class _FakeConsole:
@@ -23,6 +24,18 @@ class _FakeConsole:
     is_terminal = False
 
     def print(self, *a, **k):
+        pass
+
+
+class _FakeTui:
+    """Minimal stand-in for TextualHarnessApp TUI controller."""
+    def is_active(self):
+        return False
+
+    def show_spinner(self):
+        pass
+
+    def hide_spinner(self):
         pass
 
 
@@ -58,23 +71,14 @@ def _make_fakes(monkeypatch, agent):
     def fake_print_system(*a, **k):
         pass
 
-    class _FakeTui:
-        def show_spinner(self):
-            pass
-
-        def hide_spinner(self):
-            pass
-
     monkeypatch.setattr(loop_mod, "prompt_user", fake_prompt_user)
-    monkeypatch.setattr(loop_mod, "display_error", fake_display_error)
-    monkeypatch.setattr(loop_mod, "display_agent_response", fake_display_agent_response)
-    monkeypatch.setattr(loop_mod, "display_user_message", fake_display_user_message)
-    monkeypatch.setattr(loop_mod, "display_tool_call", fake_display_tool_call)
-    monkeypatch.setattr(loop_mod, "display_tool_result", fake_display_tool_result)
-    monkeypatch.setattr(loop_mod, "format_speed", fake_format_speed)
-    monkeypatch.setattr(loop_mod, "print_system", fake_print_system)
-    # Avoid any real rich.Console construction in the exception handler.
-    monkeypatch.setattr(loop_mod, "Console", lambda: _FakeConsole())
+    monkeypatch.setattr(terminal_io, "display_error", fake_display_error)
+    monkeypatch.setattr(terminal_io, "display_agent_response", fake_display_agent_response)
+    monkeypatch.setattr(terminal_io, "display_user_message", fake_display_user_message)
+    monkeypatch.setattr(terminal_io, "display_tool_call", fake_display_tool_call)
+    monkeypatch.setattr(terminal_io, "display_tool_result", fake_display_tool_result)
+    monkeypatch.setattr(terminal_io, "format_speed", fake_format_speed)
+    monkeypatch.setattr(terminal_io, "print_system", fake_print_system)
     # Provide working /quit (and /exit) handlers so the loop can terminate
     # when our fake prompt_user returns '/quit'.
     monkeypatch.setattr(

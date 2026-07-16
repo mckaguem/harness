@@ -281,8 +281,16 @@ class HarnessTUI:
             # into the same Collapsible without re-mounting the whole widget.
             self._tool_stack.append((collapsible, call_renderable))
 
-        output.mount(collapsible)
-        output.scroll_end(animate=False)
+        def _do() -> None:
+            output.mount(collapsible)
+            output.scroll_end(animate=False)
+
+        # Marshal onto the app thread (widgets can only be mounted on the app thread).
+        app_thread = getattr(app, "_thread_id", None)
+        if app_thread is not None and app_thread == threading.current_thread().ident:
+            _do()
+        else:
+            app.call_from_thread(_do)
 
     def complete_tool_panel(self, result_renderable) -> None:
         """Append a tool result into the most recent tool-call collapsible.
@@ -307,8 +315,15 @@ class HarnessTUI:
         if collapsible is None or call_panel is None:
             # No matching call on the stack (e.g. a stray result) \u2014 render
             # it as a standalone panel so it is not lost.
-            output.mount(Static(result_renderable))
-            output.scroll_end(animate=False)
+            def _do_standalone() -> None:
+                output.mount(Static(result_renderable))
+                output.scroll_end(animate=False)
+
+            app_thread = getattr(app, "_thread_id", None)
+            if app_thread is not None and app_thread == threading.current_thread().ident:
+                _do_standalone()
+            else:
+                app.call_from_thread(_do_standalone)
             return
         # Rebuild the single call Panel to include the separator + result
         # inline, then swap it into the Collapsible via its inner content
@@ -327,8 +342,16 @@ class HarnessTUI:
             title=call_panel.title,
             border_style=call_panel.border_style,
         )
-        collapsible.query_one("#tool-content", Static).update(merged)
-        output.scroll_end(animate=False)
+
+        def _do_update() -> None:
+            collapsible.query_one("#tool-content", Static).update(merged)
+            output.scroll_end(animate=False)
+
+        app_thread = getattr(app, "_thread_id", None)
+        if app_thread is not None and app_thread == threading.current_thread().ident:
+            _do_update()
+        else:
+            app.call_from_thread(_do_update)
 
 
     def write_count(self) -> int:

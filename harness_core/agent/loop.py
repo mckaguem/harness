@@ -10,56 +10,35 @@ import json
 from harness_core.commands import COMMANDS
 from harness_core.skills.interceptor import intercept_message, InterceptorKind
 from harness_core.eventbus import Event, event_bus
-
-def _count_approx_tokens(messages: list) -> int:
-    """Approximate token count from a message list using character estimation.
-    
-    Uses ~4 chars per token as a rough approximation. This is much faster than
-    calling the OpenAI tokenizer for every message loop iteration.
-    """
-    if not messages:
-        return 0
-    total_chars = sum(
-        len(str(msg.get('content', '')) or '')
-        for msg in messages
-    )
-    # Rough approximation: ~4 characters per token
-    return total_chars // 4
+from harness_core.session.context_compression import check_and_compress_if_needed
 
 def _check_and_compress_if_needed(agent) -> None:
     """Check context utilization and trigger compression if above threshold."""
     try:
-        messages = getattr(agent, 'messages', None) or (getattr(agent, '_session', None) and getattr(agent, '_session').messages)
+        session = getattr(agent, 'session', None) or getattr(agent, '_session', None)
         context_length = getattr(agent, '_context_length', 1 << 17)  # default ~131072
-        
-        if not messages or not context_length:
+
+        if session is None or not context_length:
             return
-        
-        token_count = _count_approx_tokens(messages)
-        utilization = token_count / context_length if context_length > 0 else 0
-        
-        THRESHOLD = 0.5  # Compress when above 50% utilization
-        
-        if utilization > THRESHOLD:
-            pre_util = utilization
-            try:
-                from harness_core.session.context_compression import compress_session
-                session = getattr(agent, 'session', None) or getattr(agent, '_session', None)
-                if session is not None:
-                    compress_session(session, fraction=0.1)
-                    post_util = _count_approx_tokens(session.messages) / context_length if context_length > 0 else 0
-                    # Emit turn stats event to reflect compressed context size in TUI
-                    _emit_turn_stats_event(agent, None, context_length, 0.0)
-                    _emit_system_event(
-                        agent,
-                        "agent.session.autocompress",
-                        "Auto-Compression",
-                        f"Context utilization was {pre_util:.1%} of {context_length} max tokens. Auto-compressed to {post_util:.1%}.",
-                    )
-            except Exception as e:
-                _emit_session_error_event(agent, f"Auto-compression failed: {e}")
-    except Exception as e:
-        pass  # silently skip on any error
+
+        result = check_and_compress_if_needed(session, context_length, threshold=0.5, fraction=0.1)
+
+        if result.get("compressed"):
+            # Compression happened - emit turn stats event and system event with pre/post utilization
+            _emit_turn_stats_event(agent, None, context_length, 0.0)
+            _emit_system_event(
+                agent,
+                "agent.session.autocompress",
+                "Auto-Compression",
+                f"Context utilization was {result['pre_util']:.1%} of {context_length} max tokens. Auto-compressed to {result['post_util']:.1%}.",
+            )
+        elif result.get("error"):
+            # Compression was attempted but failed
+            _emit_session_error_event(agent, f"Auto-compression failed: {result['error']}")
+        # else: not compressed, no error - nothing to do
+    except Exception:
+        # silently skip on any error
+        pass
 
 def _emit_system_event(agent, topic: str, title: str, message: str) -> None:
     """Emit a system-notification event, or render it directly when no TUI is active.
@@ -73,6 +52,7 @@ def _emit_system_event(agent, topic: str, title: str, message: str) -> None:
     """
 
     from harness_core.event_types import SystemMessagePayload
+    from harness_core.terminal_io.display import print_system
 
     event = Event(
         topic=topic,
@@ -80,6 +60,11 @@ def _emit_system_event(agent, topic: str, title: str, message: str) -> None:
         payload=SystemMessagePayload(title=title, message=message),
     )
     event_bus.publish(event)
+
+    # Fallback for non-TUI contexts (classic REPL, tests) where no listener
+    # is subscribed to the event bus.  We call print_system directly to
+    # ensure the message is rendered.
+    print_system(title, message)
 
 
 def _emit_control_event(agent, topic: str) -> None:

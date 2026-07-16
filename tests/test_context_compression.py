@@ -377,12 +377,13 @@ class TestShouldAutoCompress:
         assert should_auto_compress(0.80, threshold=0.70)
 
     def test_invalid_values(self):
-        """Should raise ValueError for out-of-range values."""
-        with pytest.raises(ValueError, match="context_utilization must be between"):
-            should_auto_compress(1.5)
-        
-        with pytest.raises(ValueError, match="context_utilization must be between"):
+        """Should raise ValueError for negative values."""
+        with pytest.raises(ValueError, match="context_utilization must be non-negative"):
             should_auto_compress(-0.1)
+
+        # Values > 1.0 should not raise (utilization can exceed 100%)
+        assert should_auto_compress(1.5)
+        assert should_auto_compress(2.0)
 
 
 # ============================================================================

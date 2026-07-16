@@ -2,7 +2,7 @@
 
 from harness_core.tools.utils import _strip_ansi
 from harness_core.tools.tool_result import ToolResult
-
+import subprocess
 
 def execute_bash(command: str) -> ToolResult:
     """Execute bash command.
@@ -12,7 +12,7 @@ def execute_bash(command: str) -> ToolResult:
         or an error result for failures.
     """
     try:
-        import subprocess
+
         result = subprocess.run(
             command,
             shell=True,

@@ -7,7 +7,14 @@ from .session_utils import (
     create_session_filename,
     ensure_sessions_dir,
 )
-from .context_compression import compress_session, compress_messages, should_auto_compress, build_compressed_filepath
+from .context_compression import (
+    compress_session,
+    compress_messages,
+    should_auto_compress,
+    build_compressed_filepath,
+    check_and_compress_if_needed,
+    _count_approx_tokens,
+)
 
 __all__ = [
     "Session",
@@ -19,4 +26,6 @@ __all__ = [
     "compress_messages",
     "should_auto_compress",
     "build_compressed_filepath",
+    "check_and_compress_if_needed",
+    "_count_approx_tokens",
 ]
