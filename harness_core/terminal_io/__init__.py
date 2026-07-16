@@ -1,4 +1,4 @@
-"""Terminal I/O layer — Rich-based rendering with an optional textual TUI."""
+"""Terminal I/O layer — Rich-based rendering via the Textual TUI."""
 
 
 # ── Public surface (re-exported from submodules) ───────────────────────
@@ -17,7 +17,7 @@ from .display import (
 )
 
 # The textual TUI app + controller live in the ``tui`` submodule and are
-# imported lazily by callers that want to launch the full-screen interface.
+# imported by callers that want to launch the full-screen interface.
 from . import tui  # noqa: F401  (exposes terminal_io.tui.launch / get_tui)
 
 

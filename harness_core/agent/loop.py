@@ -4,8 +4,7 @@ import traceback
 
 from harness_core.agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from harness_core.agent.core import Agent
-from harness_core.terminal_io import prompt_user, display_user_message
-from harness_core.terminal_io.tui import get_tui
+from harness_core.terminal_io import prompt_user
 from harness_core.tools.dispatcher import summarize
 import json
 from harness_core.commands import COMMANDS
@@ -42,18 +41,14 @@ def _check_and_compress_if_needed(agent) -> None:
         pass
 
 def _emit_system_event(agent, topic: str, title: str, message: str) -> None:
-    """Emit a system-notification event, or render it directly when no TUI is active.
+    """Emit a system-notification event.
 
-    When the textual TUI is active the event is published on the registered app
-    loop (set via ``set_event_loop`` in ``TextualHarnessApp.on_mount``) so the
-    subscribed :class:`~harness_core.terminal_io.event_listener.HarnessEventListener`
-    can render it through the TUI output pane.  In the classic REPL (and other
-    non-TUI contexts) there is no event listener subscribed, so we fall back to
-    calling :func:`harness_core.terminal_io.display.print_system` directly.
+    The event is published on the event bus. The TUI's
+    :class:`~harness_core.terminal_io.event_listener.HarnessEventListener`
+    subscribes to these events to render system messages in the TUI output pane.
     """
 
     from harness_core.event_types import SystemMessagePayload
-    from harness_core.terminal_io.display import print_system
 
     event = Event(
         topic=topic,
@@ -62,27 +57,22 @@ def _emit_system_event(agent, topic: str, title: str, message: str) -> None:
     )
     event_bus.publish(event)
 
-    # Fallback for non-TUI contexts (classic REPL, tests) where no listener
-    # is subscribed to the event bus.  We call print_system directly to
-    # ensure the message is rendered.
-    print_system(title, message)
 
+def _emit_control_event(agent, topic: str, payload: dict | None = None) -> None:
+    """Emit a control event (e.g. spinner start/stop, agent turn start/stop).
 
-def _emit_control_event(agent, topic: str) -> None:
-    """Emit a control event (e.g. agent.turn.start/stop) on the TUI event loop.
-
-    These are lightweight control events without payload. They are only emitted
-    when the textual TUI is active; in non-TUI mode they are no-ops (the classic
-    REPL does not need spinner/turn control events).
+    These events are published on the event bus. The TUI's
+    :class:`~harness_core.terminal_io.event_listener.HarnessEventListener`
+    subscribes to them to show/hide spinners in the messages panel.
     """
-    agent_id = getattr(agent, 'id', 'unknown-agent')
+
+    from harness_core.event_types import ControlPayload
 
     event = Event(
         topic=topic,
-        sender=agent_id,
-        payload=None,
+        sender=agent.id,
+        payload=ControlPayload(action=payload or {}),
     )
-
     event_bus.publish(event)
 
 
@@ -222,14 +212,6 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
         user_input = prompt_user()
         turn_start = _time.time()
 
-        # Echo the user's own message into the output pane so it appears
-        # alongside the agent's response.  (The classic REPL renders the typed
-        # text via prompt_toolkit; the TUI does not, so we echo it here only
-        # when the TUI is NOT active — the TUI's prompt() now echoes the message itself.)
-        if user_input.strip():
-            if not get_tui().is_active():
-                display_user_message(user_input)
-
         # Check for slash commands first.
         if user_input.startswith('/'):
             parts = user_input[1:].split(' ', 1)
@@ -265,9 +247,7 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
 
         # Emit a control event to show a spinner at the bottom of the messages
         # panel while the agent is actively working through its handle_prompt
-        # loop (LLM calls, tool dispatches, etc.).  The event is a no-op when
-        # no textual TUI is active, so the classic REPL keeps its original
-        # behaviour.
+        # loop (LLM calls, tool dispatches, etc.).
         _emit_control_event(agent, "agent.turn.start")
         try:
             # Iterate defensively: agent.handle_prompt() is a generator, so the
@@ -321,7 +301,7 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
             )
         finally:
             # Emit a control event to hide the spinner at the bottom of the
-            # messages panel.  No-op when no textual TUI is active.
+            # messages panel.
             _emit_control_event(agent, "agent.turn.stop")
         
         # Auto-compression check: after each agent response to a user message,

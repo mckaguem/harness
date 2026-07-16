@@ -1,4 +1,3 @@
-prompt_toolkit
 pyyaml
 rich
 openai

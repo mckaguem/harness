@@ -270,3 +270,17 @@ class ToolErrorPayload(EventPayload):
     """
 
     message: str = ""
+
+
+@dataclass(kw_only=True)
+class ControlPayload(EventPayload):
+    """Event payload for control events (spinner start/stop, turn start/stop).
+
+    These lightweight events control UI elements like the spinner in the TUI
+    messages panel. They carry a generic action dictionary.
+
+    Attributes:
+        action: Dictionary describing the control action (e.g., {"type": "spinner.start"}).
+    """
+
+    action: dict = None

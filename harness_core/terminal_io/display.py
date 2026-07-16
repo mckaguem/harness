@@ -1,20 +1,13 @@
 """High-level display helpers using Rich for rendering.
 
 These helpers build Rich renderables (``Panel`` / ``Markdown`` / ``Syntax``)
-exactly as before.  When a textual TUI is active each renderable is routed to
-the app's output pane (:class:`~textual.containers.VerticalScroll` of
-:class:`~textual.widgets.Static` widgets, with tool calls as
-:class:`~textual.widgets.Collapsible` widgets) via
-:func:`terminal_io.tui.get_tui().write`; when no TUI is active it falls back
-to the module-level :data:`console` so that callers outside the TUI (and the
-existing test-suite, which patches this ``console``) keep working unchanged.
+and route them to the Textual TUI output pane via :func:`terminal_io.tui.get_tui().write`
+and controller methods like ``begin_tool_panel`` / ``complete_tool_panel``.
 """
 
 from __future__ import annotations
 
-from typing import Optional, Union
-
-from rich.console import Console, RenderableType
+from rich.console import RenderableType
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.syntax import Syntax
@@ -25,8 +18,6 @@ from .speed import format_speed, format_tool_elapsed
 from . import tui as _tui
 
 
-console = Console()
-
 # Module-level handle to the most recent tool-call panel so the corresponding
 # tool result can be appended to that same panel when a textual TUI is active.
 # This is the single source of truth for "where does the next result go".
@@ -34,23 +25,11 @@ _LAST_TOOL_PANEL: "dict | None" = None
 
 
 def _tui_write(renderable) -> None:
-    """Route a renderable to the active TUI, or fall back to ``console``.
-
-    When a textual TUI owns the screen the renderable is emitted into the
-    output pane (a VerticalScroll of Static widgets; tool calls become
-    Collapsible widgets).  Otherwise we print it on the
-    ``@patch("harness_core.terminal_io.display.console")`` tests valid.
-    """
+    """Route a renderable to the active TUI output pane."""
     controller = _tui.get_tui()
-    if controller.is_active():
-        # In the textual TUI the renderable is emitted into the output pane
-        # (a VerticalScroll of Static widgets).  Plain markup strings (e.g. the
-        # speed summary) are converted so tags like [dim] apply.
-        if isinstance(renderable, str):
-            renderable = Text.from_markup(renderable)
-        controller.write(renderable)
-    else:
-        console.print(renderable)
+    if isinstance(renderable, str):
+        renderable = Text.from_markup(renderable)
+    controller.write(renderable)
 
 
 def print_system(title: str, message: str) -> None:
@@ -109,11 +88,6 @@ def display_tool_call(
         return_renderable=True,
     )
 
-    # If the LLM accompanied this tool call with a text message, render it as a
-    # separate panel ABOVE the tool-call panel so users can see what the agent
-    # said before invoking tools.  In TUI mode the pre-content panel is pushed
-    # onto the output pane first (via write), and the tool-call collapsible
-    # follows.  In classic REPL mode it's written via _tui_write.
     # If the LLM accompanied this tool call with a text message (pre_tool_content)
     # and/or reasoning, render it as a separate panel ABOVE the tool-call panel so
     # users can see what the agent was thinking/saying before invoking tools.
@@ -127,15 +101,10 @@ def display_tool_call(
             title="Agent",
             border_style=_theme_border("info"),
         )
-        controller = _tui.get_tui()
-        if controller.is_active():
-            controller.write(pre_renderable)
-        else:
-            _tui_write(pre_renderable)
+        _tui_write(pre_renderable)
 
     # Remember this panel so a later display_tool_result() can append the
-    # result inside the same collapsible (textual TUI only).  In the classic
-    # (non-TUI) REPL each write is independent, so the handle is unused there.
+    # result inside the same collapsible.
     global _LAST_TOOL_PANEL
     _LAST_TOOL_PANEL = {
         "renderable": renderable,
@@ -144,14 +113,9 @@ def display_tool_call(
     }
 
     controller = _tui.get_tui()
-    if controller.is_active():
-        # In the textual TUI the call is mounted inside a Collapsible whose
-        # title matches this panel; the result is appended inline later via
-        # In the textual TUI the call is mounted inside a Collapsible whose
-        controller.begin_tool_panel(title, renderable)
-    else:
-        # Classic REPL: render the call as its own panel as before.
-        _tui_write(renderable)
+    # In the textual TUI the call is mounted inside a Collapsible whose
+    # title matches this panel; the result is appended inline later via
+    controller.begin_tool_panel(title, renderable)
 
 
 def _theme_border(theme: str) -> str:
@@ -222,21 +186,18 @@ def display_message_panel(text: str, theme: str = "status", title: str = "",
 
 def display_tool_result(
     func_name: str,
-    result: Optional[object] = None,
-    result_title: Optional[str] = None,
-    result_display_text: Optional[str] = None,
-    result_theme: Optional[str] = None,
-    result_type_tag: Optional[str] = None,
+    result: object | None = None,
+    result_title: str | None = None,
+    result_display_text: str | None = None,
+    result_theme: str | None = None,
+    result_type_tag: str | None = None,
 ) -> None:
     """Print a truncated tool-result panel with syntax highlighting.
 
-    When a textual TUI is active and the result corresponds to the most
-    recently displayed tool call (see :func:`display_tool_call`), the result is
-    appended *inside* that same panel rather than rendered as a fresh panel —
-    a horizontal rule separator is drawn between the call and the result.  When
-    no matching tool-call panel is tracked (classic REPL, or a result that is
-    not paired with an immediate call), the result is shown in its own panel as
-    before.
+    The result is appended inside the most recent tool-call panel
+    (via the TUI's complete_tool_panel method) rather than rendered as
+    a fresh standalone panel — a horizontal rule separator is drawn
+    between the call and the result.
 
     Args:
         func_name: Name of the tool that produced the result.
@@ -261,7 +222,7 @@ def display_tool_result(
             return_renderable=True,
         )
     else:
-        # Called with individual parameters (legacy/backward compatibility)
+        # Called with individual parameters
         title_override = result_title or func_name
         result_panel = display_message_panel(
             text=result_display_text or "",
@@ -272,14 +233,9 @@ def display_tool_result(
         )
 
     controller = _tui.get_tui()
-    if controller.is_active():
-        # In the textual TUI the result is appended inline into the most
-        # recent tool-call Collapsible (popped off the controller's stack),
-        # after a separator — not rendered as a fresh standalone panel.
-        controller.complete_tool_panel(result_panel)
-    else:
-        # Classic REPL: render the result as its own standalone panel.
-        _tui_write(result_panel)
+    # The result is appended inline into the most recent tool-call
+    # Collapsible (popped off the controller's stack), after a separator.
+    controller.complete_tool_panel(result_panel)
 
 
 def reset_pending_tool_panel() -> None:
@@ -300,12 +256,6 @@ def display_error(message: str) -> None:
 
 def display_user_message(message: str) -> None:
     """Echo the user's own typed message into the output pane.
-
-    In the classic (non-TUI) REPL, ``prompt_toolkit`` renders the typed text
-    directly onto the terminal, so the user sees what they entered.  In the
-    textual TUI the input lives in a separate ``TextArea`` that is cleared on
-    submit and never copied into the output pane — without this
-    echo, the user's messages never appear alongside the agent's responses.
 
     The message is wrapped in a :class:`~rich.text.Text` (not a markup string)
     so any ``[tag]``-style characters the user types are rendered verbatim

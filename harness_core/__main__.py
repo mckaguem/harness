@@ -2,13 +2,13 @@
 
 The harness can run in two modes:
 
-* **Interactive** (default) — launches the Textual TUI, falling back to the
-  classic Rich/prompt_toolkit REPL. This is the historical behaviour.
+* **Interactive** (default) — launches the Textual TUI. The TUI is required;
+  if it fails to start, the application exits with an error.
 * **Non-interactive** — when ``--message "<prompt>"`` (short ``-m``) is
   supplied, the harness loads configuration, discovers skills/agents, builds
   the main :class:`~agent.core.Agent`, runs that single prompt to completion
   via :meth:`Agent.handle_prompt`, prints the result, and exits cleanly. No
-  TUI or REPL is launched.
+  TUI is launched.
 """
 
 import getopt
@@ -255,20 +255,10 @@ def main(argv=None):
         sys.exit(run_non_interactive(agent, message))
 
     # ------------------------------------------------------------------
-    # Phase 7: Interactive mode (historical default).
-    # The textual TUI owns the screen and drives the classic user_loop on a
-    # worker thread; if the TUI cannot run for any reason it falls back to the
-    # classic Rich/prompt_toolkit REPL.
+    # Phase 7: Interactive mode — launch the Textual TUI.
     # ------------------------------------------------------------------
     from harness_core.terminal_io.tui import launch
-    try:
-        launch(agent)
-    except Exception as exc:  # pragma: no cover - defensive fallback path
-        sys.stderr.write(
-            f"\n[harness] WARNING: TUI failed to start ({exc}); using classic REPL.\n"
-        )
-        from harness_core.agent.loop import user_loop
-        user_loop(agent)
+    launch(agent)
 
 
 if __name__ == "__main__":

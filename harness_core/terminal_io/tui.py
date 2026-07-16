@@ -1,8 +1,7 @@
 """Textual-based terminal UI for the harness.
 
-This module provides an idiomatic :mod:`textual` application that replaces the
-plain Rich/``prompt_toolkit`` REPL for interactive sessions.  The design keeps
-the existing ``terminal_io`` public surface intact:
+This module provides an idiomatic :mod:`textual` application for interactive
+sessions.
 
 * :class:`TextualHarnessApp` is a small, composable app: a header, a
   :class:`~textual.containers.VerticalScroll` output pane (a scrollable column
@@ -11,14 +10,11 @@ the existing ``terminal_io`` public surface intact:
   inside them), a multi-line :class:`~textual.widgets.TextArea` input, and a
   footer.
 * :class:`HarnessTUI` is a controller singleton that owns the running app
-  instance and exposes thread-safe ``write``/``prompt`` operations used by the
-  classic ``display_*`` / ``prompt_user`` helpers.  When the TUI is *not*
-  active the controller is a no-op and those helpers fall back to their
-  original Rich / ``prompt_toolkit`` behaviour.
+  instance and exposes thread-safe ``write``/``prompt`` operations.
 
 The interactive loop itself still lives in :func:`agent.loop.user_loop`; the
 TUI simply runs it on a worker thread and routes all I/O through the
-controller, so the REPL logic and the existing tests are unchanged.
+controller.
 """
 
 from __future__ import annotations
@@ -26,18 +22,10 @@ from __future__ import annotations
 import asyncio
 import threading
 
-
-
-
+from rich.panel import Panel
 from textual.app import App
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Footer, Header, Collapsible, Static, TextArea
-
-import sys
-import time
-import traceback
-
-from rich.panel import Panel
 from rich.console import Group
 from rich.rule import Rule
 from rich.text import Text
@@ -168,7 +156,7 @@ class TaskListSidebar(Static):
 
 
 class HarnessTUI:
-    """Controller singleton bridging the classic I/O helpers and the TUI.
+    """Controller singleton for the Textual TUI.
 
     The app runs on the main thread while :func:`agent.loop.user_loop` runs on
     a worker thread.  Widget mutation must therefore only happen on the app
@@ -190,9 +178,7 @@ class HarnessTUI:
         self._tool_stack: list = []
         # True once bind() has been called in on_mount.  We treat the TUI as
         # active as soon as it is bound (even before ``app.is_running`` flips)
-        # so the very first loop output routes into the output pane rather than
-        # the classic console.  ``app.is_running`` is only set True *after*
-        # on_mount, so gating on it alone would briefly mis-route output.
+        # so the very first loop output routes into the output pane.
         self._bound = False
 
         # Pending prompt state.  The worker (loop) thread blocks on ``_pending``
@@ -214,8 +200,8 @@ class HarnessTUI:
         self._bound = True
 
     def is_active(self) -> bool:
-        """Return ``True`` when the TUI app is mounted and accepting I/O."""
-        return self._bound and self._app is not None and self._app.is_running
+        """Return ``True`` when the TUI app is bound and accepting I/O."""
+        return self._bound and self._app is not None
 
     def write(self, renderable) -> None:
         """Render ``renderable`` into the output pane (thread-safe).
@@ -226,10 +212,9 @@ class HarnessTUI:
         whose result can be appended *inside* them later, which a flat output
         log cannot do.
         """
-        if not self.is_active() or self._output is None:
+        if self._app is None or self._output is None:
             return
         app = self._app
-        assert app is not None
         output = self._output
 
         def _do() -> None:
@@ -253,21 +238,19 @@ class HarnessTUI:
     def begin_tool_panel(self, title: str, call_renderable) -> None:
         """Create a collapsed-by-default ``Collapsible`` for a tool call.
 
-        Called from :func:`terminal_io.display.display_tool_call` when the TUI is
-        active (in addition to, not instead of, the classic ``write``).  The
+        Called from :func:`terminal_io.display.display_tool_call`. The
         collapsible's title is the panel title (``"Tool: <name>"``), and its
         initial child is the tool-call renderable.  The widget is pushed onto
         ``_tool_stack`` so the matching :meth:`complete_tool_panel` (which is
         always emitted immediately after in the agent loop) can append the
         result into this same collapsible.
         """
-        if not self.is_active() or self._output is None:
+        if self._app is None or self._output is None:
             return
         app = self._app
-        assert app is not None
         output = self._output
         # `collapsed=True` so the call (and later the result) are invisible by
-        # default; the user can click the title to see it.  
+        # default; the user can click the title to see it.
         # The title bar is
         # itself a (CollapsibleTitle) Static, so the inner content Static gets
         # a stable id to disambiguate it later in complete_tool_panel().
@@ -297,17 +280,16 @@ class HarnessTUI:
     def complete_tool_panel(self, result_renderable) -> None:
         """Append a tool result into the most recent tool-call collapsible.
 
-        Called from :func:`terminal_io.display.display_tool_result` when the TUI
-        is active.  Pops the most recent collapsible off ``_tool_stack`` and
-        mounts the result renderable inside it, after a ``Rule`` separator, so
-        the result is inline (not a separate panel).  Matches the stack-pop in
+        Called from :func:`terminal_io.display.display_tool_result`.  Pops the
+        most recent collapsible off ``_tool_stack`` and mounts the result
+        renderable inside it, after a ``Rule`` separator, so the result is
+        inline (not a separate panel).  Matches the stack-pop in
         ``begin_tool_panel`` because the agent loop always emits a TOOL_RESULT
         immediately after its TOOL_CALL.
         """
-        if not self.is_active() or self._output is None:
+        if self._app is None or self._output is None:
             return
         app = self._app
-        assert app is not None
         output = self._output
         with self._lock:
             entry = self._tool_stack.pop() if self._tool_stack else None
@@ -370,22 +352,20 @@ class HarnessTUI:
     def update_sidebar_usage(self, text: str | None) -> None:
         """Push the most recent usage summary to the right sidebar.
 
-        No-op unless the TUI is active; otherwise delegates to the running
-        :class:`TextualHarnessApp`, which marshals the update onto the app
-        thread.
+        Delegates to the running :class:`TextualHarnessApp`, which marshals the
+        update onto the app thread.
         """
-        if not self.is_active() or self._app is None:
+        if self._app is None:
             return
         self._app.update_sidebar_usage(text)
 
     def update_sidebar_tasks_from_payload(self, payload: TaskListPayload) -> None:
         """Push a TaskListPayload snapshot to the right sidebar (thread-safe).
 
-        No-op unless the TUI is active; otherwise delegates to the running
-        :class:`TextualHarnessApp`, which marshals the update onto the app
-        thread.
+        Delegates to the running :class:`TextualHarnessApp`, which marshals the
+        update onto the app thread.
         """
-        if not self.is_active() or self._app is None:
+        if self._app is None:
             return
         self._app.update_sidebar_tasks_from_payload(payload)
 
@@ -400,10 +380,10 @@ class HarnessTUI:
         through ``app.call_from_thread``. If called from the app thread
         directly, runs synchronously.
         """
-        if not self.is_active() or self._spinner is None:
+        if self._spinner is None:
             return
+        assert self._app is not None
         app = self._app
-        assert app is not None
 
         def _do() -> None:
             assert self._spinner is not None
@@ -420,10 +400,10 @@ class HarnessTUI:
 
         Thread-safe (see :meth:`show_spinner`).
         """
-        if not self.is_active() or self._spinner is None:
+        if self._spinner is None:
             return
+        assert self._app is not None
         app = self._app
-        assert app is not None
 
         def _do() -> None:
             assert self._spinner is not None
@@ -440,18 +420,16 @@ class HarnessTUI:
     def prompt(self, prompt_str: str = "") -> str:
         """Block the calling (loop) thread until the user submits input.
 
-        Mirrors the ``prompt_toolkit`` contract: returns the assembled text
-        (newlines preserved).  An empty submission returns ``""`` (equivalent to
-        the classic Ctrl+D-on-blank behaviour).
+        Returns the assembled text (newlines preserved).  An empty submission
+        returns ``""``.
         """
         # Import here to avoid circular import with display.py
         from harness_core.terminal_io.display import display_user_message
-        
-        if not self.is_active() or self._app is None:
-            raise RuntimeError("HarnessTUI.prompt called while TUI is inactive")
+
+        if self._app is None:
+            raise RuntimeError("HarnessTUI.prompt called while TUI is not bound")
 
         app = self._app
-        assert app is not None
         event = threading.Event()
         with self._lock:
             self._pending = event
@@ -694,7 +672,7 @@ class TextualHarnessApp(App):
         self.call_after_refresh(self._start_loop)
 
     def _start_loop(self) -> None:
-        """Begin the classic user loop on a worker thread (app is live now)."""
+        """Begin the user loop on a worker thread (app is live now)."""
         if self._agent is None:
             return
 
@@ -740,7 +718,7 @@ class TextualHarnessApp(App):
 
 
 def launch(agent, on_exit=None) -> None:
-    """Launch the textual TUI and drive ``user_loop`` on a worker thread.
+    """Launch the Textual TUI and drive ``user_loop`` on a worker thread.
 
     Args:
         agent: An initialized :class:`~agent.core.Agent` instance.
