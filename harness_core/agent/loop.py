@@ -1,32 +1,15 @@
 """Interactive user loop for the agent harness."""
-
-import asyncio
-import logging
 import time as _time
 import traceback
-from rich.console import Console
-
-from typing import TYPE_CHECKING
-
-# Module-level logger for debug logging
-logger = logging.getLogger(__name__)
 
 from harness_core.agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
-
-if TYPE_CHECKING:
-    from harness_core.agent.core import Agent
-from harness_core.terminal_io import (
-    print_system, prompt_user,
-    display_tool_call, display_tool_result, display_error,
-    display_agent_response, display_user_message, display_turn_stats,
-    format_speed,
-)
-from harness_core.terminal_io.tui import get_tui
+from harness_core.agent.core import Agent
+from harness_core.terminal_io import prompt_user, display_user_message
 from harness_core.tools.dispatcher import summarize
 import json
 from harness_core.commands import COMMANDS
 from harness_core.skills.interceptor import intercept_message, InterceptorKind
-from harness_core.eventbus import Event, event_bus, get_event_loop
+from harness_core.eventbus import Event, event_bus
 
 def _count_approx_tokens(messages: list) -> int:
     """Approximate token count from a message list using character estimation.
@@ -65,14 +48,8 @@ def _check_and_compress_if_needed(agent) -> None:
                 if session is not None:
                     compress_session(session, fraction=0.1)
                     post_util = _count_approx_tokens(session.messages) / context_length if context_length > 0 else 0
-                    # Reflect the compressed context size in the usage stats
-                    # sidebar (previously it showed the stale pre-compression size).
-                    from harness_core.terminal_io import speed as _speed
-                    from harness_core.terminal_io.tui import get_tui as _get_tui
-                    _compressed_usage = {"usage": {"prompt_tokens": _count_approx_tokens(session.messages)}}
-                    _usage_text = _speed.format_speed(_compressed_usage, context_length)
-                    if _usage_text:
-                        _get_tui().update_sidebar_usage(_usage_text)
+                    # Emit turn stats event to reflect compressed context size in TUI
+                    _emit_turn_stats_event(agent, None, context_length, 0.0)
                     _emit_system_event(
                         agent,
                         "agent.session.autocompress",
@@ -94,17 +71,7 @@ def _emit_system_event(agent, topic: str, title: str, message: str) -> None:
     non-TUI contexts) there is no event listener subscribed, so we fall back to
     calling :func:`harness_core.terminal_io.display.print_system` directly.
     """
-    from harness_core.terminal_io.tui import get_tui
 
-    tui = get_tui()
-    tui_active = getattr(tui, "is_active", None)
-    if not (callable(tui_active) and tui_active()):
-        # Non-TUI mode (classic REPL, tests, non-interactive): render directly.
-        print_system(title, message)
-        return
-
-    import asyncio
-    from harness_core.eventbus import Event, event_bus, get_event_loop
     from harness_core.event_types import SystemMessagePayload
 
     event = Event(
@@ -112,16 +79,7 @@ def _emit_system_event(agent, topic: str, title: str, message: str) -> None:
         sender=agent.id,
         payload=SystemMessagePayload(title=title, message=message),
     )
-    loop = get_event_loop()
-    if loop is not None and loop.is_running():
-        try:
-            event_bus.publish(event)
-        except RuntimeError as exc:
-            # If the loop is closed or not running, fall back to direct render
-            print_system(title, message)
-    else:
-        # No app loop available — render directly (best-effort).
-        print_system(title, message)
+    event_bus.publish(event)
 
 
 def _emit_control_event(agent, topic: str) -> None:
@@ -132,33 +90,15 @@ def _emit_control_event(agent, topic: str) -> None:
     REPL does not need spinner/turn control events).
     """
     agent_id = getattr(agent, 'id', 'unknown-agent')
-    from harness_core.terminal_io.tui import get_tui
-
-    tui = get_tui()
-    tui_active = getattr(tui, "is_active", None)
-    if not (callable(tui_active) and tui_active()):
-        # Non-TUI mode: control events are no-ops.
-        return
-
-    import asyncio
-    from harness_core.eventbus import Event, event_bus, get_event_loop
 
     event = Event(
         topic=topic,
         sender=agent_id,
         payload=None,
     )
-    loop = get_event_loop()
-    if loop is not None and loop.is_running():
-        try:
-            event_bus.publish(event)
-        except RuntimeError:
-            # If the loop is closed or not running, silently ignore
-            # (control events are best-effort in non-TUI mode anyway)
-            pass
-    else:
-        # No app loop available — no-op for control events.
-        pass
+
+    event_bus.publish(event)
+
 
 
 def _emit_tool_error_event(agent, description: str) -> None:
@@ -167,7 +107,6 @@ def _emit_tool_error_event(agent, description: str) -> None:
     Handles both high-level agent turn failures and handle_prompt ERROR outputs.
     The TUI listener handles display + panel reset on receipt.
     """
-    from harness_core.eventbus import Event, event_bus
     from harness_core.event_types import ToolErrorPayload
 
     event = Event(
@@ -180,7 +119,6 @@ def _emit_tool_error_event(agent, description: str) -> None:
 
 def _emit_session_error_event(agent, description: str) -> None:
     """Emit an 'agent.session.error' event (e.g. auto-compression failures)."""
-    from harness_core.eventbus import Event, event_bus
     from harness_core.event_types import SessionErrorPayload
 
     event = Event(
@@ -193,7 +131,6 @@ def _emit_session_error_event(agent, description: str) -> None:
 
 def _emit_agent_response_event(agent, content: str | None, ollama_response: dict | None, context_length: int, reasoning: str | None = None) -> None:
     """Emit an 'agent.turn.response' event so terminal_io can render it via display_agent_response."""
-    from harness_core.eventbus import Event, event_bus
     from harness_core.event_types import AgentResponsePayload
 
     event = Event(
@@ -211,7 +148,6 @@ def _emit_agent_response_event(agent, content: str | None, ollama_response: dict
 
 def _emit_turn_stats_event(agent, ollama_response: dict | None, context_length: int, elapsed_seconds: float) -> None:
     """Emit an 'agent.turn.stats' event so terminal_io can render it via display_turn_stats."""
-    from harness_core.eventbus import Event, event_bus
     from harness_core.event_types import TurnStatsPayload
 
     event = Event(
@@ -231,7 +167,6 @@ def _emit_tool_call_event(
     pre_content: str = "", reasoning: str | None = None,
 ) -> None:
     """Emit an 'agent.tool.call' event for in-progress tool calls."""
-    from harness_core.eventbus import Event, event_bus
     from harness_core.event_types import ToolCallPayload
 
     event = Event(
@@ -254,7 +189,6 @@ def _emit_tool_result_event(
     result_type_tag: str = "text",
 ) -> None:
     """Emit an 'agent.tool.result' event for tool results."""
-    from harness_core.eventbus import Event, event_bus
     from harness_core.event_types import ToolResultPayload
 
     event = Event(
@@ -395,7 +329,7 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
             _emit_tool_error_event(
                 agent,
                 f"Agent turn failed: {exc}\n"
-                + (traceback.format_exc() if Console().is_terminal else "")
+                + traceback.format_exc()
             )
         finally:
             # Emit a control event to hide the spinner at the bottom of the
