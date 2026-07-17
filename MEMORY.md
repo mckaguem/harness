@@ -11,3 +11,11 @@
   - `harness_core_tools_initialize_task_list_initialize_task_list.md` — fixed signature block
   - `harness_core_tools_update_task_status_update_task_status.md` — fixed signature block
 - Commit: `059f8a1` ("chore: remove unused tool_context module"). Not yet pushed.
+
+This is a test to see if multiple tasks can be marked as in_progress at the same time.
+
+This is a test to see if multiple tasks can be marked as in_progress at the same time.
+
+This is a test to see if multiple tasks can be marked as in_progress at the same time.
+
+This is a test to see if multiple tasks can be marked as in_progress at the same time.

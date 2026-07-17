@@ -49,3 +49,31 @@ class TestUpdateTaskStatus:
         # Invalid task id → no error, just returns the existing list.
         assert agent.task_list.tasks[0].status == "pending"
 
+    def test_second_in_progress_returns_error(self):
+        """Setting two tasks to in_progress simultaneously returns an error."""
+        agent = _FakeAgent(3)
+
+        # First task becomes in_progress - success
+        result1 = update_task_status(agent, 1, "in_progress")
+        assert isinstance(result1, ToolResult)
+        assert agent.task_list.tasks[0].status == "in_progress"
+
+        # Second task cannot become in_progress - error
+        result2 = update_task_status(agent, 2, "in_progress")
+        assert isinstance(result2, ToolResult)
+        assert result2.theme == "error"
+        assert "already in_progress" in result2.llm_text.lower() or "cannot set" in result2.llm_text.lower()
+
+    def test_in_progress_error_lists_conflicting_tasks(self):
+        """Error message includes the IDs of conflicting in_progress tasks."""
+        agent = _FakeAgent(3)
+
+        update_task_status(agent, 1, "in_progress")
+        update_task_status(agent, 2, "completed")  # Different status
+
+        result = update_task_status(agent, 3, "in_progress")
+        assert isinstance(result, ToolResult)
+        assert result.theme == "error"
+        # Should mention task 1 as conflicting (task 2 is completed, not in_progress)
+        assert "1" in result.llm_text
+

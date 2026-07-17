@@ -34,8 +34,26 @@ def update_task_status(agent: Any, task_id: int, status: str) -> ToolResult:
 
     Raises:
         ValueError: If the provided status is not in VALID_STATUSES.
+
+    Note:
+        Only one task may be ``in_progress`` at a time. Attempting to set another
+        task to ``in_progress`` while one already has that status will return an
+        error instead of updating the task.
     """
     try:
+        # Prevent multiple tasks from being marked in_progress simultaneously
+        if status == "in_progress":
+            other_in_progress = [
+                t.id for t in agent.task_list.tasks 
+                if t.status == "in_progress" and t.id != task_id
+            ]
+            if other_in_progress:
+                return make_error_result(
+                    f"Cannot set task {task_id} to 'in_progress': "
+                    f"tasks {', '.join(map(str, other_in_progress))} are already in_progress. "
+                    f"Complete or fail the other tasks first."
+                )
+
         success, next_info = agent.task_list.update_status(task_id, status)
 
         # If all tasks are now done, clear the task list so injection stops.

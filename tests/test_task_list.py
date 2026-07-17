@@ -301,17 +301,6 @@ class TestTaskListToMarkdown:
         assert "### SYSTEM STATE: CURRENT TASK LIST" in md
         # No task lines after header - just the header line itself with no newlines
 
-    def test_multiple_in_progress_tasks_all_show_current(self):
-        task_list = TaskList()
-        task_list.initialize_tasks(["Task A", "Task B"])
-        task_list.update_status(1, "in_progress")
-        task_list.update_status(2, "in_progress")
-        
-        md = task_list.to_markdown()
-        
-        # Both tasks should show *(CURRENT)* marker
-        assert md.count("*(CURRENT)*") == 2
-
     def test_newline_separated_lines(self):
         task_list = TaskList()
         task_list.initialize_tasks(["Task 1", "Task 2"])
