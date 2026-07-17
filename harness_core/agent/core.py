@@ -13,10 +13,10 @@ from harness_core.model.provider import Provider
 from harness_core.agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from harness_core.agent.context import CURRENT_AGENT
 from harness_core.session.session import Session
-from harness_core.eventbus import generate_unique_id
+from harness_core.eventbus import generate_unique_id, EventPublisher, event_bus
 
 
-class Agent:
+class Agent(EventPublisher):
     """Owns the conversation state and handles a single user turn."""
     
     def __init__(self,
@@ -37,6 +37,9 @@ class Agent:
         """
         self._agent_type = agent_type
         self._id = f"Agent.{id}"
+
+        # Initialize the event publisher base so the agent can publish events.
+        super().__init__(event_bus, self._id)
 
         self._provider: Optional[Provider] = None
         if hasattr(agent_type, 'provider_config') and agent_type.provider_config is not None:

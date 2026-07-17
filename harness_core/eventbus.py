@@ -98,6 +98,41 @@ class Event:
     payload: Any
 
 
+class EventPublisher:
+    """Mixin/base that lets an object publish events onto the event bus.
+
+    Wraps the publisher's ``id`` as the sender so subscribers can filter
+    events by origin. Concrete publishers (e.g. :class:`~harness_core.agent.core.Agent`)
+    typically subclass this and call ``super().__init__(event_bus, self.id)``.
+    """
+
+    def __init__(self, eventBus: "EventBus", id: str) -> None:
+        """Initialize the publisher.
+
+        Args:
+            eventBus: The event bus to publish onto.
+            id: Identifier used as the event ``sender`` for all published events.
+        """
+        self.eventBus = eventBus
+        self._id = id
+
+    @property
+    def id(self) -> str:
+        """Identifier used as the event ``sender`` for published events."""
+        return self._id
+
+    def publish(self, topic: str, payload: "EventPayload") -> None:
+        """Publish an event to the bus with this publisher as the sender.
+
+        Args:
+            topic: The event topic/name (e.g. ``'agent.status.ready'``).
+            payload: A typed :class:`EventPayload` describing the event data.
+        """
+        from harness_core.eventbus import event_bus
+        event = Event(topic=topic, sender=self.id, payload=payload)
+        self.eventBus.publish(event)
+
+
 class EventBus:
     """Mailbox-pattern event bus for asynchronous agent communication.
 
