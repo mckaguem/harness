@@ -306,9 +306,17 @@ def _normalize_response(response) -> dict:
         "total_tokens": usage.total_tokens if usage else 0,
     }
 
+    # Top-level convenience keys consumed by Agent._chat() and downstream
+    # display/loop code so they don't have to re-derive them.
+    reasoning_val = message.get("reasoning") or None
+    pre_tool_content = content_text if (tool_calls and content_text) else ""
+
     return {
         "choices": [{"message": message}],
         "usage": usage_dict,
+        "model": None,  # placeholder; Agent injects self._agent_type.model_name
+        "reasoning": reasoning_val,
+        "pre_tool_content": pre_tool_content or "",
     }
 
 
@@ -323,6 +331,26 @@ class OpenAIProvider(Provider):
         """
         self.client = client
 
+    def _build_request_kwargs(self, messages: list[Dict], model: str, tools):
+        """Build the kwargs dict for ``client.responses.create(**kwargs)``.
+
+        Shared by both sync and async :meth:`chat_completion` paths so that
+        changes to the request shape need only be made in one place.
+        """
+        instructions, input_items = _to_responses_input(messages)
+        request_kwargs: dict[str, Any] = {
+            "model": model,
+            "input": input_items,
+            "max_output_tokens": 16384,
+        }
+        if instructions is not None:
+            request_kwargs["instructions"] = instructions
+        if tools is not None:
+            # Responses API ``tools`` are FLATTENED (name/parameters at top
+            # level), not nested under ``function`` like Chat Completions.
+            request_kwargs["tools"] = _to_responses_tools(tools)
+        return request_kwargs
+
     def chat_completion(self, messages: list[Dict], model: str, **kwargs) -> Dict:
         """Get chat completion from OpenAI via the Responses API.
 
@@ -333,29 +361,11 @@ class OpenAIProvider(Provider):
                 ``tools`` is ever passed, and may be None).
 
         Returns:
-            Normalized completion response with ``choices`` and ``usage``.
+            Normalized completion response with ``choices``, ``usage`` and
+            convenience keys (``reasoning``, ``pre_tool_content``).
         """
         tools = kwargs.get('tools')
-        max_output_tokens = kwargs.pop('max_tokens', 16384) if 'max_tokens' in kwargs else 16384
-
-        # The Responses API does NOT accept the chat-completions message
-        # schema directly (it rejects role:"tool" items and assistant
-        # tool_calls). Normalise the accumulated conversation into the
-        # Responses input shape (system -> instructions, tool results ->
-        # function_call_output, assistant tool_calls -> function_call).
-        instructions, input_items = _to_responses_input(messages)
-
-        request_kwargs = {
-            "model": model,
-            "input": input_items,
-            "max_output_tokens": max_output_tokens,
-        }
-        if instructions is not None:
-            request_kwargs["instructions"] = instructions
-        if tools is not None:
-            # Responses API `tools` are FLATTENED (name/parameters at top
-            # level), not nested under `function` like Chat Completions.
-            request_kwargs["tools"] = _to_responses_tools(tools)
+        request_kwargs = self._build_request_kwargs(messages, model, tools)
 
         try:
             response = self.client.responses.create(**request_kwargs)
@@ -364,28 +374,13 @@ class OpenAIProvider(Provider):
 
         return _normalize_response(response)
 
-    async def chat_completion_async(self, messages: list[Dict], model: str, **kwargs) -> Dict:
+    async def chat_completion_async(self, messages: list[Dict], model: str, **kwargs):
         """Get chat completion from OpenAI via the Responses API (async).
 
         Mirrors :meth:`chat_completion` but awaits the SDK call.
         """
         tools = kwargs.get('tools')
-        max_output_tokens = kwargs.pop('max_tokens', 16384) if 'max_tokens' in kwargs else 16384
-
-        # Mirror chat_completion: normalise the chat schema into the
-        # Responses input shape (system -> instructions, tool results ->
-        # function_call_output, assistant tool_calls -> function_call).
-        instructions, input_items = _to_responses_input(messages)
-        request_kwargs = {
-            "model": model,
-            "input": input_items,
-            "max_output_tokens": max_output_tokens,
-        }
-        if instructions is not None:
-            request_kwargs["instructions"] = instructions
-        if tools is not None:
-            # Responses API `tools` are FLATTENED (see _to_responses_tools).
-            request_kwargs["tools"] = _to_responses_tools(tools)
+        request_kwargs = self._build_request_kwargs(messages, model, tools)
 
         try:
             response = await self.client.responses.create(**request_kwargs)

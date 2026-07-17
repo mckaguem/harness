@@ -57,6 +57,9 @@ class TestProviderNormalization:
         assert result["choices"][0]["message"]["content"] == "Hello!"
         assert "tool_calls" not in result["choices"][0]["message"]
         assert result["usage"] == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        # New top-level convenience keys added by the enriched normalization.
+        assert result["reasoning"] is None  # no reasoning item present
+        assert result["pre_tool_content"] == ""  # no tool calls so nothing to split off
 
     def test_function_call_output_normalization(self):
         client = MagicMock()
@@ -82,6 +85,8 @@ class TestProviderNormalization:
             }
         ]
         assert result["usage"] == {"prompt_tokens": 20, "completion_tokens": 8, "total_tokens": 28}
+        # pre_tool_content captures the text that came before tool_calls in a mixed response.
+        assert result["pre_tool_content"] == "Sure"
 
     def test_error_wrapping(self):
         client = MagicMock()
@@ -115,6 +120,8 @@ class TestProviderNormalization:
         assert message["content"] == "The answer is 42."
         assert message["reasoning"] == "Let me think. The answer is 42."
         assert result["usage"] == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        # Top-level reasoning mirror added by the enriched normalization.
+        assert result["reasoning"] == "Let me think. The answer is 42."
 
     def test_reasoning_item_falls_back_to_content(self):
         client = MagicMock()
@@ -132,6 +139,8 @@ class TestProviderNormalization:
         message = result["choices"][0]["message"]
         assert message["reasoning"] == "inner thought"
         assert message["content"] == "done"
+        # Top-level reasoning mirror added by the enriched normalization.
+        assert result["reasoning"] == "inner thought"
 
     def test_no_reasoning_yields_none(self):
         client = MagicMock()

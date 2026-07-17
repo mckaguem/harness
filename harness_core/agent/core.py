@@ -135,8 +135,8 @@ class Agent(EventPublisher):
     def _chat(self, messages: list[dict]) -> dict:
         """Send *messages* to the provider and return a normalized response dict.
 
-        Tracks timing data alongside token counts for performance metrics. Returns
-        both the message content and usage statistics in a single dict.
+        Timing data (duration_ms) is injected by this method. All other normalization
+        is handled inside :meth:`Provider._normalize_response`.
         """
         import time
         start_time = time.time()
@@ -145,7 +145,7 @@ class Agent(EventPublisher):
             raise RuntimeError("No provider configured for this agent.")
 
         try:
-            raw_response = self._provider.chat_completion(
+            response = self._provider.chat_completion(
                 messages=messages,
                 model=self._agent_type.provider_model_name,
                 tools=self._tools if self._tools else None,
@@ -153,66 +153,16 @@ class Agent(EventPublisher):
         except Exception as exc:
             raise RuntimeError(f"Provider chat request failed: {exc}") from exc
 
-        # Normalize the provider response to match OpenAI format.
-        choices = raw_response.get("choices", [])
-        usage_data = raw_response.get("usage") or {}
-
-        if not choices:
-            return {
-                "message": {"role": "assistant", "content": ""},
-                "model": self._agent_type.model_name,
-                "usage": usage_data,
-            }
-
-        choice = choices[0]
-        message_obj = choice.get("message", {})
-        
-        # Build a dict that contains both message content and usage data.
-        reasoning = message_obj.get("reasoning")
-        resp_dict: dict = {
-            "message": {
-                "role": message_obj.get("role") or "assistant",
-                "content": message_obj.get("content"),
-                "reasoning": reasoning,
-            },
-            "model": self._agent_type.model_name,
-            "usage": {
-                "prompt_tokens": usage_data.get("prompt_tokens"),
-                "completion_tokens": usage_data.get("completion_tokens"),
-                "total_tokens": usage_data.get("total_tokens"),
-            },
-        }
-        # Top-level reasoning mirror so downstream display/loop code can read it
-        # without digging into resp_dict["message"].
-        resp_dict["reasoning"] = reasoning
-
-        # Track timing for performance metrics.
+        # Inject agent-specific display name and timing. The provider already returns
+        # the normalized shape with choices/usage/message/reasoning/pre_tool_content.
+        response["model"] = self._agent_type.model_name
         end_time = time.time()
-        resp_dict["duration_ms"] = (end_time - start_time) * 1000
+        response["duration_ms"] = (end_time - start_time) * 1000
 
-        if message_obj.get("tool_calls"):
-            resp_dict["message"]["tool_calls"] = [
-                {
-                    "id": tc.get("id"),
-                    "type": tc.get("type", "function"),
-                    "function": {
-                        "name": tc["function"].get("name"),
-                        "arguments": tc["function"].get("arguments"),
-                    },
-                }
-                for tc in message_obj["tool_calls"]
-            ]
+        return response
 
-        # Capture any accompanying text message from the LLM alongside the
-        # tool calls. This "pre_tool_content" is surfaced in the TUI/REPL as a
-        # text panel displayed before each TOOL_CALL renderable, so users can see
-        # what the agent was saying before it invoked tools.
-        resp_dict["pre_tool_content"] = message_obj.get("content") or ""
-
-        return resp_dict
-    
     # -- public API ----------------------------------------------------------
-    
+
     def handle_prompt(self, user_input: str) -> Generator[tuple[str, Any, Any, Optional[dict[str, Any]]], None, None]:
         """Process a single user prompt to completion.
         
@@ -249,10 +199,11 @@ class Agent(EventPublisher):
 
             messages_to_send = self._session.get_messages()
             response = self._chat(messages_to_send)
-            
-            message = response["message"]
+
+            # Provider-normalized shape: ``response["choices"][0]["message"]``.
+            message = response["choices"][0]["message"]
             self._session.add_assistant_message(message)
-            
+
             if not message.get("tool_calls"):
                 if self._task_list and self._task_list.has_incomplete_tasks():
                     block_content = """
