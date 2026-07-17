@@ -27,7 +27,7 @@ Raises:
 
 ## Signature
 ```python
-initialize_task_list(tasks: list[str], ctx: ToolContext | None) -> ToolResult
+initialize_task_list(agent: Any, tasks: list[str]) -> ToolResult
 ```
 
 ## References

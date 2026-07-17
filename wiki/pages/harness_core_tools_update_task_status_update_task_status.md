@@ -31,7 +31,7 @@ Raises:
 
 ## Signature
 ```python
-update_task_status(task_id: int, status: str, ctx: ToolContext | None) -> ToolResult
+update_task_status(agent: Any, task_id: int, status: str) -> ToolResult
 ```
 
 ## References
