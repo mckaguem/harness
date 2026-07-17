@@ -95,7 +95,7 @@ class TestRunSubagentParallel:
             sub.handle_prompt.return_value = _fake_subagent_yield("task A")
             MockAgent.from_agent_name.return_value = sub
 
-            result = run_subagent("analyst", "task A")
+            result = run_subagent(MagicMock(), "analyst", "task A")
 
         assert result.llm_text == "result-for:task A"
         MockAgent.from_agent_name.assert_called_once()
@@ -108,7 +108,7 @@ class TestRunSubagentParallel:
         order = []
         calls = []
 
-        def _fake_run_one(sub_agent, task):
+        def _fake_run_one(_agent, sub_agent, task):
             order.append(("start", sub_agent))
             time.sleep(0.15)  # simulate work
             order.append(("end", sub_agent))
@@ -132,7 +132,7 @@ class TestRunSubagentParallel:
         """Each worker gets its own CURRENT_AGENT copy (no cross-clobber)."""
         seen = {}
 
-        def _fake_run_one(sub_agent, task):
+        def _fake_run_one(_agent, sub_agent, task):
             from harness_core.agent.context import CURRENT_AGENT
             seen[sub_agent] = CURRENT_AGENT.get()
             return sub_agent
@@ -170,26 +170,24 @@ class TestHandlePromptParallel:
         # Two TOOL_CALL yields (both run_subagent), then two TOOL_RESULT yields.
         assert kinds.count(TOOL_CALL) == 2
         assert kinds.count(TOOL_RESULT) == 2
-        # Both results were dispatched to the worker.
+        # Both results were dispatched to the worker (None is passed as agent).
         dispatched = [c.args for c in mock_run_one.call_args_list]
-        assert dispatched == [("analyst", "A"), ("writer", "B")]
+        assert dispatched == [(None, "analyst", "A"), (None, "writer", "B")]
         # The provider's second turn had the two tool results appended (so a
         # final RESPONSE was produced).
         assert RESPONSE in kinds
 
     def test_single_run_subagent_uses_sequential_path(self):
-        """A single run_subagent call goes through the normal executor path."""
+        """A single run_subagent call still yields TOOL_RESULT + final RESPONSE."""
         tool_calls = [
             {"name": "run_subagent", "arguments": '{"sub_agent": "analyst", "task": "A"}'},
         ]
         agent = _make_agent_with_tool_calls(tool_calls)
 
-        with patch("harness_core.tools.run_subagent.run_subagents_parallel") as mock_parallel:
-            with patch("harness_core.tools.dispatcher.dispatch", return_value=ToolResult(llm_text="FINDINGS_A", display_text="")):
-                events = list(agent.handle_prompt("do one"))
+        with patch("harness_core.tools.run_subagent._run_one") as mock_run_one:
+            mock_run_one.return_value = ToolResult(llm_text="FINDINGS_A", display_text="")
+            events = list(agent.handle_prompt("do one"))
 
-        # Parallel helper must NOT be invoked for a single call.
-        mock_parallel.assert_not_called()
         kinds = [e[0] for e in events]
         assert kinds.count(TOOL_RESULT) == 1
         assert RESPONSE in kinds

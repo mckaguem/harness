@@ -5,7 +5,6 @@ import pytest
 from harness_core.agent.task_list import TaskList
 from harness_core.tools.tool_result import ToolResult
 from harness_core.tools.initialize_task_list import initialize_task_list
-from harness_core.agent.context import CURRENT_AGENT
 
 
 class _FakeAgent:
@@ -14,16 +13,11 @@ class _FakeAgent:
 
 
 class TestInitializeTaskList:
-    """initialize_task_list via CURRENT_AGENT context."""
+    """initialize_task_list via explicit agent parameter."""
 
-    def test_valid_list_returns_markdown_result(self, monkeypatch):
+    def test_valid_list_returns_markdown_result(self):
         agent = _FakeAgent()
-        monkeypatch.setattr(
-            "harness_core.tools.initialize_task_list.CURRENT_AGENT",
-            type("_Ctx", (), {"get": staticmethod(lambda: agent)})(),
-        )
-
-        result = initialize_task_list(["a", "b", "c"])
+        result = initialize_task_list(agent, ["a", "b", "c"])
 
         assert isinstance(result, ToolResult)
         assert result.type_tag == "markdown"
@@ -31,29 +25,19 @@ class TestInitializeTaskList:
         assert len(agent.task_list.tasks) == 3
         assert [t.description for t in agent.task_list.tasks] == ["a", "b", "c"]
 
-    def test_empty_list_returns_error(self, monkeypatch):
+    def test_empty_list_returns_error(self):
         agent = _FakeAgent()
-        monkeypatch.setattr(
-            "harness_core.tools.initialize_task_list.CURRENT_AGENT",
-            type("_Ctx", (), {"get": staticmethod(lambda: agent)})(),
-        )
-
-        result = initialize_task_list([])
+        result = initialize_task_list(agent, [])
 
         # Returns an error ToolResult (theme="error"), not a success.
         assert isinstance(result, ToolResult)
         assert result.theme == "error"
         assert len(agent.task_list.tasks) == 0
 
-    def test_no_agent_context_returns_error(self, monkeypatch):
-        monkeypatch.setattr(
-            "harness_core.tools.initialize_task_list.CURRENT_AGENT",
-            type("_Ctx", (), {"get": staticmethod(lambda: None)})(),
-        )
-        # Also clear any ambient contextvar binding.
-        CURRENT_AGENT.set(None)
+    def test_no_agent_context_returns_error(self):
+        # Pass None agent to simulate no-agent case
+        result = initialize_task_list(None, ["x"])
 
-        result = initialize_task_list(["x"])
-
+        # Should fail because None has no task_list attribute
         assert isinstance(result, ToolResult)
         assert result.theme == "error"

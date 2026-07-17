@@ -3,41 +3,43 @@
 import inspect
 from typing import Any, Callable
 
-from harness_core.agent.tool_context import current_tool_context
 from harness_core.tools.tool_result import ToolResult
 import harness_core.tools as tools_module
 
 
-def _accepts_ctx(fn: Callable[..., Any]) -> bool:
-    """Return True if *fn* declares a ``ctx`` parameter in its signature."""
+def _accepts_agent(fn: Callable[..., Any]) -> bool:
+    """Return True if *fn* declares an ``agent`` parameter in its signature."""
     try:
         params = inspect.signature(fn).parameters
     except (TypeError, ValueError):
         return False
-    return "ctx" in params
+    return "agent" in params
 
 
-def dispatch(func_name: str, args: dict) -> ToolResult | tuple:
+def dispatch(func_name: str, args: dict, agent: Any) -> ToolResult | tuple:
     """Call the tool implementation matching *func_name* with keyword *args*.
 
-    Tools that need the calling agent declare a ``ctx`` parameter; the dispatcher
-    builds a :class:`~agent.tool_context.ToolContext` from the currently active
-    agent (``CURRENT_AGENT``) and passes it automatically. Callers may also pass
-    their own ``ctx`` via *args* to override the active agent. Because the
-    context is injected based on the tool's own signature, tools that don't need
-    it (e.g. ``submit_results``) keep their original signatures untouched — no
-    special case required.
+    Tools that need the calling agent declare an ``agent`` parameter; the dispatcher
+    passes it automatically. Because the agent is injected based on the tool's own
+    signature, tools that don't need it (e.g. ``submit_results``, ``execute_bash``)
+    keep their original signatures untouched — no special case required.
 
-    Returns whatever the underlying tool function returns — typically a
-    :class:`ToolResult`. Raises ``KeyError`` if *func_name* isn't registered;
-    callers should treat that as "unknown tool".
+    Args:
+        func_name: The registered tool name to dispatch.
+        args: Keyword arguments forwarded to the tool function.
+        agent: The calling Agent instance (passed only if the tool declares it).
+
+    Returns:
+        Whatever the underlying tool function returns — typically a :class:`ToolResult`.
+        Raises ``KeyError`` if *func_name* isn't registered; callers should treat
+        that as "unknown tool".
     """
     mod = tools_module.DISPATCH_REGISTRY[func_name]  # raises KeyError for unknown tools
     fn = getattr(mod, func_name)
 
-    # Inject the execution context only for tools that opt in via a `ctx` param.
-    if "ctx" not in args and _accepts_ctx(fn):
-        args = {**args, "ctx": current_tool_context()}
+    # Inject the agent only for tools that opt in via an `agent` param.
+    if "agent" not in args and _accepts_agent(fn):
+        args = {**args, "agent": agent}
 
     return fn(**args)
 

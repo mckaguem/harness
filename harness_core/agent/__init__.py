@@ -10,8 +10,6 @@ from harness_core.agent.constants import (
     TOOL_RESULT,
     ERROR,
 )
-from harness_core.agent.context import CURRENT_AGENT
-from harness_core.agent.tool_context import ToolContext, current_tool_context
 from harness_core.agent.utils import filter_tool_schemas
 from harness_core.agent.loop import user_loop
 from harness_core.agent.discovery import discover_agents, get_agent_yaml, get_agent_yaml_paths
@@ -24,9 +22,6 @@ except ImportError:
 
 __all__ = [
     "Agent",
-    "CURRENT_AGENT",
-    "ToolContext",
-    "current_tool_context",
     "AgentType",
     "RESPONSE",
     "TOOL_CALL",

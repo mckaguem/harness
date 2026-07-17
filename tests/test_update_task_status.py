@@ -5,7 +5,6 @@ import pytest
 from harness_core.agent.task_list import TaskList
 from harness_core.tools.tool_result import ToolResult
 from harness_core.tools.update_task_status import update_task_status
-from harness_core.agent.context import CURRENT_AGENT
 
 
 class _FakeAgent:
@@ -15,55 +14,38 @@ class _FakeAgent:
 
 
 class TestUpdateTaskStatus:
-    """update_task_status via CURRENT_AGENT context."""
+    """update_task_status with explicit agent parameter."""
 
-    def test_set_task_completed(self, monkeypatch):
+    def test_set_task_completed(self):
         agent = _FakeAgent(2)
-        monkeypatch.setattr(
-            "harness_core.tools.update_task_status.CURRENT_AGENT",
-            type("_Ctx", (), {"get": staticmethod(lambda: agent)})(),
-        )
-
-        result = update_task_status(1, "completed")
+        result = update_task_status(agent, 1, "completed")
 
         assert isinstance(result, ToolResult)
         assert agent.task_list.tasks[0].status == "completed"
         assert "updated" in result.llm_text.lower()
 
-    def test_last_task_completion_resets_list(self, monkeypatch):
+    def test_last_task_completion_resets_list(self):
         agent = _FakeAgent(1)
-        monkeypatch.setattr(
-            "harness_core.tools.update_task_status.CURRENT_AGENT",
-            type("_Ctx", (), {"get": staticmethod(lambda: agent)})(),
-        )
-
-        result = update_task_status(1, "completed")
+        result = update_task_status(agent, 1, "completed")
 
         assert isinstance(result, ToolResult)
         # All tasks complete -> list cleared and a completion message returned.
         assert agent.task_list.tasks == []
         assert "complete" in result.llm_text.lower()
 
-    def test_unknown_status_returns_error(self, monkeypatch):
+    def test_unknown_status_returns_error(self):
         agent = _FakeAgent(1)
-        monkeypatch.setattr(
-            "harness_core.tools.update_task_status.CURRENT_AGENT",
-            type("_Ctx", (), {"get": staticmethod(lambda: agent)})(),
-        )
-
-        result = update_task_status(1, "not_a_real_status")
+        result = update_task_status(agent, 1, "not_a_real_status")
 
         assert isinstance(result, ToolResult)
         assert result.theme == "error"
 
-    def test_no_agent_context_returns_error(self, monkeypatch):
-        monkeypatch.setattr(
-            "harness_core.tools.update_task_status.CURRENT_AGENT",
-            type("_Ctx", (), {"get": staticmethod(lambda: None)})(),
-        )
-        CURRENT_AGENT.set(None)
-
-        result = update_task_status(1, "completed")
+    def test_invalid_task_id_returns_info(self):
+        """An unknown task_id is not an error — we return remaining-task info."""
+        agent = _FakeAgent(2)
+        result = update_task_status(agent, 999, "completed")
 
         assert isinstance(result, ToolResult)
-        assert result.theme == "error"
+        # Invalid task id → no error, just returns the existing list.
+        assert agent.task_list.tasks[0].status == "pending"
+

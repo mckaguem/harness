@@ -68,7 +68,7 @@ class SubagentManager:
                     f"subagent before launching more."
                 )
             identifier = f"subagent-{next(self._counter)}"
-            future = self._executor.submit(_run_one, sub_agent, task)
+            future = self._executor.submit(_run_one, None, sub_agent, task)
             self._futures[identifier] = future
         return identifier
 

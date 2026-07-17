@@ -11,9 +11,11 @@ if TYPE_CHECKING:
 from harness_core.model.provider import Provider
 
 from harness_core.agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
-from harness_core.agent.context import CURRENT_AGENT
 from harness_core.session.session import Session
 from harness_core.eventbus import generate_unique_id, EventPublisher, event_bus
+
+from harness_core.tools.dispatcher import dispatch
+from harness_core.tools.tool_result import ToolResult
 
 
 class Agent(EventPublisher):
@@ -59,10 +61,6 @@ class Agent(EventPublisher):
         if extra_tools:
             self._tools.extend(extra_tools)
 
-        # Tool execution pipeline — handles dispatch, error wrapping, and termination blocking.
-        from harness_core.agent.executor import ToolExecutor
-        self._executor = ToolExecutor(agent_type.name)
-
         # Cache-friendly task state management — all dynamic state is injected
         # at the tail end of messages, never touching messages[0].
         from harness_core.agent.task_list import TaskList
@@ -79,10 +77,6 @@ class Agent(EventPublisher):
         )
 
         self._max_loops: int = 100  # Safety ceiling to prevent infinite loops
-
-        # Bind this instance as the current agent in the thread context so tools
-        # can spawn sub-agents without an explicit parent reference.
-        CURRENT_AGENT.set(self)
 
     # -- task list access --------------------------------------------------
 
@@ -240,8 +234,10 @@ or update their status to 'failed' before stopping.
                     args = json.loads(raw_args)
                 except json.JSONDecodeError as exc:
                     description = f"Tool call argument parsing failed: {exc}"
-                    # Produce an error result via the executor so the LLM can react.
-                    error_result = self._executor.make_error_result(func_name, description)
+                    error_result = ToolResult(
+                        llm_text=description, display_text=description,
+                        type_tag="text", title=f"Error: {func_name}", theme="error",
+                    )
                     # Record the tool result (error) in the session.
                     self._session.add_tool_result(func_name, error_result.llm_text, tool_call["id"])
                     # Yield an error event and skip further processing of this tool call.
@@ -251,14 +247,22 @@ or update their status to 'failed' before stopping.
                 
                 # Termination circuit breaker (Component 4): block submit_results if tasks remain.
                 if func_name == "submit_results" and self._task_list and self._task_list.has_incomplete_tasks():
-                    block_info = self._executor.make_submit_results_block(True)
-                    if block_info:
-                        # This is a user-role message from the executor — also wrap with prepare_message_for_injection
-                        inner_block_dict = {"role": "user", "content": block_info["content"]}
-                        prepared_inner = self._session.prepare_message_for_injection(inner_block_dict)
-                        self._session.add_user_message(prepared_inner["content"])
-                        yield (TOOL_RESULT, func_name, block_info["result"], response)
-                        continue
+                    content = (
+                        "[SYSTEM ERROR] Execution termination blocked. "
+                        "You still have incomplete tasks in your state machine. "
+                        "You must finish them or update their status to 'failed' "
+                        "before you can invoke submit_results."
+                    )
+                    block_result = ToolResult(
+                        llm_text=content, display_text=content,
+                        type_tag="text", title=f"Error: submit_results", theme="error",
+                    )
+                    # This is a user-role message from the executor — also wrap with prepare_message_for_injection
+                    inner_block_dict = {"role": "user", "content": content}
+                    prepared_inner = self._session.prepare_message_for_injection(inner_block_dict)
+                    self._session.add_user_message(prepared_inner["content"])
+                    yield (TOOL_RESULT, func_name, block_result, response)
+                    continue
                                 
                 yield (TOOL_CALL, func_name, raw_args, response)
 
@@ -268,18 +272,20 @@ or update their status to 'failed' before stopping.
                     pending_parallel.append((tool_call, args))
                     continue
 
-                # Execute the tool via the executor and handle its result.
+                # Execute the tool directly via dispatch and handle its result.
                 try:
-                    return_result = self._executor.execute(func_name, args)
+                    return_result = dispatch(func_name, args, self)
                 except KeyError:
                     description = f"Unknown function '{func_name}'."
-                    return_result = self._executor.make_error_result(func_name, description)
                     yield (ERROR, description, None, None)
+                    continue
                 except Exception as exc:
                     # Handle unexpected errors (e.g., wrong args to tool)
                     description = f"Error calling {func_name}: {exc}"
-                    return_result = self._executor.make_error_result(func_name, description)
                     yield (ERROR, description, None, None)
+                    continue
+
+                assert isinstance(return_result, ToolResult), "dispatch() must return a ToolResult"
 
                 # Use session.add_tool_result instead of self.messages.append({"role":"tool",...})
                 self._session.add_tool_result(func_name, return_result.llm_text, tool_call_id)

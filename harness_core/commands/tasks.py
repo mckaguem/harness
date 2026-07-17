@@ -1,6 +1,5 @@
 """Handler for the /tasks command — print the current task list."""
 
-from harness_core.agent.core import CURRENT_AGENT
 from harness_core.terminal_io.display import display_message_panel
 from harness_core.terminal_io.task_display import render_task_list_markdown
 
@@ -10,19 +9,13 @@ def cmd_tasks(rest: str, agent=None) -> bool | None:
 
     Args:
         rest: Unused (kept for API consistency with other commands).
-        agent: Optional pre-resolved Agent instance for testing. If ``None``,
-               the active agent is read from :data:`CURRENT_AGENT`.
+        agent: Optional pre-resolved Agent instance. If ``None``, a friendly
+               message is displayed instead of reading from context state.
 
     Returns:
         False to continue the parent loop (this is a display-only command).
     """
-    # Use CURRENT_AGENT context variable like update_task_status does
-    if agent is not None:
-        current_agent = agent
-    else:
-        current_agent = CURRENT_AGENT.get()
-    
-    if not current_agent:
+    if not agent:
         display_message_panel(
             "No active task list.",
             theme="error",
@@ -30,7 +23,7 @@ def cmd_tasks(rest: str, agent=None) -> bool | None:
         )
         return False
 
-    tasks = current_agent.task_list.tasks
+    tasks = agent.task_list.tasks
     if not tasks:
         display_message_panel(
             "No tasks have been initialized yet.",
@@ -40,7 +33,7 @@ def cmd_tasks(rest: str, agent=None) -> bool | None:
         return False
 
     display_message_panel(
-        render_task_list_markdown(current_agent.task_list),
+        render_task_list_markdown(agent.task_list),
         theme="status",
         title="📋 Tasks",
     )

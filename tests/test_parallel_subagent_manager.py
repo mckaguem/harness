@@ -30,7 +30,7 @@ from harness_core.tools.tool_result import ToolResult
 def _fake_run_one_factory(sleep_for=0.0):
     """Return a fake ``_run_one`` that optionally sleeps then yields a result."""
 
-    def _fake_run_one(sub_agent, task):
+    def _fake_run_one(_agent, sub_agent, task):
         if sleep_for:
             time.sleep(sleep_for)
         return ToolResult(
@@ -89,7 +89,7 @@ class TestSubagentManager:
         mgr = SubagentManager(max_concurrent=4)
         # First job sleeps longer; second finishes first and should be returned.
         with patch("harness_core.tools.subagent_manager._run_one") as mock_run:
-            def _fake(sub_agent, task):
+            def _fake(_agent, sub_agent, task):
                 time.sleep(0.2 if sub_agent == "slow" else 0.05)
                 return ToolResult(llm_text=f"result-for:{sub_agent}", display_text="")
 
@@ -146,11 +146,11 @@ class TestSubagentManager:
         fake = _fake_run_one_factory(sleep_for=0.3)
 
         with patch("harness_core.tools.subagent_manager._run_one", side_effect=fake):
-            r1 = run_subagent("analyst", "A", block=False)
-            r2 = run_subagent("writer", "B", block=False)
+            r1 = run_subagent(None, "analyst", "A", block=False)
+            r2 = run_subagent(None, "writer", "B", block=False)
             assert "subagent-" in r1.llm_text
             assert "subagent-" in r2.llm_text
-            r3 = run_subagent("sysadmin", "C", block=False)
+            r3 = run_subagent(None, "sysadmin", "C", block=False)
             # Third launch beyond the limit -> error ToolResult.
             assert r3.theme == "error"
             assert "Maximum number of concurrent subagents" in r3.llm_text
@@ -168,15 +168,15 @@ class TestRunSubagentTool:
         """Backward-compatible synchronous behaviour is preserved."""
         with patch("harness_core.tools.run_subagent._run_one") as mock_run:
             mock_run.side_effect = _fake_run_one_factory()
-            result = run_subagent("analyst", "task A")
+            result = run_subagent(None, "analyst", "task A")
         # Returns a ToolResult directly (not an identifier string).
         assert isinstance(result, ToolResult)
         assert result.llm_text == "result-for:analyst:task A"
-        mock_run.assert_called_once_with("analyst", "task A")
+        mock_run.assert_called_once_with(None, "analyst", "task A")
 
     def test_run_subagent_block_false_returns_identifier(self):
         with patch("harness_core.tools.subagent_manager._run_one", side_effect=_fake_run_one_factory()):
-            result = run_subagent("analyst", "task A", block=False)
+            result = run_subagent(None, "analyst", "task A", block=False)
 
         assert isinstance(result, ToolResult)
         assert "subagent-" in result.llm_text
@@ -202,7 +202,7 @@ class TestAwaitSubagentTool:
         from harness_core.tools.subagent_manager import manager
 
         with patch("harness_core.tools.subagent_manager._run_one", side_effect=_fake_run_one_factory()):
-            launch_result = run_subagent("analyst", "task A", block=False)
+            launch_result = run_subagent(None, "analyst", "task A", block=False)
             ident = re.search(r"subagent-\d+", launch_result.llm_text).group()
 
         from harness_core.tools import await_subagent as await_mod

@@ -32,8 +32,9 @@ When an agent name exists in both, the project version wins.
 import asyncio
 import json
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
+from harness_core.tools.dispatcher import dispatch
 from harness_core.tools.tool_result import ToolResult
 from harness_core.tools.utils import _strip_ansi, make_error_result
 
@@ -42,7 +43,7 @@ TERMINATION_PROMPT = """\
 You are a specialized sub-agent execution thread. Your purpose is to execute the user's task with absolute technical precision using your permitted tools.
 
 ## Termination Protocol (CRITICAL)
-When you have completed your assigned task, you must NOT write a final conversational response. You must explicitly invoke the `submit_results` tool to return your findings. 
+When you have completed your assigned task, you must NOT write a final conversational response. You must explicitly invoke the `submit_results` tool to return your findings.
 
 * Ensure that all data requested by the `submit_results` schema (such as file paths, line numbers, and verbatim snippets) is exhaustively populated.
 * Do not wrap the tool arguments in markdown backticks (like ```json) or add conversational text outside of the tool call."""
@@ -109,48 +110,27 @@ def _build_function_def() -> dict:
 function_def = _build_function_def()
 
 
-def _run_one(sub_agent: str, task: str) -> ToolResult:
+def _run_one(agent: Any, sub_agent: str, task: str) -> ToolResult:
     """Spawn a single named sub-agent and execute *task* on it (worker body).
 
-    Contains the exact synchronous work previously done by :func:`run_subagent`.
-    Designed to run inside its own worker thread (via ``asyncio.to_thread``) so
-    that each sub-agent gets its OWN copy of the ``CURRENT_AGENT`` contextvar —
-    ContextVars are copied per thread, so concurrent sub-agents cannot clobber
-    each other's or the caller's agent binding.
-
-    NOTE on CURRENT_AGENT context isolation:
-
-    Each :class:`Agent.__init__` calls ``CURRENT_AGENT.set(self)``, which means
-    spawning a sub-agent temporarily overwrites the active agent's entry in this
-    module-level ``contextvars.ContextVar``.  If we don't restore it before
-    returning, any subsequent tool call inside the *calling* agent's
-    handle_prompt loop (such as ``update_task_status`` or ``initialize_task_list``)
-    would look at the sub-agent's empty task list and report "Task with ID X not
-    found" — even though the calling agent clearly has a task with that ID.
-
-    To prevent this, we save the active CURRENT_AGENT value before spawning and
-    restore it via a ``finally`` block that covers **every** possible exit path
-    (early returns inside the loop, exceptions during spawn, etc.).  Because this
-    runs inside a worker thread, the restore only affects that thread's context;
-    the caller's thread context is untouched.
+    Designed to run inside its own worker thread (via ``asyncio.to_thread``), so
+    that each sub-agent runs concurrently without interfering with the caller.
+    The *agent* parameter is passed through only for use by tools that need a
+    reference to a calling agent context during dispatch.
     """
-    from harness_core.agent.context import CURRENT_AGENT as _CURRENT_AGENT
+    from harness_core.agent import Agent, RESPONSE, TOOL_CALL  # noqa: F401 (explicit guards)
 
-    # Save the active CURRENT_AGENT so we can restore it after spawning.
-    saved_agent = _CURRENT_AGENT.get()
+    termination_prompt = TERMINATION_PROMPT
+
+    sub = Agent.from_agent_name(
+        sub_agent,
+        extra_tools=[_get_submit_results_def()],  # inject submit_results at runtime
+    )
+
+    # Append termination protocol to sub-agent's existing system prompt.
+    sub._agent_type.inject_extra_system_prompt(termination_prompt)
+
     try:
-        from harness_core.agent import Agent, RESPONSE, TOOL_CALL  # noqa: F401 (explicit guards)
-
-        termination_prompt = TERMINATION_PROMPT
-
-        sub = Agent.from_agent_name(
-            sub_agent,
-            extra_tools=[_get_submit_results_def()],  # inject submit_results at runtime
-        )
-
-        # Append termination protocol to sub-agent's existing system prompt.
-        sub._agent_type.inject_extra_system_prompt(termination_prompt)
-
         result_text = ""
         for kind, *args in sub.handle_prompt(task):
             if kind == TOOL_CALL and args[0] == "submit_results":
@@ -165,9 +145,7 @@ def _run_one(sub_agent: str, task: str) -> ToolResult:
                     )
                     return make_error_result(description)
 
-                from harness_core.tools.dispatcher import dispatch
-
-                result = dispatch(func_name, args_data)
+                result = dispatch(func_name, args_data, sub)  # pass the sub-agent itself
                 return ToolResult(
                     llm_text=_strip_ansi(str(result)),
                     display_text=_strip_ansi(str(result)),
@@ -191,19 +169,14 @@ def _run_one(sub_agent: str, task: str) -> ToolResult:
         return make_error_result(f"Error: {exc}")
     except Exception as exc:
         return make_error_result(f"Error running sub-agent '{sub_agent}': {exc}")
-    finally:
-        # Always restore the active CURRENT_AGENT, even on early returns
-        # (submit_results dispatch, parse errors), exceptions during spawn, or
-        # normal exit.  This prevents the bug where subsequent tool calls in the
-        # calling agent's loop operate on the empty task list of the sub-agent
-        # because CURRENT_AGENT still points at it.
-        _CURRENT_AGENT.set(saved_agent)
 
 
-def run_subagent(sub_agent: str, task: str, block: bool = True) -> ToolResult:
+def run_subagent(agent, sub_agent: str, task: str, block: bool = True) -> ToolResult:
     """Spawn a named sub-agent and execute *task* on it.
 
     Args:
+        agent: The calling (parent) Agent instance — passed through to ``_run_one``
+            for tools that may need an agent reference during dispatch.
         sub_agent: Name of the sub-agent YAML (without extension).
         task: The task description to run.
         block: When ``True`` (default), runs synchronously and returns the
@@ -214,10 +187,9 @@ def run_subagent(sub_agent: str, task: str, block: bool = True) -> ToolResult:
             (``"subagent-<n>"``) so the caller can later ``await_subagent`` it.
     """
     if block:
-        return _run_one(sub_agent, task)
+        return _run_one(agent, sub_agent, task)
 
     from harness_core.tools.subagent_manager import manager
-    from harness_core.tools.utils import make_error_result
 
     try:
         identifier = manager.launch(sub_agent, task)
@@ -247,15 +219,14 @@ async def run_subagent_async(sub_agent: str, task: str) -> ToolResult:
     ``asyncio.to_thread`` so that multiple sub-agents can run concurrently
     (each in its own thread/context) when gathered.
     """
-    return await asyncio.to_thread(_run_one, sub_agent, task)
+    return await asyncio.to_thread(_run_one, None, sub_agent, task)
 
 
 def run_subagents_parallel(calls: list[Tuple[str, str]]) -> list[ToolResult]:
     """Run several ``(sub_agent, task)`` pairs concurrently and return results in order.
 
     Each call runs in its own worker thread (via :func:`run_subagent_async` /
-    ``asyncio.to_thread``), giving every sub-agent an isolated ``CURRENT_AGENT``
-    context.  Results are returned in the same order as *calls*.
+    ``asyncio.to_thread``).  Results are returned in the same order as *calls*.
 
     Args:
         calls: A list of ``(sub_agent, task)`` tuples.

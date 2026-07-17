@@ -11,7 +11,7 @@ class TestDispatch:
         from harness_core.tools.dispatcher import dispatch
 
         # Call execute_bash with a simple command
-        result = dispatch("execute_bash", {"command": "echo hello"})
+        result = dispatch("execute_bash", {"command": "echo hello"}, None)
         assert hasattr(result, 'llm_text') or hasattr(result, 'display_text')
         content = getattr(result, 'llm_text', str(result)) + getattr(result, 'display_text', '')
         assert "hello" in content
@@ -21,7 +21,7 @@ class TestDispatch:
         from harness_core.tools.dispatcher import dispatch
 
         with pytest.raises(KeyError):
-            dispatch("nonexistent_tool", {})
+            dispatch("nonexistent_tool", {}, None)
 
     def test_dispatch_returns_string_from_tool(self, tmp_path, monkeypatch):
         """dispatch should return a ToolResult from the called tool and write the file."""
@@ -35,7 +35,7 @@ class TestDispatch:
         result = dispatch("write_file", {
             "filename": str(target),
             "content": "test content"
-        })
+        }, None)
         assert hasattr(result, 'llm_text') or hasattr(result, 'display_text')
         text = getattr(result, 'llm_text', str(result)) + getattr(result, 'display_text', '')
         assert isinstance(text, str)
@@ -57,7 +57,7 @@ class TestDispatch:
         result = dispatch("write_file", {
             "filename": str(target),
             "content": "keyword args test"
-        })
+        }, None)
         assert hasattr(result, 'llm_text') or hasattr(result, 'display_text')
         text = getattr(result, 'llm_text', str(result)) + getattr(result, 'display_text', '')
         assert isinstance(text, str)

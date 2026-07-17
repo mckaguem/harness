@@ -1,13 +1,14 @@
 """update_task_status — Tool for updating task execution state machine."""
 
-from harness_core.agent.core import CURRENT_AGENT
-from harness_core.agent.tool_context import ToolContext
+from typing import Any
+
+from harness_core.agent.task_list import VALID_STATUSES
 from harness_core.terminal_io.task_display import render_task_list_markdown
 from harness_core.tools.tool_result import ToolResult
 from harness_core.tools.utils import _strip_ansi, make_error_result
 
 
-def update_task_status(task_id: int, status: str, ctx: ToolContext | None = None) -> ToolResult:
+def update_task_status(agent: Any, task_id: int, status: str) -> ToolResult:
     """Update the status of a specific task.
 
     Updates the status field of a Task object in the current agent's TaskList instance.
@@ -22,6 +23,7 @@ def update_task_status(task_id: int, status: str, ctx: ToolContext | None = None
     stop including stale state and a message indicating completion is returned.
 
     Args:
+        agent: The calling Agent instance (injected automatically by the dispatcher).
         task_id: Integer ID of the task to update (1-indexed).
         status: New status value (must be one of VALID_STATUSES).
 
@@ -33,24 +35,12 @@ def update_task_status(task_id: int, status: str, ctx: ToolContext | None = None
     Raises:
         ValueError: If the provided status is not in VALID_STATUSES.
     """
-    # Resolve the active agent from the explicit context first, then fall back to
-    # the legacy CURRENT_AGENT contextvar. If neither is present we fail loudly
-    # instead of bootstrapping a shared agent (Option B).
-    current_agent = getattr(ctx, "agent", None) if ctx is not None else None
-    if current_agent is None:
-        current_agent = CURRENT_AGENT.get()
-    if current_agent is None:
-        return make_error_result(
-            "No active agent context found. The task list tool can only be used "
-            "by an agent running inside a handle_prompt loop (or a sub-agent loop)."
-        )
-
     try:
-        success, next_info = current_agent.task_list.update_status(task_id, status)
+        success, next_info = agent.task_list.update_status(task_id, status)
 
         # If all tasks are now done, clear the task list so injection stops.
         if next_info.all_complete:
-            current_agent.task_list.reset()
+            agent.task_list.reset()
             return ToolResult(
                 llm_text=(
                     f"Task {task_id} updated to '{status}'. "
@@ -67,7 +57,7 @@ def update_task_status(task_id: int, status: str, ctx: ToolContext | None = None
             )
 
         # Build machine-friendly payload with the next ID to act on.
-        remaining_json = _strip_ansi(str(current_agent.task_list.to_json_list()))
+        remaining_json = _strip_ansi(str(agent.task_list.to_json_list()))
         llm_text_parts = [
             f"Task {task_id} updated to '{status}' successfully.",
         ]
@@ -79,7 +69,7 @@ def update_task_status(task_id: int, status: str, ctx: ToolContext | None = None
 
         return ToolResult(
             llm_text="\n".join(llm_text_parts),
-            display_text=render_task_list_markdown(current_agent.task_list),
+            display_text=render_task_list_markdown(agent.task_list),
             type_tag="markdown",
             title="📋 Task List",
             theme="status",
