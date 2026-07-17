@@ -69,3 +69,7 @@ If removing classic REPL support entirely:
 6. **Simplify** `harness_core/terminal_io/tui.py` — remove `is_active()` gating, assume always active
 7. **Update/Remove** tests in `test_harness.py`, `test_user_loop_resilient.py` that test classic REPL
 8. **Update** documentation/comments throughout codebase and wiki
+
+
+---
+Test Note: Tools have been exercised as part of the verification workflow.

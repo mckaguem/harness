@@ -24,9 +24,10 @@ def cmd_sub(rest: str, parent_agent) -> bool | None:
         print_system("Error", "Usage: /sub <agent-name>  (e.g. /sub analyst)")
         return False
 
-    # Lazy imports — ``agent.loop`` pulls from this module, so top-level imports
-    # of any ``agent`` symbol would trigger a circular import at runtime.
-    from harness_core.agent import Agent, user_loop
+    # Lazy import — ``agent.loop`` pulls from this module, so a top-level import
+    # of ``Agent`` would trigger a circular import at runtime. Only ``Agent`` is
+    # needed here; the sub-agent's own ``user_loop`` method drives the loop.
+    from harness_core.agent import Agent
     from harness_core.tools import AGENT_TOOLS
 
     try:
@@ -64,7 +65,7 @@ def cmd_sub(rest: str, parent_agent) -> bool | None:
         except Exception as exc:
             print_system("Error", f"Failed to summarize sub-agent conversation: {exc}")
 
-    # Drive the interactive loop — reuses ``user_loop`` for display & prompt handling.
-    user_loop(sub_agent, on_exit=_on_exit)
+    # Drive the interactive loop — use the sub-agent's own ``user_loop`` method.
+    sub_agent.user_loop(on_exit=_on_exit)
 
     return False
