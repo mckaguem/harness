@@ -1,8 +1,9 @@
 """Textual-based terminal UI for the harness.
 
 This module is now a thin re-export shim.  The actual implementations live in
-``harness_core.terminal_io.widgets`` (StatusSpinner, TaskListSidebar) and
-``harness_core.terminal_io.harness_tui`` (HarnessTUI, TextualHarnessApp, launch).
+``harness_core.terminal_io.widgets`` (StatusSpinner, TaskListSidebar),
+``harness_core.terminal_io.harness_tui`` (HarnessTUI, get_tui) and
+``harness_core.terminal_io.tui_app`` (TextualHarnessApp, launch).
 """
 from __future__ import annotations
 
@@ -10,8 +11,11 @@ from __future__ import annotations
 # call-sites continue to work without modification.
 from harness_core.terminal_io.harness_tui import (  # noqa: F401
     HarnessTUI,
-    TextualHarnessApp,
     get_tui,
+)
+
+from harness_core.terminal_io.tui_app import (  # noqa: F401
+    TextualHarnessApp,
     launch,
 )
 
