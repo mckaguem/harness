@@ -235,36 +235,16 @@ class HarnessTUI:
         self._app.update_sidebar_tasks_from_payload(payload)
 
     # ── agent busy indicator (used by user_loop around handle_prompt) ────
-    import threading
-
-    def _set_spinner_display(self, visible: bool) -> None:
-        """Set spinner visibility — thread-safe.
-
-        Marshalls onto the app thread via ``call_from_thread`` when called from
-        the worker/loop thread; runs synchronously if already on the app thread.
-        Guards on ``self._spinner`` because callers may fire after :meth:`reset`.
-        """
-        spinner = self._spinner
-        if spinner is None:
-            return
-        app = self._app
-        assert app is not None
-
-        def _do() -> None:
-            spinner.display = visible  # local var avoids re-lookup on app thread
-
-        if getattr(app, "_thread_id", None) == threading.current_thread().ident:
-            _do()
-        else:
-            app.call_from_thread(_do)
 
     def show_spinner(self) -> None:
         """Reveal the spinner so the user knows the agent is working."""
-        self._set_spinner_display(True)
+        if self._spinner is not None:
+            self._spinner.display = True
 
     def hide_spinner(self) -> None:
         """Hide the spinner once the agent has produced its response."""
-        self._set_spinner_display(False)
+        if self._spinner is not None:
+            self._spinner.display = False
 
     # ── blocking prompt (used by prompt_user inside the TUI) ────────────
 

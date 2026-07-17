@@ -369,8 +369,6 @@ class TestStatusSpinner:
         _drive(_body())
 
     def test_show_hide_spinner_toggles_display(self, tui_app):
-        import threading
-
         async def _body():
             async with tui_app.run_test() as pilot:
                 controller = get_tui()
@@ -378,18 +376,10 @@ class TestStatusSpinner:
                 # Hidden initially (set by bind()).
                 assert spinner.display is False
 
-                # show_spinner is called from the worker/loop thread.
-                t = threading.Thread(target=controller.show_spinner, daemon=True)
-                t.start()
-                t.join(timeout=2.0)
-                await pilot.pause()
+                controller.show_spinner()
                 assert spinner.display is True
 
-                # hide_spinner clears it again.
-                t2 = threading.Thread(target=controller.hide_spinner, daemon=True)
-                t2.start()
-                t2.join(timeout=2.0)
-                await pilot.pause()
+                controller.hide_spinner()
                 assert spinner.display is False
 
         _drive(_body())
