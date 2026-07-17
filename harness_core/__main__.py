@@ -103,23 +103,14 @@ def build_agent():
         sys.stderr.write(f"\n[harness] WARNING: Agent discovery failed: {exc}\n")
 
     # ------------------------------------------------------------------
-    # Phase 5: Resolve the main agent YAML path.
-    # ------------------------------------------------------------------
-    from harness_core.config import resolve_config_path
-    main_agent_path = resolve_config_path("agents/main.yaml")
-    if main_agent_path is None:
-        sys.stderr.write(
-            "\n[harness] FATAL: Could not find 'agents/main.yaml' in project or global config dirs. Aborting startup.\n"
-        )
-        sys.exit(1)
-
-    # ------------------------------------------------------------------
-    # Phase 6: Create the main Agent from its YAML definition.
-    # Agent.from_file handles all initialization internally:
-    #   - Loads agent type (model, system_prompt, tools config)
-    #   - Discovers skills & agents to inject into system prompt
+    # Phase 6: Create the main Agent by name.
+    # Agent.from_agent_name resolves "main" via the discovery path and handles
+    # all initialization internally:
+    #   - Loads the agent type (model, system_prompt, tools config)
+    #   - Discovers skills & agents to inject into the system prompt
     #   - Resolves provider configuration
     #   - Gets context_length from harness_core.model/provider config
+    # It raises FileNotFoundError if the named agent cannot be found.
     # ------------------------------------------------------------------
     try:
         # Start a fresh run folder so this app launch (and every subagent it
@@ -127,7 +118,7 @@ def build_agent():
         from harness_core.session.session_utils import create_run_folder
         create_run_folder()
 
-        agent = Agent.from_file(str(main_agent_path), tool_schemas=AGENT_TOOLS)
+        agent = Agent.from_agent_name("main", tool_schemas=AGENT_TOOLS)
         agent._id = "Agent.main"
     except Exception as exc:
         sys.stderr.write(f"\n[harness] FATAL: Failed to create main agent: {exc}\n")

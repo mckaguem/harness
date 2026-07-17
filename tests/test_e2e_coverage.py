@@ -365,7 +365,7 @@ class TestAllToolsE2E:
         ])
 
         # Patch the spawn seam so the sub-agent runs fully offline on the fake.
-        with patch("harness_core.agent.core.Agent.spawn_subagent",
+        with patch("harness_core.agent.core.Agent.from_agent_name",
                    return_value=sub_agent):
             out = run_captured(parent, "spawn a subagent")
 
@@ -454,7 +454,7 @@ class TestSubagents:
             tool_response("run_subagent", {"sub_agent": "researcher", "task": "research"}),
             text_response("parent finished"),
         ])
-        with patch("harness_core.agent.core.Agent.spawn_subagent",
+        with patch("harness_core.agent.core.Agent.from_agent_name",
                    return_value=sub_agent):
             out = run_captured(parent, "delegate research")
 

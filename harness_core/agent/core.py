@@ -362,28 +362,29 @@ or update their status to 'failed' before stopping.
                     yield (TOOL_RESULT, "run_subagent", result, response)
 
     @classmethod
-    def spawn_subagent(cls, sub_name: str,
-                       tool_schemas: list[Dict] | None = None,
-                       extra_tools: list[Dict] | None = None):
-        """Build and return a configured ``Agent`` for the named sub-agent.
+    def from_agent_name(cls, agent_name: str,
+                        tool_schemas: list[Dict] | None = None,
+                        extra_tools: list[Dict] | None = None) -> "Agent":
+        """Build and return a configured ``Agent`` for the named agent.
 
         Pure factory — does **not** start any conversation or display anything.
         The returned agent can be driven however the caller wants (interactive
         loop, single prompt via :meth:`handle_prompt`, tool-based invocation, etc.).
 
-        The sub-agent is looked up via :func:`agent.discovery.get_agent_yaml`, which
-        searches project and global config paths (``cwd/.harness_py/agents/`` then
-        ``~/.harness_py/agents/``, with project taking precedence). It gets an
-        augmented system prompt (cwd listing + AGENTS.md) from
-        :meth:`AgentType._build_system_prompt` and has its tool schemas filtered by
-        its own ``agent_tools``. The context length is resolved by :meth:`from_file`
-        from the sub-agent's own model/provider configuration — it is no longer
-        copied from the parent agent.
+        It builds a configured Agent by name: looks up the agent YAML via the
+        discovery path (:func:`agent.discovery.get_agent_yaml`, which searches
+        project and global config paths with project taking precedence), loads the
+        agent type, injects skills/agents into the system prompt, resolves the
+        provider/context_length from the agent's own model/provider configuration,
+        filters the tool schemas, and returns the agent. The context length is
+        resolved from the agent's own model/provider config — it is no longer
+        copied from a parent agent.
 
         Args:
-            sub_name: The YAML file stem (e.g. ``"analyst"`` from ``/sub analyst``).
-            tool_schemas: All available tool schemas passed through to :meth:`filter_tool_schemas`.
-                          If ``None``, defaults to all tools (equivalent to ``["*"]``).
+            agent_name: The YAML file stem (e.g. ``"analyst"`` or ``"main"``).
+            tool_schemas: All available tool schemas passed through to
+                          :meth:`filter_tool_schemas`. If ``None``, defaults to all
+                          tools (equivalent to ``["*"]``).
             extra_tools: Additional function_def dicts added after filtering. Useful for
                          runtime-injected tools like ``submit_results`` without modifying
                          agent YAML files.
@@ -395,52 +396,23 @@ or update their status to 'failed' before stopping.
             FileNotFoundError: If no matching agent YAML is found in any configured discovery path.
         """
         from harness_core.agent.discovery import get_agent_yaml
+        from harness_core.agent.types import AgentType
+        from harness_core.tools import AGENT_TOOLS
+        from harness_core.config import get_model_config, load_harness_config
 
-        yaml_path_str, error_msg = get_agent_yaml(sub_name)
+        # Resolve the named agent YAML via project/global discovery paths.
+        yaml_path_str, error_msg = get_agent_yaml(agent_name)
         if yaml_path_str is None:
             raise FileNotFoundError(error_msg)
-        
-        # from_file resolves the model/provider config and sets the context
-        # length internally — there is no need to copy it from a parent agent.
-        return cls.from_file(
-            str(yaml_path_str),
-            tool_schemas=tool_schemas,
-            extra_tools=extra_tools,
-        )
 
-    @classmethod
-    def from_file(cls, path: str, tool_schemas: list[Dict] | None = None,
-                extra_tools: list[Dict] | None = None) -> "Agent":
-        """Create an Agent directly from a YAML agent config file.
-
-        This is the recommended entry point for creating agents. It handles:
-        - Loading the agent YAML definition (model_name, system_prompt, agent_tools)
-        - Discovering skills and agents to inject into the system prompt
-        - Resolving provider configuration from harness_core.config.py defaults
-        - Getting context_length from the model/provider config
-        - Building the fully-injected system prompt
-
-        Args:
-            path: Path to the agent YAML file (e.g., ``".harness_py/agents/main.yaml"``).
-            tool_schemas: All available tool schemas. If None, uses AGENT_TOOLS from harness_core.tools module.
-            extra_tools: Additional function_def dicts added after filtering. Useful for
-                         runtime-injected tools like ``submit_results`` without modifying
-                         agent YAML files.
-
-        Returns:
-            A fully-constructed Agent instance ready for prompting.
-        """
         # Load the agent type — handles YAML parsing, provider resolution,
         # and system prompt template substitution (CWD, SKILLS, AGENTS, TOOLS).
-        from harness_core.agent.types import AgentType
-        agent_type = AgentType.from_file(path)
+        agent_type = AgentType.from_file(str(yaml_path_str))
 
         if tool_schemas is None:
-            from harness_core.tools import AGENT_TOOLS
             tool_schemas = AGENT_TOOLS
 
         # Resolve context_length: prefer model-specific config, fall back to global default.
-        from harness_core.config import get_model_config, load_harness_config
         model_cfg = get_model_config(agent_type.model_name)
         if model_cfg is not None and model_cfg.get('context_length') is not None:
             context_length = int(model_cfg['context_length'])
@@ -454,4 +426,5 @@ or update their status to 'failed' before stopping.
             tool_schemas=tool_schemas,
             extra_tools=extra_tools,
         )
+
 

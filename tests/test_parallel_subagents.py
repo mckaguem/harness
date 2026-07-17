@@ -90,12 +90,12 @@ class TestRunSubagentParallel:
             sub._agent_type = MagicMock()
             sub._agent_type.inject_extra_system_prompt = MagicMock()
             sub.handle_prompt.return_value = _fake_subagent_yield("task A")
-            MockAgent.spawn_subagent.return_value = sub
+            MockAgent.from_agent_name.return_value = sub
 
             result = run_subagent("analyst", "task A")
 
         assert result.llm_text == "result-for:task A"
-        MockAgent.spawn_subagent.assert_called_once()
+        MockAgent.from_agent_name.assert_called_once()
 
     def test_run_subagents_parallel_empty_returns_empty(self):
         assert run_subagents_parallel([]) == []

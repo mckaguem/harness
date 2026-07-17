@@ -6,7 +6,7 @@ from harness_core.terminal_io.display import print_system
 def cmd_sub(rest: str, parent_agent) -> bool | None:
     """Spawn an interactive conversation with a sub-agent.
 
-    Loads the named sub-agent via :meth:`Agent.spawn_subagent`, prints a status
+    Loads the named sub-agent via :meth:`Agent.from_agent_name`, prints a status
     banner, then drives the interactive loop using :func:`user_loop`.  On exit
     the conversation is summarised and injected into the parent so it continues
     with that context.
@@ -30,7 +30,7 @@ def cmd_sub(rest: str, parent_agent) -> bool | None:
     from harness_core.tools import AGENT_TOOLS
 
     try:
-        sub_agent = Agent.spawn_subagent(
+        sub_agent = Agent.from_agent_name(
             sub_name, tool_schemas=AGENT_TOOLS
         )
     except FileNotFoundError as exc:

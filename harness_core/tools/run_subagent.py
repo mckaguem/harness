@@ -143,7 +143,7 @@ def _run_one(sub_agent: str, task: str) -> ToolResult:
 
         termination_prompt = TERMINATION_PROMPT
 
-        sub = Agent.spawn_subagent(
+        sub = Agent.from_agent_name(
             sub_agent,
             extra_tools=[_get_submit_results_def()],  # inject submit_results at runtime
         )
