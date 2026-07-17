@@ -11,10 +11,14 @@
             "id": "1b09476b16d85930",
             "type": "leaf",
             "state": {
-              "type": "graph",
-              "state": {},
-              "icon": "lucide-git-fork",
-              "title": "Graph view"
+              "type": "markdown",
+              "state": {
+                "file": "pages/harness_core_eventbus_EventListener.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "harness_core_eventbus_EventListener"
             }
           }
         ]
@@ -181,6 +185,7 @@
   },
   "active": "1b09476b16d85930",
   "lastOpenFiles": [
+    "pages/harness_core_memory_read_memory.md",
     "pages/harness_core_config.md",
     "index/harness_core.md",
     "pages/harness_core_tools_list_dir__format_size.md",
@@ -206,7 +211,6 @@
     "index/index.md",
     "pages/harness_core_model_types_CompletionResponse.md",
     "pages/harness_core_model_types_TokenUsage.md",
-    "pages/harness_core_model_types_ModelConfig.md",
     "index",
     "pages"
   ]
