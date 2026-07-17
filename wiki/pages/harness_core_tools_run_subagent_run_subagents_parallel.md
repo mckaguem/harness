@@ -7,8 +7,8 @@ source: "harness_core/tools/run_subagent.py"
 Run several ``(sub_agent, task)`` pairs concurrently and return results in order.
 
 Each call runs in its own worker thread (via :func:`run_subagent_async` /
-``asyncio.to_thread``), giving every sub-agent an isolated ``CURRENT_AGENT``
-context.  Results are returned in the same order as *calls*.
+``asyncio.to_thread``), giving every sub-agent its own worker thread.  Results are returned in the
+same order as *calls*.
 
 Args:
     calls: A list of ``(sub_agent, task)`` tuples.

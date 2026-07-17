@@ -366,11 +366,6 @@ Implements context compression for the Agent Harness
 ### __init__.py
 - [harness_core.agent.__init__](../pages/harness_core_agent___init__.md) - Agent package — types, core agent class, utilities, and interactive loop
 
-### context.py
-- [harness_core.agent.context](../pages/harness_core_agent_context.md) - Context variable management for tracking the current agent
-  - [get_current_agent](../pages/harness_core_agent_context_get_current_agent.md) - Function
-  - [CURRENT_AGENT](../pages/harness_core_agent_context_CURRENT_AGENT.md) - Constant
-
 ### executor.py
 - [harness_core.agent.executor](../pages/harness_core_agent_executor.md) - Tool executor — handles dispatch, result formatting, and error wrapping
   - [ToolExecutor](../pages/harness_core_agent_executor_ToolExecutor.md) - Class

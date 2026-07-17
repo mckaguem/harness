@@ -8,8 +8,8 @@ SubagentManager — registry/orchestrator for background sub-agent jobs.
 
 This module owns the "in-flight background sub-agent" lifecycle:
 
-* ``launch`` submits a sub-agent job to a worker thread (so each sub-agent gets
-  its own ``CURRENT_AGENT`` context), returns a short identifier such as
+* ``launch`` submits a sub-agent job to a worker thread, returns a short
+  identifier such as
   ``"subagent-1"``, and enforces a maximum concurrency limit.
 * ``await_one`` blocks until a specific (or the first completed) background job
   finishes and returns its :class:`~harness_core.tools.tool_result.ToolResult`.

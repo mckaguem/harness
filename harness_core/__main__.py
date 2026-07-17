@@ -143,13 +143,6 @@ def run_non_interactive(agent, message):
     Returns:
         int: ``0`` on success (intended to be passed to ``sys.exit``).
     """
-    # Bind this agent as the current agent for the duration of the run.  Tools
-    # such as the task list and run_subagent are agent-aware via the
-    # CURRENT_AGENT ContextVar; without this binding they would see None and
-    # fail.  (See agent/loop.py for the full rationale.)
-    from harness_core.agent.context import CURRENT_AGENT
-    CURRENT_AGENT.set(agent)
-
     from harness_core.agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
     from harness_core.commands import COMMANDS
     from harness_core.skills.interceptor import intercept_message, InterceptorKind

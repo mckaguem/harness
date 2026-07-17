@@ -41,8 +41,6 @@ class TestTasksCommand:
 
     def test_tasks_command_without_agent(self):
         """Test that /tasks handles missing agent gracefully."""
-        from harness_core.agent.context import CURRENT_AGENT
-        CURRENT_AGENT.set(None)  # Reset context to simulate no running agent
         with patch("harness_core.commands.tasks.display_message_panel") as mock_display:
             cmd_tasks("", None)
 

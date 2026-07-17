@@ -128,23 +128,6 @@ class TestRunSubagentParallel:
         # Concurrency: two 0.15s sleeps should finish in well under 0.30s.
         assert elapsed < 0.27, f"expected concurrent execution, took {elapsed:.2f}s"
 
-    def test_parallel_isolation_each_worker_own_context(self):
-        """Each worker gets its own CURRENT_AGENT copy (no cross-clobber)."""
-        seen = {}
-
-        def _fake_run_one(_agent, sub_agent, task):
-            from harness_core.agent.context import CURRENT_AGENT
-            seen[sub_agent] = CURRENT_AGENT.get()
-            return sub_agent
-
-        with patch("harness_core.tools.run_subagent._run_one", side_effect=_fake_run_one):
-            run_subagents_parallel([("analyst", "A"), ("writer", "B")])
-
-        # The two workers observed distinct CURRENT_AGENT values (or None, which
-        # is fine) — the key point is they were never the SAME mutated object
-        # mid-run. We simply assert the calls happened without raising.
-        assert set(seen) == {"analyst", "writer"}
-
 
 # ---------------------------------------------------------------------------
 # Integration: handle_prompt collects multiple run_subagent tool results

@@ -9,7 +9,7 @@ Handle the /tasks command. Displays all tasks and their statuses.
 Args:
     rest: Unused (kept for API consistency with other commands).
     agent: Optional pre-resolved Agent instance for testing. If ``None``,
-           the active agent is read from :data:`CURRENT_AGENT`.
+           the active agent must be explicitly provided.
 
 Returns:
     False to continue the parent loop (this is a display-only command).

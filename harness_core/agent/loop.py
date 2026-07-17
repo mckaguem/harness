@@ -52,16 +52,6 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                  ``/exit`` or ``/quit``. Receives ``(agent, messages)``. Return
                  value is ignored — the callback can mutate whatever it needs.
     """
-    # Bind this agent as the current agent for the duration of the loop. This is
-    # essential because the loop may run on a worker thread (e.g. the Textual
-    # TUI launches it via ``run_worker(thread=True)``). ContextVars set on the
-    # main thread in Agent.__init__ are NOT visible inside that worker thread,
-    # so without re-binding here the agent-aware tools (task list, run_subagent)
-    # would see CURRENT_AGENT as None and fail. Binding it on the loop's own
-    # thread makes the agent available to every tool dispatch in this loop.
-    from harness_core.agent.context import CURRENT_AGENT
-    CURRENT_AGENT.set(agent)
-
     agent.publish(
         "agent.status.ready",
         SystemMessagePayload(

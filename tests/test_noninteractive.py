@@ -128,24 +128,6 @@ class TestRunNonInteractive:
         # The provider must have been consulted exactly once (single turn).
         assert len(provider._responses) == 0
 
-    def test_sets_current_agent_contextvar(self):
-        """CURRENT_AGENT must be bound so agent-aware tools work."""
-        from harness_core.agent.context import CURRENT_AGENT
-
-        provider = _FakeProvider([_simple_response("Hi")])
-        agent = _make_agent(provider)
-
-        with patch("harness_core.terminal_io.display_agent_response"), patch(
-            "harness_core.terminal_io.display_user_message"), patch(
-            "harness_core.terminal_io.display_tool_call"), patch(
-            "harness_core.terminal_io.display_tool_result"), patch(
-            "harness_core.terminal_io.display_error"):
-            run_non_interactive(agent, "hello")
-
-        # After the run, the ContextVar should resolve to our agent on this
-        # thread (set on entry and never cleared).
-        assert CURRENT_AGENT.get() is agent
-
     def test_tool_call_and_result_are_displayed(self):
         """TOOL_CALL / TOOL_RESULT events are rendered, not swallowed."""
         # First turn requests a tool call, second turn returns a final answer.
