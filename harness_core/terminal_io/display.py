@@ -212,7 +212,9 @@ def display_tool_result(
     # 2. display_tool_result(func_name, result_title=..., result_display_text=..., ...)
     if result is not None and not isinstance(result, str) and hasattr(result, 'display_text'):
         # Called with a ToolResult object
-        tool_result = result
+        from harness_core.tools.tool_result import ToolResult
+
+        tool_result: ToolResult = result  # type: ignore[assignment]
         title_override = tool_result.title or func_name
         result_panel = display_message_panel(
             text=tool_result.display_text or "",

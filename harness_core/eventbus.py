@@ -16,10 +16,13 @@ import re
 import threading
 import uuid
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
 # Module-level logger for the event bus
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from harness_core.event_types import EventPayload
 
 
 def generate_unique_id(prefix: str = "") -> str:

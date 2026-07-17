@@ -182,7 +182,10 @@ def compress_file_operation(
             # assistant tool_call entry.
             tool_call_id = msg.get("tool_call_id") or ""
             if filename_by_tool_id and isinstance(tool_call_id, str):
-                filename = filename_by_tool_id.get(tool_call_id)
+                found_path = filename_by_tool_id.get(tool_call_id)
+                if not found_path:
+                    return new_msg
+                filename = found_path
             else:
                 return new_msg
     else:
@@ -276,7 +279,7 @@ def compress_messages(messages: list[dict], fraction: float) -> list[dict]:
     # Incrementally build a mapping from tool_call_id → filename for file-operating tools.
     # Since tool calls always precede their results in conversation order, we can populate
     # this dict as we iterate through messages and use it when processing tool-result messages.
-    filename_by_tool_id = {}
+    filename_by_tool_id: dict[str, str] = {}
 
     compressed_prefix = []
     for msg in prefix_to_compress:

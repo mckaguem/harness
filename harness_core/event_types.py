@@ -283,4 +283,4 @@ class ControlPayload(EventPayload):
         action: Dictionary describing the control action (e.g., {"type": "spinner.start"}).
     """
 
-    action: dict = None
+    action: dict[str, Any] | None = None

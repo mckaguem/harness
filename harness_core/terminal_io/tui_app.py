@@ -74,7 +74,7 @@ class TextualHarnessApp(App):
         self._agent = agent
         self._on_exit = on_exit
         self._output: VerticalScroll | None = None
-        self._event_listener = None  # Keep a reference so it's not garbage collected
+        self._event_listener: object | None = None  # Keep a reference so it's not garbage collected
 
     def compose(self) -> ComposeResult:
         yield Header()

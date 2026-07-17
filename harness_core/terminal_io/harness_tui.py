@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import threading
+from typing import TYPE_CHECKING
 
 from rich.panel import Panel
+from textual.containers import VerticalScroll
 from textual.widgets import Collapsible, Static, TextArea
 from rich.console import Group
 
@@ -13,6 +15,10 @@ from harness_core.terminal_io.widgets import (
     TaskListSidebar,
     TOOL_SEPARATOR,
 )
+
+
+if TYPE_CHECKING:
+    from .tui_app import TextualHarnessApp
 
 
 class HarnessTUI:
@@ -25,10 +31,9 @@ class HarnessTUI:
     """
 
     def __init__(self) -> None:
-        self._app: "TextualHarnessApp" | None = None
-        # Guarded by ``_lock``; only touched from the app thread.
-        self._input: TextArea | None = None
-        self._output: VerticalScroll | None = None
+        self._app: TextualHarnessApp | None = None  # type: ignore[assignment]
+        self._input: TextArea | None = None  # type: ignore[assignment]
+        self._output: VerticalScroll | None = None  # type: ignore[assignment]
         self._spinner: StatusSpinner | None = None
         self._write_count = 0
         self._lock = threading.Lock()
