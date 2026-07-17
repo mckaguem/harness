@@ -16,7 +16,7 @@ def _check_and_compress_if_needed(agent) -> None:
     """Check context utilization and trigger compression if above threshold."""
     try:
         session = getattr(agent, 'session', None) or getattr(agent, '_session', None)
-        context_length = getattr(agent, '_context_length', 1 << 17)  # default ~131072
+        context_length = getattr(agent, 'context_length', 1 << 17)  # default ~131072
 
         if session is None or not context_length:
             return
@@ -267,8 +267,8 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
                         (ollama_response or {}).get("reasoning")
                         if isinstance(ollama_response, dict) else None
                     )
-                    _emit_agent_response_event(agent, content, ollama_response, agent._context_length, reasoning=reasoning)
-                    _emit_turn_stats_event(agent, ollama_response, agent._context_length, elapsed)
+                    _emit_agent_response_event(agent, content, ollama_response, agent.context_length, reasoning=reasoning)
+                    _emit_turn_stats_event(agent, ollama_response, agent.context_length, elapsed)
                 elif kind == TOOL_CALL:
                     _, func_name, args_str, response_data = output
                     args_dict = json.loads(args_str)

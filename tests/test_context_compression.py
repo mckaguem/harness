@@ -634,6 +634,10 @@ class _FakeAgent:
         return self._session
 
     @property
+    def context_length(self):
+        return self._context_length
+
+    @property
     def messages(self):
         return self._session.messages
 
@@ -754,6 +758,10 @@ class TestAutoCompressionLoop:
             def __init__(self, session, context_length):
                 self._session = session
                 self._context_length = context_length
+
+            @property
+            def context_length(self):
+                return self._context_length
 
         long_system = "system prompt " * 20
         messages = [{"role": "system", "content": long_system}]

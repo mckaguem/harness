@@ -21,43 +21,29 @@ class Agent:
     
     def __init__(self,
                  agent_type: "AgentType",
-                 context_length: int = 4096,
-                 provider: Optional[Provider] = None,
+                 id: str,
                  tool_schemas: list[Dict] | None = None,
-                 extra_tools: list[Dict] | None = None,
-                 id: Optional[str] = None):
+                 extra_tools: list[Dict] | None = None):
         """Initialize an Agent.
 
         Args:
             agent_type: The agent definition (model, system prompt, tools).
-            context_length: Model's context window size.
-            provider: Optional Provider instance. When given, it is used directly.
-                      Otherwise the provider is resolved via the singleton registry
-                      from ``AgentType.provider_config`` (loaded from YAML).
-            id: Optional explicit identifier for this agent. When given, the
-                agent id is ``"Agent.{id}"``; otherwise a unique id is generated.
+            id: Mandatory explicit identifier for this agent. The agent id
+                becomes ``"Agent.{id}"``.
+            tool_schemas: Optional list of tool schemas to filter against the
+                agent type's allowed tools.
+            extra_tools: Optional list of extra tool schemas to append (e.g.
+                runtime-injected ones like submit_results).
         """
         self._agent_type = agent_type
-        if id is not None:
-            self._id = f"Agent.{id}"
-        else:
-            self._id = f"Agent.{generate_unique_id()}"
-        self._context_length = int(context_length)
+        self._id = f"Agent.{id}"
 
         self._provider: Optional[Provider] = None
-        if provider is not None and isinstance(provider, Provider):
-            self._provider = provider
-        elif hasattr(agent_type, 'provider_config') and agent_type.provider_config is not None:
+        if hasattr(agent_type, 'provider_config') and agent_type.provider_config is not None:
             try:
                 self._provider = Provider.get_or_create(agent_type.provider_config)
             except Exception as exc:
                 print(f"Warning: Failed to resolve provider for '{agent_type.name}': {exc}")
-
-        # Resolve base URL from provider if available
-        try:
-            self._base_url = self._provider.get_base_url().rstrip("/") if self._provider is not None else ""
-        except Exception:
-            self._base_url = ""
 
         # Filter tool schemas based on AgentType.
         from harness_core.agent.utils import filter_tool_schemas
@@ -114,8 +100,8 @@ class Agent:
 
     @property
     def context_length(self) -> int:
-        """Public accessor for the model's context window size."""
-        return self._context_length
+        """Public accessor for the model's context window size, derived from the agent type's model config."""
+        return self._agent_type.context_length
 
     @property
     def session(self) -> "Session":
@@ -374,11 +360,8 @@ or update their status to 'failed' before stopping.
         It builds a configured Agent by name: looks up the agent YAML via the
         discovery path (:func:`agent.discovery.get_agent_yaml`, which searches
         project and global config paths with project taking precedence), loads the
-        agent type, injects skills/agents into the system prompt, resolves the
-        provider/context_length from the agent's own model/provider configuration,
-        filters the tool schemas, and returns the agent. The context length is
-        resolved from the agent's own model/provider config — it is no longer
-        copied from a parent agent.
+        agent type (which carries the model, provider, and context_length resolved
+        from the model config), filters the tool schemas, and returns the agent.
 
         Args:
             agent_name: The YAML file stem (e.g. ``"analyst"`` or ``"main"``).
@@ -398,7 +381,6 @@ or update their status to 'failed' before stopping.
         from harness_core.agent.discovery import get_agent_yaml
         from harness_core.agent.types import AgentType
         from harness_core.tools import AGENT_TOOLS
-        from harness_core.config import get_model_config, load_harness_config
 
         # Resolve the named agent YAML via project/global discovery paths.
         yaml_path_str, error_msg = get_agent_yaml(agent_name)
@@ -412,17 +394,9 @@ or update their status to 'failed' before stopping.
         if tool_schemas is None:
             tool_schemas = AGENT_TOOLS
 
-        # Resolve context_length: prefer model-specific config, fall back to global default.
-        model_cfg = get_model_config(agent_type.model_name)
-        if model_cfg is not None and model_cfg.get('context_length') is not None:
-            context_length = int(model_cfg['context_length'])
-        else:
-            _cfg = load_harness_config()
-            context_length = int(_cfg["context_length"])
-
         return cls(
             agent_type=agent_type,
-            context_length=context_length,
+            id=agent_name,
             tool_schemas=tool_schemas,
             extra_tools=extra_tools,
         )

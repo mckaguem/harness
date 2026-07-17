@@ -9,6 +9,7 @@ import pytest
 from harness_core.model.provider import OpenAIProvider
 
 from harness_core.agent import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
+from harness_core.model.types import ProviderConfig
 from harness_core.utils import project_root
 
 
@@ -392,6 +393,7 @@ class TestFilterToolSchemas:
             system_prompt="Test",
             agent_tools=["*"]
         )
+        agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
         
         schemas = [
             {"function": {"name": "tool1"}},
@@ -410,6 +412,7 @@ class TestFilterToolSchemas:
             system_prompt="Test",
             agent_tools=["execute_bash"]
         )
+        agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
         
         schemas = [
             {"function": {"name": "execute_bash"}},
@@ -430,6 +433,7 @@ class TestFilterToolSchemas:
             system_prompt="Test",
             agent_tools=["nonexistent_tool"]
         )
+        agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
         
         schemas = [
             {"function": {"name": "execute_bash"}},
@@ -447,6 +451,7 @@ class TestFilterToolSchemas:
             system_prompt="Test",
             agent_tools=[]
         )
+        agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
         
         schemas = [
             {"function": {"name": "tool1"}},
@@ -464,6 +469,7 @@ class TestFilterToolSchemas:
             system_prompt="Test",
             agent_tools=["tool_b", "tool_a"]
         )
+        agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
         
         schemas = [
             {"function": {"name": "tool_a"}},
@@ -487,9 +493,11 @@ class TestAgentInit:
             system_prompt="You are helpful.",
             agent_tools=[]
         )
+        agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
         
         mock_client = MagicMock()
-        agent = Agent(agent_type, 4096, provider=mock_client)
+        with patch("harness_core.model.provider.Provider.get_or_create", return_value=mock_client):
+            agent = Agent(agent_type, id="test-agent")
         
         assert len(agent._session.messages) == 1
         assert agent._session.messages[0]["role"] == "system"
@@ -504,6 +512,7 @@ class TestAgentInit:
             system_prompt="Test",
             agent_tools=["execute_bash"]
         )
+        agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
         
         mock_client = MagicMock()
         all_schemas = [
@@ -511,7 +520,8 @@ class TestAgentInit:
             {"function": {"name": "write_file"}},
         ]
         
-        agent = Agent(agent_type, 4096, provider=mock_client, tool_schemas=all_schemas)
+        with patch("harness_core.model.provider.Provider.get_or_create", return_value=mock_client):
+            agent = Agent(agent_type, id="test-agent", tool_schemas=all_schemas)
         
         assert len(agent._tools) == 1
         assert agent._tools[0]["function"]["name"] == "execute_bash"
@@ -525,9 +535,11 @@ class TestAgentInit:
             system_prompt="Test",
             agent_tools=["*"]
         )
+        agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
         
         mock_client = MagicMock()
-        agent = Agent(agent_type, 4096, provider=mock_client)
+        with patch("harness_core.model.provider.Provider.get_or_create", return_value=mock_client):
+            agent = Agent(agent_type, id="test-agent")
         
         assert agent._tools == []
 
@@ -540,11 +552,15 @@ class TestAgentInit:
             system_prompt="Test",
             agent_tools=[]
         )
+        agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
         
         mock_client = MagicMock()
-        agent = Agent(agent_type, 8192, provider=mock_client)
+        with patch("harness_core.model.provider.Provider.get_or_create", return_value=mock_client):
+            agent = Agent(agent_type, id="test-agent")
         
-        assert agent._context_length == 8192
+        # Context length is now derived from the agent type, not stored on the
+        # agent instance. Verify the agent resolves it through the public API.
+        assert agent.context_length == agent_type.context_length
 
 class TestAgentHandlePrompt:
     """Tests for Agent.handle_prompt() method.
@@ -591,8 +607,10 @@ class TestAgentHandlePrompt:
         from harness_core.agent import Agent, AgentType, RESPONSE
 
         agent_type = AgentType(model_name="test", system_prompt="Test", agent_tools=[])
+        agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
         provider = self._make_provider([self._response("Hello!")])
-        agent = Agent(agent_type, 4096, provider=provider)
+        with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
+            agent = Agent(agent_type, id="test-agent")
 
         outputs = list(agent.handle_prompt("Hi"))
 
@@ -606,11 +624,13 @@ class TestAgentHandlePrompt:
         from harness_core.agent import Agent, AgentType, TOOL_CALL, TOOL_RESULT
 
         agent_type = AgentType(model_name="test", system_prompt="Test", agent_tools=["execute_bash"])
+        agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
         provider = self._make_provider([
             self._response(None, tool_calls=[self._tool_call("execute_bash", {"command": "ls"})]),
             self._response("Done!"),
         ])
-        agent = Agent(agent_type, 4096, provider=provider)
+        with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
+            agent = Agent(agent_type, id="test-agent")
 
         outputs = list(agent.handle_prompt("List files"))
 
@@ -632,11 +652,13 @@ class TestAgentHandlePrompt:
         from harness_core.agent import Agent, AgentType, ERROR, TOOL_CALL
 
         agent_type = AgentType(model_name="test", system_prompt="Test", agent_tools=[])
+        agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
         provider = self._make_provider([
             self._response(None, tool_calls=[self._tool_call("unknown_tool", {})]),
             self._response("Sorry"),
         ])
-        agent = Agent(agent_type, 4096, provider=provider)
+        with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
+            agent = Agent(agent_type, id="test-agent")
 
         outputs = list(agent.handle_prompt("Do something"))
 
@@ -651,8 +673,10 @@ class TestAgentHandlePrompt:
         from harness_core.agent import Agent, AgentType
 
         agent_type = AgentType(model_name="test", system_prompt="Test", agent_tools=[])
+        agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
         provider = self._make_provider([self._response("Hi")])
-        agent = Agent(agent_type, 4096, provider=provider)
+        with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
+            agent = Agent(agent_type, id="test-agent")
 
         list(agent.handle_prompt("Hello"))
 
@@ -665,8 +689,10 @@ class TestAgentHandlePrompt:
         from harness_core.agent import Agent, AgentType
 
         agent_type = AgentType(model_name="test", system_prompt="Test", agent_tools=[])
+        agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
         provider = self._make_provider([self._response("Response")])
-        agent = Agent(agent_type, 4096, provider=provider)
+        with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
+            agent = Agent(agent_type, id="test-agent")
 
         list(agent.handle_prompt("Hi"))
 
@@ -679,11 +705,13 @@ class TestAgentHandlePrompt:
         from harness_core.agent import Agent, AgentType
 
         agent_type = AgentType(model_name="test", system_prompt="Test", agent_tools=["execute_bash"])
+        agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
         provider = self._make_provider([
             self._response(None, tool_calls=[self._tool_call("execute_bash", {"command": "echo test"})]),
             self._response("Done"),
         ])
-        agent = Agent(agent_type, 4096, provider=provider)
+        with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
+            agent = Agent(agent_type, id="test-agent")
 
         list(agent.handle_prompt("Run command"))
 
@@ -696,6 +724,7 @@ class TestAgentHandlePrompt:
         from harness_core.agent import Agent, AgentType, TOOL_CALL, TOOL_RESULT
 
         agent_type = AgentType(model_name="test", system_prompt="Test", agent_tools=["execute_bash"])
+        agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
         provider = self._make_provider([
             self._response(None, tool_calls=[
                 self._tool_call("execute_bash", {"command": "ls"}),
@@ -703,7 +732,8 @@ class TestAgentHandlePrompt:
             ]),
             self._response("Done!"),
         ])
-        agent = Agent(agent_type, 4096, provider=provider)
+        with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
+            agent = Agent(agent_type, id="test-agent")
 
         outputs = list(agent.handle_prompt("Run commands"))
 
@@ -719,11 +749,13 @@ class TestAgentHandlePrompt:
         from harness_core.agent import Agent, AgentType, ERROR
 
         agent_type = AgentType(model_name="test", system_prompt="Test", agent_tools=["execute_bash"])
+        agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
         provider = self._make_provider([
             self._response(None, tool_calls=[self._tool_call("execute_bash", {"wrong_key": "value"})]),
             self._response("Done"),
         ])
-        agent = Agent(agent_type, 4096, provider=provider)
+        with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
+            agent = Agent(agent_type, id="test-agent")
 
         outputs = list(agent.handle_prompt("Test"))
         assert any(o[0] == ERROR for o in outputs)

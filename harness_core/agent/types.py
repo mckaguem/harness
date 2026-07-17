@@ -23,6 +23,7 @@ class AgentType:
     name: str = ""
     model_name: str = ""
     provider_model_name: str = ""
+    context_length: int = 4096
     system_prompt: str = ""
     provider_config: ProviderConfig | None = None
     agent_tools: list[str] = field(default_factory=list)
@@ -245,6 +246,14 @@ class AgentType:
             )
         provider_model_name = model_cfg.get("provider_model_name") or model_name
 
+        # Compute the context length. Prefer the model config's value; fall back
+        # to the global default from the harness config.
+        from harness_core.config import load_harness_config
+        if model_cfg.get("context_length") is not None:
+            context_length = int(model_cfg["context_length"])
+        else:
+            context_length = int(load_harness_config()["context_length"])
+
         agent_tools = config.get("agent_tools", [])
         if not isinstance(agent_tools, list):
             raise ValueError("'agent_tools' must be a list of strings")
@@ -301,6 +310,7 @@ class AgentType:
             name=name,
             model_name=model_name,
             provider_model_name=provider_model_name,
+            context_length=context_length,
             system_prompt=system_prompt,
             provider_config=resolved_provider,
             agent_tools=agent_tools,

@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from harness_core.agent import Agent, AgentType, RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from harness_core.model.provider import Provider
+from harness_core.model.types import ProviderConfig
 from harness_core.__main__ import parse_args, run_non_interactive
 
 
@@ -53,7 +54,9 @@ def _make_agent(provider, content="Hello!", tool_calls=None, model="test"):
         system_prompt="You are a helpful test agent.",
         agent_tools=[],
     )
-    agent = Agent(agent_type, 4096, provider=provider)
+    agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
+    with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
+        agent = Agent(agent_type, id="noninteractive-agent")
     return agent
 
 
@@ -170,7 +173,9 @@ class TestRunNonInteractive:
             system_prompt="Test",
             agent_tools=["execute_bash"],
         )
-        agent = Agent(agent_type, 4096, provider=provider)
+        agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
+        with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
+            agent = Agent(agent_type, id="noninteractive-agent")
 
         calls = []
         results = []
@@ -211,7 +216,9 @@ class TestRunNonInteractive:
             system_prompt="Test",
             agent_tools=[],
         )
-        agent = Agent(agent_type, 4096, provider=provider)
+        agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
+        with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
+            agent = Agent(agent_type, id="noninteractive-agent")
 
         errors = []
         with patch("harness_core.terminal_io.display_agent_response"), patch(

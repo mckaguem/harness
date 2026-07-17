@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from harness_core.agent import Agent, AgentType
 from harness_core.model.provider import Provider
+from harness_core.model.types import ProviderConfig
 from harness_core.__main__ import run_non_interactive
 
 
@@ -174,7 +175,10 @@ def make_agent(responses, agent_tools=None):
         system_prompt="You are a helpful test agent.",
         agent_tools=tools,
     )
-    return Agent(agent_type, 4096, provider=FakeProvider(responses))
+    agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
+    with patch("harness_core.model.provider.Provider.get_or_create",
+               return_value=FakeProvider(responses)):
+        return Agent(agent_type, id="e2e-agent")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -353,11 +357,16 @@ class TestAllToolsE2E:
         sub_provider = FakeProvider([
             tool_response("submit_results", {"json_payload": json.dumps(sub_payload)}),
         ])
-        sub_agent = Agent(
-            AgentType(model_name="test", system_prompt="sub", agent_tools=[]),
-            4096,
-            provider=sub_provider,
-        )
+        with patch("harness_core.model.provider.Provider.get_or_create", return_value=sub_provider):
+            sub_agent = Agent(
+                AgentType(
+                    model_name="test",
+                    system_prompt="sub",
+                    agent_tools=[],
+                    provider_config=ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test"),
+                ),
+                id="sub-agent",
+            )
 
         parent = make_agent([
             tool_response("run_subagent", {"sub_agent": "analyst", "task": "go"}),
@@ -445,11 +454,16 @@ class TestSubagents:
         sub_provider = FakeProvider([
             tool_response("submit_results", {"json_payload": json.dumps(sub_payload)}),
         ])
-        sub_agent = Agent(
-            AgentType(model_name="test", system_prompt="sub", agent_tools=[]),
-            4096,
-            provider=sub_provider,
-        )
+        with patch("harness_core.model.provider.Provider.get_or_create", return_value=sub_provider):
+            sub_agent = Agent(
+                AgentType(
+                    model_name="test",
+                    system_prompt="sub",
+                    agent_tools=[],
+                    provider_config=ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test"),
+                ),
+                id="sub-agent",
+            )
         parent = make_agent([
             tool_response("run_subagent", {"sub_agent": "researcher", "task": "research"}),
             text_response("parent finished"),

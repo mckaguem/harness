@@ -205,8 +205,8 @@ def run_non_interactive(agent, message):
                 (ollama_response or {}).get("reasoning")
                 if isinstance(ollama_response, dict) else None
             )
-            display_agent_response(content, ollama_response, agent._context_length, reasoning=reasoning)
-            display_turn_stats(ollama_response, agent._context_length, elapsed_seconds=elapsed)
+            display_agent_response(content, ollama_response, agent.context_length, reasoning=reasoning)
+            display_turn_stats(ollama_response, agent.context_length, elapsed_seconds=elapsed)
         elif kind == TOOL_CALL:
             _, func_name, args_str, response_data = output
             pre_content = (response_data or {}).get("pre_tool_content", "") or ""

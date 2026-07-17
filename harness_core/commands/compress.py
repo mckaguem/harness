@@ -50,7 +50,7 @@ def compress_handler(rest: str, agent=None):
             new_count = len(session.messages)
             print_system("Compress", "Session compressed successfully.")
             print_system("Compress", f"Original messages: {original_count}\nCompressed messages: {new_count}\nNew file: {result}\nPreserved tail fraction: {fraction*100:.0f}%")
-            ctx_len = getattr(agent, 'context_length', None) or getattr(agent, '_context_length', 0)
+            ctx_len = getattr(agent, 'context_length', 0)
             from harness_core.agent.loop import _count_approx_tokens
             from harness_core.terminal_io import speed as _speed
             from harness_core.terminal_io.tui import get_tui as _get_tui

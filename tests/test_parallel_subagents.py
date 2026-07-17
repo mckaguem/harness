@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch, AsyncMock
 
 from harness_core.agent import Agent, AgentType, RESPONSE, TOOL_CALL, TOOL_RESULT
 from harness_core.model.provider import OpenAIProvider, Provider
+from harness_core.model.types import ProviderConfig
 from harness_core.tools.run_subagent import (
     run_subagent,
     run_subagents_parallel,
@@ -41,6 +42,7 @@ def _make_agent_with_tool_calls(tool_calls, final_content="All done."):
         system_prompt="Test",
         agent_tools=[],
     )
+    agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
     provider = MagicMock(spec=Provider)
     provider.model_name = "test"
 
@@ -68,7 +70,8 @@ def _make_agent_with_tool_calls(tool_calls, final_content="All done."):
         "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
     }
     provider.chat_completion.side_effect = [first_output, second_output]
-    return Agent(agent_type, 4096, provider=provider)
+    with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
+        return Agent(agent_type, id="parallel-subagent")
 
 
 def _fake_subagent_yield(task, delay=0.0):
