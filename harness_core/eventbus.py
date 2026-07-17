@@ -7,7 +7,6 @@ This module provides:
 - EventBus: A mailbox-pattern event bus for publishing and subscribing to events
 - filter_by_sender: Decorator for filtering events by sender
 - generate_unique_id: Utility for generating unique identifiers
-- set_event_loop/get_event_loop: Functions to manage the application event loop for cross-thread event delivery
 """
 
 import asyncio
@@ -19,33 +18,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-
 # Module-level logger for the event bus
 logger = logging.getLogger(__name__)
-
-
-# Reference to the application's main running event loop, if one has been
-# registered (e.g. by the TUI on mount). When set, events published from any
-# thread -- including worker threads that have no running loop of their own --
-# are marshalled onto this loop so their handlers run on the correct thread.
-_event_loop: Optional["asyncio.AbstractEventLoop"] = None
-
-
-def set_event_loop(loop: Optional["asyncio.AbstractEventLoop"]) -> None:
-    """Register the application's main running event loop.
-
-    When set, methods that publish events off the loop thread (such as the
-    agent loop running on a worker thread) will marshal delivery onto this
-    loop via ``call_soon_threadsafe`` so subscribed listeners still fire on
-    the correct thread. Pass ``None`` to clear the registration.
-    """
-    global _event_loop
-    _event_loop = loop
-
-
-def get_event_loop() -> Optional["asyncio.AbstractEventLoop"]:
-    """Return the currently registered application event loop, if any."""
-    return _event_loop
 
 
 def generate_unique_id(prefix: str = "") -> str:
@@ -182,7 +156,7 @@ class EventBus:
         self._running_tasks.add(task)
         return task
 
-    def register_agent(self, agent_id: str) -> asyncio.Queue[Any]:
+    def register_agent(self, agent_id: str) -> Tuple[asyncio.Queue[Any], Optional[asyncio.AbstractEventLoop]]:
         """Registers an agent using the event loop of the CALLING thread.
 
         If no event loop is currently running (e.g. when called from a
@@ -195,7 +169,9 @@ class EventBus:
             agent_id: Unique identifier for the agent
 
         Returns:
-            The ``asyncio.Queue`` mailbox bound to this thread's loop.
+            A tuple of ``(mailbox, loop)`` where ``mailbox`` is the
+            ``asyncio.Queue`` bound to this thread and ``loop`` is the running
+            event loop (or ``None`` if none was active).
 
         Raises:
             ValueError: If the agent_id is already registered
@@ -207,11 +183,11 @@ class EventBus:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             # No event loop running on this thread (e.g. sync test context).
-            loop = None  # type: ignore[assignment]
+            loop = None
         mailbox: asyncio.Queue[Any] = asyncio.Queue()
 
         self._mailboxes[agent_id] = (mailbox, loop)
-        return mailbox
+        return mailbox, loop
 
     def deregister_agent(self, agent_id: str) -> None:
         """Clean up an agent's mailbox and all of their topic subscriptions.
@@ -253,24 +229,90 @@ class EventBus:
             if not self._bindings[topic]:
                 del self._bindings[topic]
 
+    def _deliver_to_agent(self, event: Event, agent_id: str) -> None:
+        """Deliver *event* to ``agent_id``'s mailbox using thread-safe semantics.
+
+        Decides between three delivery paths based on the current thread relative
+        to the target loop's owning thread:
+
+        1. **No loop bound** (e.g. synchronous context): direct :meth:`asyncio.Queue.put_nowait`.
+        2. **Same thread**: direct :meth:`asyncio.Queue.put_nowait` (fast path).
+        3. **Different thread**: schedule via :meth:`asyncio.BaseEventLoop.call_soon_threadsafe`; if the loop is closed or rejects that, fall back to a direct ``put_nowait`` as a last resort.
+
+        All exceptions are swallowed so a single misbehaving agent cannot poison
+        delivery to other agents on the bus.
+
+        Args:
+            event: The event to deliver.
+            agent_id: The target agent's unique identifier (used to look up its
+                mailbox and loop from :attr:`_mailboxes`).
+        """
+        entry = self._mailboxes.get(agent_id)
+        if not entry:
+            return
+
+        mailbox, loop = entry  # Unpack (mailbox, loop) tuple
+
+        # No loop bound — synchronous / non-TUI context. Deliver directly.
+        if loop is None:
+            try:
+                mailbox.put_nowait(event)
+            except Exception:
+                pass
+            return
+
+        # Attempt cross-thread delivery.  We guard the thread-detection itself so
+        # unusual AbstractEventLoop implementations don't crash the bus.
+        try:
+            current_thread = threading.current_thread()
+            target_loop_thread = getattr(loop, '_thread', None)
+            same_thread = (current_thread is target_loop_thread) if target_loop_thread else False
+
+            if same_thread:
+                # Fast path — we already own this loop's thread.
+                mailbox.put_nowait(event)
+            else:
+                # Cross-thread: ask the event loop to handle delivery on its own
+                # thread via call_soon_threadsafe.
+                try:
+                    loop.call_soon_threadsafe(mailbox.put_nowait, event)
+                except RuntimeError:
+                    # Loop may be closed or otherwise unresponsive — last resort.
+                    try:
+                        mailbox.put_nowait(event)
+                    except Exception:
+                        pass
+        except AttributeError:
+            # Some AbstractEventLoop implementations don't expose _thread. Fall
+            # back to call_soon_threadsafe regardless; if that also fails, use
+            # direct put_nowait as a last resort.
+            try:
+                loop.call_soon_threadsafe(mailbox.put_nowait, event)
+            except RuntimeError:
+                try:
+                    mailbox.put_nowait(event)
+                except Exception:
+                    pass
+
     def send_direct(self, sender: str, target_agent_id: str, payload: Any) -> None:
         """Deliver a message directly to a specific agent's mailbox.
 
-        This is a point-to-point message (topic is None).
+        This is a point-to-point message (topic is None). Thread-safe — uses the
+        same delivery semantics as :meth:`publish`.
 
         Args:
             sender: Identifier of the sender
             target_agent_id: Unique identifier of the target agent
             payload: Arbitrary data to send
         """
-        entry = self._mailboxes.get(target_agent_id)
-        if entry:
-            mailbox, loop = entry  # Unpack (mailbox, loop) tuple
-            event = Event(topic=None, sender=sender, payload=payload)
-            mailbox.put_nowait(event)
+        event = Event(topic=None, sender=sender, payload=payload)
+        self._deliver_to_agent(event, target_agent_id)
 
     def publish_to_topic(self, sender: str, topic: str, payload: Any) -> None:
         """Broadcast a message to the mailboxes of all subscribed agents.
+
+        Thread-safe — each delivery uses the same cross-thread semantics as
+        :meth:`publish`.
 
         Args:
             sender: Identifier of the sender
@@ -282,69 +324,24 @@ class EventBus:
 
         event = Event(topic=topic, sender=sender, payload=payload)
         for agent_id in self._bindings[topic]:
-            entry = self._mailboxes.get(agent_id)
-            if entry:
-                mailbox, loop = entry  # Unpack (mailbox, loop) tuple
-                mailbox.put_nowait(event)
+            self._deliver_to_agent(event, agent_id)
 
     def publish(self, event: Event):
         """Broadcasts a message to all subscribed loops safely across threads.
-        
+
         When called from a worker thread, schedules delivery onto each target's
-        event loop via call_soon_threadsafe. When called on the same thread as
-        the target (e.g., non-TUI mode), delivers directly.
-        
+        event loop via ``call_soon_threadsafe``. When called on the same thread as
+        the target (e.g., non-TUI mode), delivers directly. Thread-safety is
+        delegated to :meth:`_deliver_to_agent`.
+
         Args:
             event: The event to publish (must have a topic)
         """
-        if event.topic is None:
-            return
-
-        if event.topic not in self._bindings:
+        if event.topic is None or event.topic not in self._bindings:
             return
 
         for agent_id in self._bindings[event.topic]:
-            entry = self._mailboxes.get(agent_id)
-            if entry:
-                mailbox, loop = entry
-
-                # If no loop was bound (e.g. synchronous context), deliver directly.
-                if loop is None:
-                    try:
-                        mailbox.put_nowait(event)
-                    except Exception:
-                        pass
-                else:
-                    try:
-                        current_thread = threading.current_thread()
-                        target_loop_thread = getattr(loop, '_thread', None)
-
-                        same_thread = (current_thread is target_loop_thread) if target_loop_thread else False
-
-                        if same_thread:
-                            # Same thread - direct put_nowait (fast path)
-                            mailbox.put_nowait(event)
-                        else:
-                            # Different thread - use call_soon_threadsafe to schedule delivery
-                            try:
-                                loop.call_soon_threadsafe(mailbox.put_nowait, event)
-                            except RuntimeError as exc:
-                                try:
-                                    mailbox.put_nowait(event)
-                                except Exception:
-                                    pass
-                    except AttributeError:
-                        # Some AbstractEventLoop implementations don't expose _thread.
-                        # Fall back to call_soon_threadsafe anyway; if that fails too,
-                        # direct put_nowait is a last-resort delivery.
-                        try:
-                            loop.call_soon_threadsafe(mailbox.put_nowait, event)
-                        except RuntimeError:
-                            try:
-                                mailbox.put_nowait(event)
-                            except Exception:
-                                pass
-
+            self._deliver_to_agent(event, agent_id)
 
 class EventListener:
     """Base class for event listeners using the mailbox pattern.
@@ -375,7 +372,7 @@ class EventListener:
 
         # 1. Register with the bus. This binds our mailbox to 
         #    the current worker thread's event loop.
-        self.mailbox = self.bus.register_agent(self.agent_id)
+        self.mailbox, _loop = self.bus.register_agent(self.agent_id)
         
         # 2. Keep a local strong reference to the listener task
         #    to prevent garbage collection while we're running.

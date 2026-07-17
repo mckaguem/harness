@@ -12,6 +12,7 @@ from .session_utils import (
 )
 
 from harness_core.model.provider import Provider
+from harness_core.tools.utils import is_safe_path
 
 
 class Session:
@@ -50,11 +51,8 @@ class Session:
         if auto_save:
             sessions_dir = ensure_sessions_dir()
             self._session_filename = create_session_filename(agent_type_name=self._agent_type_name)
-            # Write initial empty session to file
             filepath = sessions_dir / self._session_filename
-            yaml_content = format_session_yaml(self.messages, agent_type_name=self._agent_type_name)
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(yaml_content)
+            self._write_to_disk(filepath)
 
     # -- message manipulation -----------------------------------------------
 
@@ -111,6 +109,19 @@ class Session:
         if self._auto_save:
             self._auto_save_session()
 
+    def _write_to_disk(self, filepath: Path) -> None:
+        """Write the current messages to *filepath* in YAML format.
+
+        Called from both :meth:`__init__` (initial empty session) and
+        :meth:`_auto_save_session`. Each caller is responsible for its own
+        error handling and any bookkeeping (e.g., setting ``self.filepath``).
+        """
+        yaml_content = format_session_yaml(
+            self.messages, agent_type_name=self._agent_type_name,
+        )
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(yaml_content)
+
     def _auto_save_session(self) -> None:
         """Automatically save the current session to .sessions/ directory.
 
@@ -120,24 +131,19 @@ class Session:
             # Use stored filename if it exists, otherwise generate a new one
             if not self._session_filename:
                 self._session_filename = create_session_filename(agent_type_name=self._agent_type_name)
-            
+
             sessions_dir = ensure_sessions_dir()
             filepath = sessions_dir / self._session_filename
-            yaml_content = format_session_yaml(
-                self.messages, agent_type_name=self._agent_type_name,
-            )
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(yaml_content)
+            self._write_to_disk(filepath)
             self.filepath = str(filepath)  # Set filepath after saving
 
-        except Exception as exc:  # noqa: BLE001
+        except (OSError, IOError) as exc:  # noqa: BLE001
             # Surface the failure instead of swallowing it (AGENTS.md §4: never
             # silently swallow). Go to stderr so it doesn't pollute the
             # LLM-facing output or break the conversation flow.
             import sys
             print(
-                f"[session] Warning: failed to auto-save session to "
-                f"{getattr(self, 'filepath', '<unknown>')}: {exc}",
+                "[session] Warning: failed to auto-save session",
                 file=sys.stderr,
             )
 
@@ -394,12 +400,26 @@ Execute the next logical step based on this state. Only reference tasks by their
             FileNotFoundError: If *filepath* does not exist.
             ValueError: If the file cannot be parsed or contains invalid data.
         """
-        path = Path(filepath)
-        if not path.is_file():
-            raise FileNotFoundError(f"Session file not found: {filepath}")
+        try:
+            path = Path(filepath)
 
-        with open(path, "r", encoding="utf-8") as f:
-            yaml_content = f.read()
+            # Check existence before safety so missing files raise FileNotFoundError
+            if not path.exists():
+                raise FileNotFoundError(
+                    "Session file does not exist at the given location"
+                )
+
+            if not is_safe_path(filepath):
+                raise ValueError("Session file path is not safe to load")
+
+            with open(path, "r", encoding="utf-8") as f:
+                yaml_content = f.read()
+        except (FileNotFoundError, ValueError):
+            raise
+        except Exception:
+            raise RuntimeError(
+                "Unable to load session file from the provided path"
+            )
 
         messages, error = parse_session_yaml(yaml_content)
         if error:
@@ -408,7 +428,7 @@ Execute the next logical step based on this state. Only reference tasks by their
         # The first message must be the system prompt.
         if not messages or messages[0].get("role") != "system":
             raise ValueError(
-                f"Invalid session file '{filepath}': missing system prompt as first message."
+                "Invalid session file: missing system prompt as first message"
             )
 
         system_prompt = messages[0]["content"]

@@ -3,10 +3,9 @@
 import os
 from pathlib import Path
 
-# Import project_root from harness_core.utils
-from harness_core.utils import project_root
 import yaml
 from harness_core.model.types import ProviderConfig, ModelConfig
+from harness_core.utils import project_root
 
 # ---------------------------------------------------------------------------
 # Centralized constants for the harness codebase.

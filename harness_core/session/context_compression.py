@@ -12,7 +12,8 @@ This module provides functionality to compress conversation history by:
 - Automatic compression when context utilization exceeds thresholds
 """
 
-import os, re
+import os
+import re
 from datetime import datetime, timezone
 
 from .session import Session  # Ensure proper import if needed elsewhere
@@ -457,8 +458,9 @@ def compress_session(session: Session, fraction: float = 0.1) -> str | None:
 
     messages = getattr(session, "messages", None)
     if messages is None:
-        print_system("Compress", "Session has no messages. Cannot compress.")
-        return None
+        raise ValueError(
+            "Cannot compress a session with no messages"
+        )
 
     # Always save before mutating
     session.save()

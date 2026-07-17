@@ -80,7 +80,23 @@ def discover_agents(
                 if yaml_file.suffix not in (".yaml", ".yml"):
                     continue
 
+                # Safety guard: ensure the resolved path stays within agents_path.
+                # This prevents directory-traversal tricks via symlinks or ".."
+                # entries that could expose arbitrary files outside the intended
+                # agents directory.
+                try:
+                    yaml_file.resolve().is_relative_to(agents_path.resolve())
+                except OSError:
+                    continue
+
                 agent_name = yaml_file.stem
+
+                # Sanitize agent_name: reject names containing path separators
+                # or starting with a dash (which could be confused with CLI
+                # flags when used as identifiers).
+                if "/" in agent_name or "\\" in agent_name or agent_name.startswith("-"):
+                    continue
+
                 valid_agents.append((agent_name, yaml_file))
 
             all_discoveries.append((agents_path, valid_agents))

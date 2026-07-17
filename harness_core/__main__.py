@@ -174,10 +174,10 @@ def run_non_interactive(agent, message):
 
         handler = COMMANDS.get(command_name)
         if handler:
-            result = handler(rest, agent=agent)
+            handler(rest, agent=agent)
             # /exit or /quit request termination; other built-in commands are
             # handled directly and need no LLM call.
-            return 0 if result is True else 0
+            return 0
 
         # No built-in handler — run the skill-activation interceptor.
         outcome = intercept_message(message)

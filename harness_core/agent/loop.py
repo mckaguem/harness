@@ -1,4 +1,6 @@
 """Interactive user loop for the agent harness."""
+
+import json
 import time as _time
 import traceback
 
@@ -6,7 +8,6 @@ from harness_core.agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from harness_core.agent.core import Agent
 from harness_core.terminal_io import prompt_user
 from harness_core.tools.dispatcher import summarize
-import json
 from harness_core.commands import COMMANDS
 from harness_core.skills.interceptor import intercept_message, InterceptorKind
 from harness_core.event_types import (SystemMessagePayload, ControlPayload, ToolErrorPayload, SessionErrorPayload, AgentResponsePayload, TurnStatsPayload, ToolCallPayload, ToolResultPayload)

@@ -142,13 +142,6 @@ class TextualHarnessApp(App):
             self.query_one("#input", TextArea),
             self.query_one("#spinner", StatusSpinner),
         )
-        # Register this app's running loop so that events published from the
-        # worker thread (the agent loop) are marshalled back onto the app
-        # thread where the widgets live.
-        from harness_core.eventbus import set_event_loop
-
-        set_event_loop(asyncio.get_running_loop())
-
         # Wire up the right-hand task-list sidebar.
         sidebar = self.query_one("#task-sidebar", TaskListSidebar)
         if self._agent is not None:

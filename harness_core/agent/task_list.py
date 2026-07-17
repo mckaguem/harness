@@ -44,6 +44,11 @@ class Task:
             "status": self.status,
         }
 
+    @property
+    def is_active(self) -> bool:
+        """Return True if the task is pending or in_progress."""
+        return self.status in ("pending", "in_progress")
+
 
 @dataclass
 class NextTaskInfo:
@@ -127,8 +132,8 @@ class TaskList:
             raise ValueError("Task list cannot be empty")
 
         # Guard against overwriting an unfinished task list silently
-        if self.tasks and any(t.status in ("pending", "in_progress") for t in self.tasks):
-            incomplete_ids = [t.id for t in self.tasks if t.status in ("pending", "in_progress")]
+        if self.tasks and any(t.is_active for t in self.tasks):
+            incomplete_ids = [t.id for t in self.tasks if t.is_active]
             raise ValueError(
                 f"Cannot initialize: {len(incomplete_ids)} task(s) still incomplete "
                 f"(IDs: {', '.join(map(str, incomplete_ids))}). Call reset() first, or complete all tasks."
@@ -216,12 +221,12 @@ class TaskList:
 
     def all_complete(self) -> bool:
         """Return True if every task is completed or failed (no pending/in_progress remain)."""
-        return len(self.tasks) > 0 and not any(t.status in ("pending", "in_progress") for t in self.tasks)
+        return len(self.tasks) > 0 and not any(t.is_active for t in self.tasks)
 
     def next_uncompleted_task(self) -> Task | None:
         """Return the first task that is still pending or in_progress, or None."""
         for task in self.tasks:
-            if task.status in ("pending", "in_progress"):
+            if task.is_active:
                 return task
         return None
 

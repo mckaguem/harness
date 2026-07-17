@@ -90,7 +90,7 @@ class TestEventBus:
 
     def test_register_agent_creates_mailbox(self):
         """Test registering an agent creates a mailbox."""
-        mailbox = self.bus.register_agent("agent1")
+        mailbox, _loop = self.bus.register_agent("agent1")
         assert isinstance(mailbox, asyncio.Queue)
         assert "agent1" in self.bus._mailboxes
 
