@@ -161,35 +161,23 @@ class Agent(InteractiveLoopMixin, EventPublisher):
 
         return response
 
-    # -- public API ----------------------------------------------------------
-
     def handle_prompt(self, user_input: str) -> Generator[tuple[str, Any, Any, Optional[dict[str, Any]]], None, None]:
         """Process a single user prompt to completion.
-        
+
         Yields tuples of ``(kind, ...)`` where ``kind`` is one of
         :data:`RESPONSE`, :data:`TOOL_CALL`, :data:`TOOL_RESULT` or
         :data:`ERROR`.  The agent dispatches and executes each tool internally;
         it never calls display functions itself.
-        
+
         Yields::
-        
+
             (RESPONSE,         content, openai_response)
             (TOOL_CALL,        func_name, args_str, response_data)
             (TOOL_RESULT,      func_name, result, response_data)
             (ERROR,            description)
         """
-        # 1. Prepend any injected text to the user input, then clear queue
-        injected = self._session.consume_injected_text()
-        effective_input = (
-            f"{injected}\n\n{user_input}" if injected is not None else user_input
-        )
+        self._prepare_user_input(user_input)
 
-        # 2. Build message dict and prepare it (inject task state BEFORE adding to list)
-        user_msg_dict = {"role": "user", "content": effective_input}
-        prepared = self._session.prepare_message_for_injection(user_msg_dict)
-        self._session.add_user_message(prepared["content"])
-        
-        # 3. Loop as before, but use session methods instead of self.messages.append() etc.
         loop_count = 0
         while True:
             if loop_count >= self._max_loops:
@@ -205,113 +193,182 @@ class Agent(InteractiveLoopMixin, EventPublisher):
             self._session.add_assistant_message(message)
 
             if not message.get("tool_calls"):
-                if self._task_list and self._task_list.has_incomplete_tasks():
-                    block_content = """
-[SYSTEM ERROR] Execution termination blocked.
+                action, content = self._handle_no_tool_calls(response, message)
+                if action == "continue":
+                    continue
+                yield (RESPONSE, content, response, None)
+                break
+
+            yield from self._process_tool_calls(message, response)
+
+    # -- private helpers ---------------------------------------------------
+
+    def _prepare_user_input(self, user_input: str) -> None:
+        """Prepend any injected text to the user input and add it to the session.
+
+        Consumes any queued injected text via :meth:`Session.consume_injected_text`,
+        prepends it to *user_input* (separated by a blank line when present), then
+        prepares the message dict through
+        :meth:`Session.prepare_message_for_injection` before adding it as a user
+        message.
+        """
+        injected = self._session.consume_injected_text()
+        effective_input = (
+            f"{injected}\n\n{user_input}" if injected is not None else user_input
+        )
+
+        # Build message dict and prepare it (inject task state BEFORE adding to list)
+        user_msg_dict = {"role": "user", "content": effective_input}
+        prepared = self._session.prepare_message_for_injection(user_msg_dict)
+        self._session.add_user_message(prepared["content"])
+
+    def _handle_no_tool_calls(self, response: dict, message: dict) -> tuple[str, str | None]:
+        """Handle the case where the LLM returned no tool calls.
+
+        Returns a tuple of ``(action, content)`` where *action* is either
+        ``"continue"`` (keep looping — there are incomplete tasks in the task
+        list) or ``"done"`` (break out with *content* as the response text to
+        yield).
+        """
+        if self._task_list and self._task_list.has_incomplete_tasks():
+            block_content = """[SYSTEM ERROR] Execution termination blocked.
 You still have incomplete tasks in your tasks list.
 You must finish them and update their status to 'complete',
-or update their status to 'failed' before stopping.
-"""
+or update their status to 'failed' before stopping."""
+            self._inject_blocking_message(block_content)
+            return ("continue", None)
 
-                    # Wrap with prepare_message_for_injection to match old behavior
-                    block_dict = {"role": "user", "content": block_content}
-                    prepared_block = self._session.prepare_message_for_injection(block_dict)
-                    self._session.add_user_message(prepared_block["content"])
-                                     
-                    continue
-                    
-                else:
-                    content = message.get("content", "")
-                    yield (RESPONSE, content, response, None)
-                    break
-            
-            pending_parallel = []
-            use_parallel = (
-                len([tc for tc in message["tool_calls"] if tc["function"]["name"] == "run_subagent"]) > 1
+        content = message.get("content", "")
+        return ("done", content)
+
+    def _inject_blocking_message(self, content: str) -> None:
+        """Inject a user-role message into the session via ``prepare_message_for_injection``.
+
+        Used to block execution when the agent tries to terminate while tasks
+        remain incomplete.
+        """
+        block_dict = {"role": "user", "content": content}
+        prepared_block = self._session.prepare_message_for_injection(block_dict)
+        self._session.add_user_message(prepared_block["content"])
+
+    def _process_tool_calls(self, message: dict, response: dict) -> Generator[tuple[str, Any, Any, Optional[dict[str, Any]]], None, None]:
+        """Process all tool calls in an assistant message.
+
+        Iterates over the tool calls in *message*, yielding TOOL_CALL events and
+        dispatching each one via :func:`dispatch`.  Parallel ``run_subagent``
+        calls are deferred to a single concurrent batch at the end of this loop.
+
+        Yields::
+
+            (ERROR,            description)             # JSON parse failure / unknown function / runtime error
+            (TOOL_CALL,        func_name, args_str, response_data)
+            (TOOL_RESULT,      func_name, result, response_data)
+        """
+        pending_parallel = []
+        use_parallel = (
+            len([tc for tc in message["tool_calls"] if tc["function"]["name"] == "run_subagent"]) > 1
+        )
+
+        for tool_call in message["tool_calls"]:
+            func_name = tool_call["function"]["name"]
+            raw_args = tool_call["function"]["arguments"]
+            tool_call_id = tool_call["id"]
+
+            # Attempt to parse JSON; if it fails, treat as an error and continue.
+            try:
+                args = json.loads(raw_args)
+            except json.JSONDecodeError as exc:
+                description = f"Tool call argument parsing failed: {exc}"
+                error_result = ToolResult(
+                    llm_text=description, display_text=description,
+                    type_tag="text", title=f"Error: {func_name}", theme="error",
+                )
+                # Record the tool result (error) in the session.
+                self._session.add_tool_result(func_name, error_result.llm_text, tool_call["id"])
+                # Yield an error event and skip further processing of this tool call.
+                yield (ERROR, description, None, None)
+                # Continue to next tool call (or next loop iteration).
+                continue
+
+            # Termination circuit breaker (Component 4): block submit_results if tasks remain.
+            if func_name == "submit_results" and self._task_list and self._task_list.has_incomplete_tasks():
+                content = (
+                    "[SYSTEM ERROR] Execution termination blocked. "
+                    "You still have incomplete tasks in your state machine. "
+                    "You must finish them or update their status to 'failed' "
+                    "before you can invoke submit_results."
+                )
+                block_result = ToolResult(
+                    llm_text=content, display_text=content,
+                    type_tag="text", title=f"Error: submit_results", theme="error",
+                )
+                # This is a user-role message from the executor — also wrap with prepare_message_for_injection
+                inner_block_dict = {"role": "user", "content": content}
+                prepared_inner = self._session.prepare_message_for_injection(inner_block_dict)
+                self._session.add_user_message(prepared_inner["content"])
+                yield (TOOL_RESULT, func_name, block_result, response)
+                continue
+
+            yield (TOOL_CALL, func_name, raw_args, response)
+
+            # Defer execution of multiple run_subagent calls to a single
+            # concurrent batch after this loop (keeps them in parallel).
+            if use_parallel and func_name == "run_subagent":
+                pending_parallel.append((tool_call, args))
+                continue
+
+            yield from self._execute_single_tool(tool_call_id, func_name, args, raw_args, response)
+
+        # Run any deferred run_subagent calls concurrently and feed each
+        # result back into the conversation for the next model round.
+        if pending_parallel:
+            yield from self._process_parallel_subagents(pending_parallel, response)
+
+    def _execute_single_tool(self, tool_call_id: str, func_name: str, args: dict, raw_args: str, response: dict) -> Generator[tuple[str, Any, Any, Optional[dict[str, Any]]], None, None]:
+        """Dispatch a single tool call via :func:`dispatch` and yield its result.
+
+        Yields either an ERROR event (on ``KeyError`` for unknown functions or
+        on unexpected exceptions) or a TOOL_RESULT event with the returned
+        :class:`ToolResult`.  Returns silently otherwise.
+        """
+        try:
+            return_result = dispatch(func_name, args, self)
+        except KeyError:
+            description = f"Unknown function '{func_name}'."
+            yield (ERROR, description, None, None)
+            return
+        except Exception as exc:
+            # Handle unexpected errors (e.g., wrong args to tool)
+            description = f"Error calling {func_name}: {exc}"
+            yield (ERROR, description, None, None)
+            return
+
+        assert isinstance(return_result, ToolResult), "dispatch() must return a ToolResult"
+
+        # Use session.add_tool_result instead of self.messages.append({"role":"tool",...})
+        self._session.add_tool_result(func_name, return_result.llm_text, tool_call_id)
+        yield (TOOL_RESULT, func_name, return_result, response)
+
+    def _process_parallel_subagents(self, pending_parallel: list, response: dict) -> Generator[tuple[str, Any, Any, Optional[dict[str, Any]]], None, None]:
+        """Execute deferred parallel ``run_subagent`` calls and yield their results.
+
+        Uses :func:`harness_core.tools.run_subagent.run_subagents_parallel` to run
+        all pending sub-agent tasks concurrently in a single batch, then feeds each
+        result back into the conversation via TOOL_RESULT events.
+        """
+        from harness_core.tools.run_subagent import run_subagents_parallel
+
+        parallel_calls = [
+            (args.get("sub_agent", ""), args.get("task", ""))
+            for _tc, args in pending_parallel
+        ]
+        parallel_results = run_subagents_parallel(parallel_calls)
+        for (tool_call, _args), result in zip(pending_parallel, parallel_results):
+            self._session.add_tool_result(
+                "run_subagent", result.llm_text, tool_call["id"]
             )
+            yield (TOOL_RESULT, "run_subagent", result, response)
 
-            for tool_call in message["tool_calls"]:
-                func_name = tool_call["function"]["name"]
-                raw_args = tool_call["function"]["arguments"]
-                tool_call_id = tool_call["id"]
-                
-                # Attempt to parse JSON; if it fails, treat as an error and continue.
-                try:
-                    args = json.loads(raw_args)
-                except json.JSONDecodeError as exc:
-                    description = f"Tool call argument parsing failed: {exc}"
-                    error_result = ToolResult(
-                        llm_text=description, display_text=description,
-                        type_tag="text", title=f"Error: {func_name}", theme="error",
-                    )
-                    # Record the tool result (error) in the session.
-                    self._session.add_tool_result(func_name, error_result.llm_text, tool_call["id"])
-                    # Yield an error event and skip further processing of this tool call.
-                    yield (ERROR, description, None, None)
-                    # Continue to next tool call (or next loop iteration).
-                    continue
-                
-                # Termination circuit breaker (Component 4): block submit_results if tasks remain.
-                if func_name == "submit_results" and self._task_list and self._task_list.has_incomplete_tasks():
-                    content = (
-                        "[SYSTEM ERROR] Execution termination blocked. "
-                        "You still have incomplete tasks in your state machine. "
-                        "You must finish them or update their status to 'failed' "
-                        "before you can invoke submit_results."
-                    )
-                    block_result = ToolResult(
-                        llm_text=content, display_text=content,
-                        type_tag="text", title=f"Error: submit_results", theme="error",
-                    )
-                    # This is a user-role message from the executor — also wrap with prepare_message_for_injection
-                    inner_block_dict = {"role": "user", "content": content}
-                    prepared_inner = self._session.prepare_message_for_injection(inner_block_dict)
-                    self._session.add_user_message(prepared_inner["content"])
-                    yield (TOOL_RESULT, func_name, block_result, response)
-                    continue
-                                
-                yield (TOOL_CALL, func_name, raw_args, response)
-
-                # Defer execution of multiple run_subagent calls to a single
-                # concurrent batch after this loop (keeps them in parallel).
-                if use_parallel and func_name == "run_subagent":
-                    pending_parallel.append((tool_call, args))
-                    continue
-
-                # Execute the tool directly via dispatch and handle its result.
-                try:
-                    return_result = dispatch(func_name, args, self)
-                except KeyError:
-                    description = f"Unknown function '{func_name}'."
-                    yield (ERROR, description, None, None)
-                    continue
-                except Exception as exc:
-                    # Handle unexpected errors (e.g., wrong args to tool)
-                    description = f"Error calling {func_name}: {exc}"
-                    yield (ERROR, description, None, None)
-                    continue
-
-                assert isinstance(return_result, ToolResult), "dispatch() must return a ToolResult"
-
-                # Use session.add_tool_result instead of self.messages.append({"role":"tool",...})
-                self._session.add_tool_result(func_name, return_result.llm_text, tool_call_id)
-                yield (TOOL_RESULT, func_name, return_result, response)
-
-            # Run any deferred run_subagent calls concurrently and feed each
-            # result back into the conversation for the next model round.
-            if pending_parallel:
-                from harness_core.tools.run_subagent import run_subagents_parallel
-
-                parallel_calls = [
-                    (args.get("sub_agent", ""), args.get("task", ""))
-                    for _tc, args in pending_parallel
-                ]
-                parallel_results = run_subagents_parallel(parallel_calls)
-                for (tool_call, _args), result in zip(pending_parallel, parallel_results):
-                    self._session.add_tool_result(
-                        "run_subagent", result.llm_text, tool_call["id"]
-                    )
-                    yield (TOOL_RESULT, "run_subagent", result, response)
 
     @classmethod
     def from_agent_name(cls, agent_name: str,
