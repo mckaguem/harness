@@ -1,60 +1,62 @@
 ---
 name: wiki-llm
 description: A stateful, text-graph memory skill that allows coding agents to autonomously document codebase architectures, traverse structural relationships efficiently, and maintain synchronization using git diffs and graph linting.
+compatibility: Python 3.x, Obsidian
+metadata:
+  version: 2.0.0
+  automation_script: wiki_init.py
 ---
-
 
 # Skill: LLM-Wiki Codebase Memory System
 
 ## Purpose
-Enables the agent to maintain and navigate a localized, hyper-linked knowledge graph of a codebase. This system bypasses traditional vector databases using a human-readable text graph that tracks file, class, function, and modular relationships without consuming excessive token context.
+Enables the agent to maintain and navigate a localized, hyper-linked knowledge graph of a codebase. This system replaces traditional vector databases with a human-readable text graph that tracks module, file, class, function, and constant relationships without consuming excessive token context.
 
-## System Instructions & Integration
-Inject the following instructions into the agent's core system prompt or active skill initialization profile:
+## Core Architecture & Directory Rules
 
-```markdown
-# Role & Core Objective
-You are an expert software engineer equipped with an "LLM-Wiki" memory system. Your task is to maintain and actively utilize a hyper-linked, documentation-based knowledge graph of the codebase to understand architecture, track relationships, and navigate efficiently.
+### 1. Wiki Generation Automation (`wiki_init.py`)
+* The text-graph wiki structure is automatically built and refreshed using the codebase exploration script named `wiki_init.py`.
+* `wiki_init.py` utilizes Python's Abstract Syntax Tree (`ast`) module to perform static analysis across the codebase.
+* The script maps out scopes, processes direct references, automatically constructs parent-child chains, and populates the wiki directory.
+* When running updates or synchronization lifecycles, `wiki_init.py` is configured to preserve existing frontmatter descriptions that have been manually added or updated.
 
-### 1. Directory Structure
-Ensure the following directory tree exists within the workspace. Create it if it does not:
-- `./wiki/`
-- `./wiki/pages/`
-- `./wiki/index/`
+### 2. File Naming Convention
+* Every page generated in the wiki is written as an Obsidian-compatible Markdown file.
+* The filename for each page must be the item's Fully Qualified Name (FQN), such as `mymodule.myfile.MyClass.md` or `mymodule.myfile.md`.
+* Pages must exist for all structural layers, including top-level directories (`modules`) and individual Python source files (`files`).
+* The files are saved inside a nested directory layout under `./wiki` that reflects the original layout of the source codebase, while the leaf filename itself retains the complete FQN.
 
-### 2. Page Creation & Maintenance Rules
-Create exactly one wiki page per distinct code item (modules, files, classes, functions, important variables, high-level functionalities, coding standards, and tests).
+## Note Layout and Frontmatter Specification
+Each individual Markdown page represents exactly one codebase item and must adhere to a strict 25-line maximum limit (excluding link listings). Source code bodies must never be pasted onto a page; only structural definitions like abstract function or method signatures are permitted.
 
-#### Collision Prevention & Namespacing:
-To prevent identity collisions between identically named items in different parts of the codebase (e.g., a `utils.py` file in two different directories, or a `validate()` function inside multiple classes), you must enforce strict structural namespacing:
-- **Filename Standard:** Name the markdown file using its fully qualified path path, substituting slashes and periods with underscores (e.g., `src_auth_utils_hash.md` instead of just `hash.md`).
-- **YAML Name Standard:** The name property inside the front matter must match this fully qualified namespace string.
+### Required YAML Frontmatter
+Every note must contain the following structural properties at the very top of the file:
+* `name`: The name of the codebase element written in Python FQN format (e.g., `mymodule.myfile.MyClass.myFunction`).
+* `description`: A one-line summary explaining the item's purpose, which is left empty by default upon initialization and preserved during subsequent synchronization runs.
+* `type`: A category string restricted to one of the following: `module`, `file`, `class`, `function`, or `constant`.
+* `reference`: The path to the element relative to the project root directory. For `module` and `file` types, this is their own relative path. For `class`, `function`, and `constant` types, this is the relative path to the Python file where they are defined.
 
-#### Page constraints
-- **Length Constraint:** Keep pages ultra-short (ideally less than 25 lines of prose, excluding references).
-- **No Source Code:** Never include functional source code bodies. You may only include structural basics like function/method signatures without their implementations. Focus entirely on the item's purpose and architectural relationships.
-- **Strict Schema:** Every page must start with a front-matter YAML header exactly like this:
+## Relationship and Link Protocols
+To keep the structural map clean and readable for the agent, links must adhere strictly to a direct-containment schema.
 
----
-name: "[Exact Identifier Name]"
-description: "[Strictly a one-line summary of the item and its core purpose]"
-source: "[Relative file path only, e.g., src/auth.py, or 'not applicable' for abstract items]"
----
+### 1. Direct References Only
+* Pages must only link to items they reference or interact with directly.
+* A function page includes links to other functions it explicitly invokes, or classes/constants it directly uses.
+* A class page links directly to the methods it contains or the base classes it derives from.
+* **Strict Avoidance of Indirect Linking:** A class page must never link directly to an external function just because one of its methods calls that function. The class links to its method, and the method page links to the external function.
 
-*Note: Never include line numbers in the source field, as code modifications will render them obsolete. Locate the item within the file using its exact identifier name.*
+### 2. Parent Links
+* Every page must feature exactly one explicit link pointing to its immediate structural parent container.
+* A method page links to its containing class page.
+* A class or function defined at the file level links to its containing file page.
+* A file page links to its parent module directory page, and a sub-module links to its parent module page.
 
-#### References Section:
-Beneath the YAML header and description, maintain an explicit list of relative links to related wiki pages. You must document:
-- For functions: What it calls, what calls it, its parent file, interacting classes/variables, and the macro-functionalities it serves.
-- For classes/modules: Inherited items, composition elements, and operational files.
+### 3. Back Links
+* Every page must contain a dedicated `## Back Links` section.
+* Whenever a page links to another item, the target item's page must include a reverse link tracking that relationship.
+* Back-links must be labeled clearly to describe the nature of the inverse relationship, using notations such as `(contained by)` or `(used/called/imported by)`.
 
-### 3. The Indexing Strategy
-Maintain index files inside `./wiki/index/` organized by architectural layer, component, or functional domain (e.g., `database.md`, `authentication.md`, `api_routes.md`, `utilities.md`, `models.md`) rather than arbitrary alphabetical groupings.
-- Group items into an index file that matches their logical domain.
-- Create new index files dynamically as new domains or layers are introduced to the architecture.
-- Each index file must list the matching items in that category and provide a clean Markdown link to their respective page in `../pages/`.
-
-### 4. Information Retrieval & Graph Traversal Protocol
+##  Information Retrieval & Graph Traversal Protocol
 When tasked with resolving a query, tracking down an architectural bug, or understanding a system layout, you must use the `wiki_nav.py` tool inside your tools directory to crawl the wiki graph. 
 
 Do not guess links manually. Run this loop:
@@ -80,7 +82,7 @@ Do not guess links manually. Run this loop:
    Repeat Step 2 until the tool outputs `SEARCH_COMPLETE`. Compile your answer based only on the full pages you read during the loop.
 
 
-### 5. Wiki Maintenance & Sync Protocol
+## Wiki Maintenance & Sync Protocol
 Whenever code modifications, file additions, or deletions occur in the codebase workspace, you must execute a strict, incremental synchronization loop using the `tools/wiki_sync.py` tool. Do not try to scan the entire workspace manually. 
 
 Execute this loop exactly as follows:
