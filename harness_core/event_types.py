@@ -147,6 +147,7 @@ class SystemMessagePayload(EventPayload):
 
     title: str = ""
     message: str = ""
+    model: str = ""
 
 
 @dataclass(kw_only=True)

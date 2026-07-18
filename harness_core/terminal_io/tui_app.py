@@ -132,6 +132,28 @@ class TextualHarnessApp(App):
         except Exception:
             pass
 
+    def update_sidebar_model(self, text: str | None) -> None:
+        """Push the most recent model name to the right sidebar (thread-safe).
+
+        Marshals a single call onto the app thread that sets the stored model
+        text and re-renders the sidebar above the task list.
+        """
+        if not self.is_running:
+            return
+
+        def _do() -> None:
+            try:
+                sidebar = self.query_one("#task-sidebar", TaskListSidebar)
+            except Exception:
+                return
+            # Removed: sidebar.set_model(text) - no longer needed, model is read directly from agent
+            sidebar.refresh_tasks()
+
+        try:
+            self.call_from_thread(_do)
+        except Exception:
+            pass
+
     async def on_mount(self) -> None:
         from .harness_tui import get_tui as _get_tui
 

@@ -75,6 +75,16 @@ class TaskListSidebar(Static):
         """
         self._usage_text = text
 
+    def _get_model_name(self) -> str | None:
+        """Return the model name from the agent's config, or None if unavailable."""
+        if self._agent is None:
+            return None
+        try:
+            model_name = getattr(getattr(self._agent, '_agent_type', None), 'model_name', '') or ''
+            return model_name if model_name else None
+        except Exception:
+            return None
+
     def refresh_tasks(self) -> None:
         """Re-render the sidebar.
 
@@ -83,6 +93,11 @@ class TaskListSidebar(Static):
         empty after completion); if no task list is available yet, only the
         usage block is shown.
         """
+        model_name = self._get_model_name()
+        model_render = None
+        if model_name:
+            model_render = Group(Text("🤖 Model", style="bold"), Text(model_name), Rule())
+
         usage_render = None
         if self._usage_text:
             # Render on two lines: the speed line, then the (optional) turn
@@ -91,9 +106,17 @@ class TaskListSidebar(Static):
             lines = [Text.from_markup(part) for part in sub if part]
             usage_render = Group(Text("📊 Usage", style="bold"), *lines, Rule())
 
+        header = None
+        if model_render is not None and usage_render is not None:
+            header = Group(model_render, usage_render)
+        elif model_render is not None:
+            header = model_render
+        elif usage_render is not None:
+            header = usage_render
+
         if self._agent is None or self._agent.task_list is None:
             # No task list available yet — show usage only (or a placeholder).
-            self.update(usage_render if usage_render is not None else Markdown("_No tasks yet._"))
+            self.update(header if header is not None else Markdown("_No tasks yet._"))
             return
 
         tasks = self._agent.task_list
@@ -102,8 +125,8 @@ class TaskListSidebar(Static):
         else:
             body = Markdown(render_task_list_markdown(tasks))
 
-        if usage_render is not None:
-            self.update(Group(usage_render, body))
+        if header is not None:
+            self.update(Group(header, body))
         else:
             self.update(body)
 
@@ -114,18 +137,31 @@ class TaskListSidebar(Static):
         payload rather than the agent's live TaskList, so sidebar updates can be
         driven directly by the TaskList EventBus.
         """
+        model_name = self._get_model_name()
+        model_render = None
+        if model_name:
+            model_render = Group(Text("🤖 Model", style="bold"), Text(model_name), Rule())
+
         usage_render = None
         if self._usage_text:
             sub = self._usage_text.split("\n")
             lines = [Text.from_markup(part) for part in sub if part]
             usage_render = Group(Text("📊 Usage", style="bold"), *lines, Rule())
 
+        header = None
+        if model_render is not None and usage_render is not None:
+            header = Group(model_render, usage_render)
+        elif model_render is not None:
+            header = model_render
+        elif usage_render is not None:
+            header = usage_render
+
         if not payload.tasks:
             body = Markdown("_No tasks yet._")
         else:
             body = Markdown(render_task_list_markdown_from_payload(payload))
 
-        if usage_render is not None:
-            self.update(Group(usage_render, body))
+        if header is not None:
+            self.update(Group(header, body))
         else:
             self.update(body)

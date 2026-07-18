@@ -56,7 +56,8 @@ def user_loop(agent: "Agent", on_exit=None) -> None:
         "agent.status.ready",
         SystemMessagePayload(
             title=f"🚀 Agent Ready — {agent._agent_type.name} ({agent._agent_type.model_name})",
-            message="Type a message to begin. Type /exit or /quit to stop."
+            message="Type a message to begin. Type /exit or /quit to stop.",
+            model=agent._agent_type.model_name,
         )
     )
 

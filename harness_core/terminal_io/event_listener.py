@@ -108,6 +108,13 @@ def make_event_listener(agent_id: str, bus: Optional[EventBus] = None) -> EventL
         @filter_by_sender(pattern)
         async def handle_agent_status_ready(self, event: Event) -> None:
             await system_message(self, event)
+            payload = event.payload
+            if isinstance(payload, SystemMessagePayload):
+                tui = get_tui()
+                if tui is not None and payload.model:
+                    # Only update if the payload has a non-empty model string.
+                    # This prevents overwriting the correct value set in on_mount().
+                    tui.update_sidebar_model(payload.model)
 
         @filter_by_sender(pattern)
         async def handle_agent_turn_start(self, event: Event) -> None:
