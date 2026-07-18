@@ -170,6 +170,10 @@ def _build_models_dict(raw_models: list[dict]) -> dict[str, ModelConfig]:
             context_length=int(model["context_length"]),
             base_url=model.get("base_url"),
             api_key=model.get("api_key"),
+            temperature=model.get("temperature"),
+            top_p=model.get("top_p"),
+            max_tokens=model.get("max_tokens"),
+            reasoning_effort=model.get("reasoning_effort"),
         )
     return models
 

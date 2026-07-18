@@ -143,6 +143,10 @@ class Agent(EventPublisher):
                 messages=messages,
                 model=self._agent_type.provider_model_name,
                 tools=self._tools if self._tools else None,
+                temperature=self._agent_type.temperature,
+                top_p=self._agent_type.top_p,
+                max_tokens=self._agent_type.max_tokens,
+                reasoning_effort=self._agent_type.reasoning_effort,
             )
         except Exception as exc:
             raise RuntimeError(f"Provider chat request failed: {exc}") from exc

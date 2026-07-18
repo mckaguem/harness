@@ -331,17 +331,25 @@ class OpenAIProvider(Provider):
         """
         self.client = client
 
-    def _build_request_kwargs(self, messages: list[Dict], model: str, tools):
+    def _build_request_kwargs(self, messages: list[Dict], model: str, tools, **model_params):
         """Build the kwargs dict for ``client.responses.create(**kwargs)``.
 
         Shared by both sync and async :meth:`chat_completion` paths so that
         changes to the request shape need only be made in one place.
+        
+        Args:
+            messages: Chat-schema message list.
+            model: The provider_model_name string for ``model=`` kwarg.
+            tools: Tool schemas (or None).
+            **model_params: Optional model-level sampling params — temperature,
+                top_p, max_tokens (mapped to responses API's max_output_tokens),
+                and reasoning_effort (mapped to reasoning={"effort": ...}).
         """
         instructions, input_items = _to_responses_input(messages)
         request_kwargs: dict[str, Any] = {
             "model": model,
             "input": input_items,
-            "max_output_tokens": 16384,
+            "max_output_tokens": 16384,   # default — will be overridden if user provides max_tokens
         }
         if instructions is not None:
             request_kwargs["instructions"] = instructions
@@ -349,6 +357,31 @@ class OpenAIProvider(Provider):
             # Responses API ``tools`` are FLATTENED (name/parameters at top
             # level), not nested under ``function`` like Chat Completions.
             request_kwargs["tools"] = _to_responses_tools(tools)
+
+        # ---- Optional model-level parameters (from config.yaml) ----
+        temperature = model_params.get("temperature")
+        top_p = model_params.get("top_p")
+        max_tokens = model_params.get("max_tokens")
+        reasoning_effort = model_params.get("reasoning_effort")
+
+        if temperature is not None:
+            request_kwargs["temperature"] = float(temperature)
+        if top_p is not None:
+            request_kwargs["top_p"] = float(top_p)
+        if max_tokens is not None:
+            # Map user-friendly "max_tokens" config key to the Responses API's
+            # parameter name which is "max_output_tokens".
+            request_kwargs["max_output_tokens"] = int(max_tokens)
+        if reasoning_effort is not None:
+            _VALID_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+            effort_lower = str(reasoning_effort).lower()
+            if effort_lower not in _VALID_EFFORTS:
+                raise ValueError(
+                    f"Invalid reasoning_effort '{reasoning_effort}' for model. "
+                    f"Must be one of: {', '.join(_VALID_EFFORTS)}"
+                )
+            request_kwargs["reasoning"] = {"effort": effort_lower}
+
         return request_kwargs
 
     def chat_completion(self, messages: list[Dict], model: str, **kwargs) -> Dict:
@@ -357,15 +390,22 @@ class OpenAIProvider(Provider):
         Args:
             messages: List of message dictionaries with 'role' and 'content'
             model: Model name to use
-            **kwargs: Additional provider-specific parameters (currently only
-                ``tools`` is ever passed, and may be None).
+            **kwargs: Additional provider-specific parameters — currently ``tools``
+                (may be None) plus any of ``temperature``, ``top_p``, ``max_tokens``,
+                ``reasoning_effort``.
 
         Returns:
             Normalized completion response with ``choices``, ``usage`` and
             convenience keys (``reasoning``, ``pre_tool_content``).
         """
         tools = kwargs.get('tools')
-        request_kwargs = self._build_request_kwargs(messages, model, tools)
+        request_kwargs = self._build_request_kwargs(
+            messages, model, tools,
+            temperature=kwargs.get("temperature"),
+            top_p=kwargs.get("top_p"),
+            max_tokens=kwargs.get("max_tokens"),
+            reasoning_effort=kwargs.get("reasoning_effort"),
+        )
 
         try:
             response = self.client.responses.create(**request_kwargs)
@@ -380,7 +420,13 @@ class OpenAIProvider(Provider):
         Mirrors :meth:`chat_completion` but awaits the SDK call.
         """
         tools = kwargs.get('tools')
-        request_kwargs = self._build_request_kwargs(messages, model, tools)
+        request_kwargs = self._build_request_kwargs(
+            messages, model, tools,
+            temperature=kwargs.get("temperature"),
+            top_p=kwargs.get("top_p"),
+            max_tokens=kwargs.get("max_tokens"),
+            reasoning_effort=kwargs.get("reasoning_effort"),
+        )
 
         try:
             response = await self.client.responses.create(**request_kwargs)

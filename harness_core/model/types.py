@@ -12,6 +12,10 @@ class ModelConfig(TypedDict, total=False):
     context_length: int
     base_url: str | None
     api_key: str | None
+    temperature: float | None          # NEW — sampling temperature, optional
+    top_p: float | None                # NEW — nucleus sampling parameter, optional
+    max_tokens: int | None             # NEW — alias for max_output_tokens in config.yaml, optional
+    reasoning_effort: str | None       # NEW — "none", "minimal", "low", "medium", "high", "xhigh", "max" (case-insensitive), optional
 
 
 @dataclass

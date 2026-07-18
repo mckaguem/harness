@@ -27,6 +27,10 @@ class AgentType:
     system_prompt: str = ""
     provider_config: ProviderConfig | None = None
     agent_tools: list[str] = field(default_factory=list)
+    temperature: float | None = None           # NEW — sampling temperature, optional
+    top_p: float | None = None                 # NEW — nucleus sampling parameter, optional
+    max_tokens: int | None = None              # NEW — alias for max_output_tokens in config.yaml, optional (display/introspection)
+    reasoning_effort: str | None = None        # NEW — "none"/"minimal"/"low"/"medium"/"high"/"xhigh"/"max", optional
 
     @staticmethod
     def _substitute_variables(
@@ -254,6 +258,11 @@ class AgentType:
         else:
             context_length = int(load_harness_config()["context_length"])
 
+        temperature = model_cfg.get("temperature")
+        top_p = model_cfg.get("top_p")
+        max_tokens = model_cfg.get("max_tokens")
+        reasoning_effort = model_cfg.get("reasoning_effort")
+
         agent_tools = config.get("agent_tools", [])
         if not isinstance(agent_tools, list):
             raise ValueError("'agent_tools' must be a list of strings")
@@ -314,6 +323,10 @@ class AgentType:
             system_prompt=system_prompt,
             provider_config=resolved_provider,
             agent_tools=agent_tools,
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
         )
     
     def inject_extra_system_prompt(self, text: str) -> None:
