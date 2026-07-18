@@ -710,7 +710,7 @@ class TestAutoCompressionLoop:
         return _FakeAgent(session, context_length=context_length), long_system
 
     def test_auto_compress_triggers_when_high_utilization(self, tmp_path):
-        from harness_core.agent.loop import _check_and_compress_if_needed
+        from harness_core.agent.mixin import _check_and_compress_if_needed
 
         agent, long_system = self._build_agent(tmp_path, context_length=4000)
 
@@ -734,7 +734,7 @@ class TestAutoCompressionLoop:
         assert tool_msgs[0]["content"] == TRUNCATED_PREFIX, "list_dir result was not truncated"
 
     def test_auto_compress_skips_when_low_utilization(self, tmp_path):
-        from harness_core.agent.loop import _check_and_compress_if_needed
+        from harness_core.agent.mixin import _check_and_compress_if_needed
 
         agent, long_system = self._build_agent(tmp_path, context_length=10_000_000)
         # Utilization far below 50% -> no compression.
@@ -749,7 +749,7 @@ class TestAutoCompressionLoop:
 
     def test_auto_compress_uses_real_agent_properties(self, tmp_path):
         """Loop must find the session via agent._session when no properties exist."""
-        from harness_core.agent.loop import _check_and_compress_if_needed
+        from harness_core.agent.mixin import _check_and_compress_if_needed
 
         # A bare agent exposing ONLY the private `_session` attribute (no
         # `messages`/`session` properties) — this is exactly the pre-fix

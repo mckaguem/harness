@@ -7,7 +7,7 @@ def cmd_sub(rest: str, parent_agent) -> bool | None:
     """Spawn an interactive conversation with a sub-agent.
 
     Loads the named sub-agent via :meth:`Agent.from_agent_name`, prints a status
-    banner, then drives the interactive loop using :func:`user_loop`.  On exit
+    banner, then drives the interactive loop using :meth:`~harness_core.agent.core.Agent.loop`.  On exit
     the conversation is summarised and injected into the parent so it continues
     with that context.
 
@@ -26,7 +26,7 @@ def cmd_sub(rest: str, parent_agent) -> bool | None:
 
     # Lazy import — ``agent.loop`` pulls from this module, so a top-level import
     # of ``Agent`` would trigger a circular import at runtime. Only ``Agent`` is
-    # needed here; the sub-agent's own ``user_loop`` method drives the loop.
+    # needed here; the sub-agent's own ``loop()`` method drives the loop.
     from harness_core.agent import Agent
     from harness_core.tools import AGENT_TOOLS
 
@@ -65,7 +65,7 @@ def cmd_sub(rest: str, parent_agent) -> bool | None:
         except Exception as exc:
             print_system("Error", f"Failed to summarize sub-agent conversation: {exc}")
 
-    # Drive the interactive loop — use the sub-agent's own ``user_loop`` method.
-    sub_agent.user_loop(on_exit=_on_exit)
+    # Drive the interactive loop — use the sub-agent's own ``loop()`` method.
+    sub_agent.loop(on_exit=_on_exit)
 
     return False

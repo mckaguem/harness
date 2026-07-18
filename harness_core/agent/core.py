@@ -17,8 +17,10 @@ from harness_core.eventbus import generate_unique_id, EventPublisher, event_bus
 from harness_core.tools.dispatcher import dispatch
 from harness_core.tools.tool_result import ToolResult
 
+from harness_core.agent.mixin import InteractiveLoopMixin
 
-class Agent(EventPublisher):
+
+class Agent(InteractiveLoopMixin, EventPublisher):
     """Owns the conversation state and handles a single user turn."""
     
     def __init__(self,
@@ -310,22 +312,6 @@ or update their status to 'failed' before stopping.
                         "run_subagent", result.llm_text, tool_call["id"]
                     )
                     yield (TOOL_RESULT, "run_subagent", result, response)
-
-    def user_loop(self, on_exit=None) -> None:
-        """Run the interactive command loop for this agent.
-
-        Delegates to the module-level ``user_loop`` driver in
-        ``harness_core.agent.loop``, passing this agent instance as the
-        target. This lets callers (e.g. the TUI) use a uniform interface
-        without reaching into the agent internals.
-
-        Args:
-            on_exit: Optional callback invoked just before the loop exits.
-                Receives ``(agent, messages)``.
-        """
-        from harness_core.agent.loop import user_loop
-
-        user_loop(self, on_exit=on_exit)
 
     @classmethod
     def from_agent_name(cls, agent_name: str,

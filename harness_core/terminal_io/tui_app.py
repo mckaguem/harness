@@ -205,7 +205,7 @@ class TextualHarnessApp(App):
 
         def _loop() -> None:
             try:
-                self._agent.user_loop(on_exit=self._on_exit)
+                self._agent.loop(on_exit=self._on_exit)
             except Exception:
                 # Surface the error in the UI instead of dying silently.
                 self.call_from_thread(
