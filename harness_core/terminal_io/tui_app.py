@@ -120,19 +120,19 @@ class TextualHarnessApp(App):
         if not self.is_running:
             return
 
-        def _do() -> None:
-            try:
-                sidebar = self.query_one("#task-sidebar", TaskListSidebar)
-            except Exception:
-                return
-            sidebar.refresh_tasks_from_payload(payload)
-
+        #def _do() -> None:
         try:
-            self.call_from_thread(_do)
+            sidebar = self.query_one("#task-sidebar", TaskListSidebar)
         except Exception:
-            pass
+            return
+        sidebar.refresh_tasks_from_payload(payload)
 
-    def update_sidebar_model(self, text: str | None) -> None:
+        # try:
+        #     self.call_from_thread(_do)
+        # except Exception:
+        #     pass
+
+    def update_sidebar_model_name(self, model_name: str | None) -> None:
         """Push the most recent model name to the right sidebar (thread-safe).
 
         Marshals a single call onto the app thread that sets the stored model
@@ -141,18 +141,12 @@ class TextualHarnessApp(App):
         if not self.is_running:
             return
 
-        def _do() -> None:
-            try:
-                sidebar = self.query_one("#task-sidebar", TaskListSidebar)
-            except Exception:
-                return
-            # Removed: sidebar.set_model(text) - no longer needed, model is read directly from agent
-            sidebar.refresh_tasks()
-
         try:
-            self.call_from_thread(_do)
+            sidebar = self.query_one("#task-sidebar", TaskListSidebar)
+            sidebar.set_model_name(model_name)
         except Exception:
-            pass
+            return
+
 
     async def on_mount(self) -> None:
         from .harness_tui import get_tui as _get_tui
@@ -166,11 +160,9 @@ class TextualHarnessApp(App):
         )
         # Wire up the right-hand task-list sidebar.
         sidebar = self.query_one("#task-sidebar", TaskListSidebar)
-        if self._agent is not None:
-            sidebar.set_agent(self._agent)
+
         # Initial paint + heartbeat so the sidebar is always correct.
         sidebar.refresh_tasks()
-        self.set_interval(1.0, sidebar.refresh_tasks)
 
         # Subscribe the consolidated EventListener that drives the sidebar from
         # the TaskList event bus and renders system banners (e.g. auto-compress

@@ -250,6 +250,16 @@ class HarnessTUI:
             return
         self._app.update_sidebar_model(text)
 
+    def update_sidebar_model_name(self, text: str | None) -> None:
+        """Push the model name to the right sidebar widget (thread-safe).
+
+        Delegates to the running :class:`TextualHarnessApp`, which marshals the
+        update onto the app thread.
+        """
+        if self._app is None:
+            return
+        self._app.update_sidebar_model_name(text)
+
     # ── agent busy indicator (used by user_loop around handle_prompt) ────
 
     def show_spinner(self) -> None:
