@@ -7,7 +7,6 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Footer, Header, TextArea
 
 from harness_core.event_types import TaskListPayload
-from harness_core.terminal_io.event_handlers import TopicHandlers
 from harness_core.terminal_io.widgets import (
     StatusSpinner,
     TaskListSidebar,
@@ -70,26 +69,6 @@ class TextualHarnessApp(App):
         self._agent_id = agent_id  # Store only the agent id string — no Agent object reference
         self._on_exit = on_exit
         self._output: VerticalScroll | None = None
-        self._event_listener: object | None = None  # Keep a reference so it's not garbage collected
-
-        # Instantiate the topic handlers that process each EventBus event.
-        # These are dispatched to from ``on_event_bus_message`` below.
-        self._topic_handlers: TopicHandlers | None = TopicHandlers() if agent_id is not None else None
-
-        # Subscribe the consolidated EventListener that drives the sidebar from
-        # the TaskList event bus and renders system banners (e.g. auto-compress
-        # / agent-ready) via the terminal_io display layer.  The listener filters
-        # by this agent's sender id so only the main agent's events are shown.
-        try:
-            from .event_listener import subscribe_event_listener
-
-            if self._agent_id is not None:
-                listener = subscribe_event_listener(self._agent_id)
-                self._event_listener = listener  # Keep a reference so it's not garbage collected
-                print(listener)
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -162,38 +141,6 @@ class TextualHarnessApp(App):
         except Exception:
             return
 
-    # ── event bus bridge ────────────────────────────────────────────────
-
-    async def on_event_bus_message(self, message: "EventBusMessage") -> None:
-        """Handle an :class:`EventBusMessage` dispatched from the harness event bus.
-
-        Unwraps the wrapped :class:`~harness_core.eventbus.Event`, converts its
-        topic name to a Python method name (replacing ``.`` and ``-`` with
-        ``_``, prepending ``handle_``), and dispatches it to the matching
-        handler on :attr:`self._topic_handlers`.
-
-        Args:
-            message: The Textual message carrying the wrapped EventBus event.
-        """
-        from .event_listener import EventBusMessage as _EventBusMessage
-        logging.debug(f'on_event_bus_message, topic: {message.event.topic}')
-        if not isinstance(message, _EventBusMessage):
-            return
-
-        event = message.event
-        handlers = self._topic_handlers
-        if handlers is None:
-            return
-
-        # Convert topic name to method name (e.g. "agent.tasklist.initialize" -> "handle_agent_tasklist_initialize")
-        method_name = f"handle_{event.topic.replace('.', '_').replace('-', '_')}"
-        handler = getattr(handlers, method_name, None)
-        if handler is not None and callable(handler):
-            logging.debug(f'handler {method_name} exists and will be called.')
-            await handler(event)
-        else:
-            logging.debug(f'No handler {method_name} for {event.topic} found.')
-
     async def on_mount(self) -> None:
         from .harness_tui import get_tui as _get_tui
 
@@ -210,12 +157,20 @@ class TextualHarnessApp(App):
         # Initial paint + heartbeat so the sidebar is always correct.
         sidebar.refresh_tasks()
 
-
         # Cache the output pane reference for error display.
         try:
             self._output = self.query_one("#output", VerticalScroll)
         except Exception:
             self._output = None
+
+        # Start the TUI's event-bus listener ONCE, on the app thread while the
+        # app is running, so events mutate widgets only from the live app loop.
+        # (Moved out of __main__ to avoid a "App is not running" race where the
+        # listener fired before the Textual loop initialized.)
+        if self._agent_id is not None:
+            from .event_listener import subscribe_event_listener
+            from harness_core.eventbus import event_bus
+            self._event_listener = subscribe_event_listener(self._agent_id, event_bus)
 
     def action_submit_input(self) -> None:
         """Handle user input submission. Reads the current text from the
@@ -250,9 +205,6 @@ class TextualHarnessApp(App):
             tui.publish_user_input(message)
 
     async def start(self):
-        self._event_listener.run()
-        self._event_listener.subscribeToStuff()
-
         await self.run_async()
 
 async def launch(agent_id: str | None = None, on_exit=None) -> None:

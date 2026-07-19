@@ -147,8 +147,6 @@ def build_agent():
 async def blarg(argv=None):
     agent = build_agent()
 
-
-    """Run the Textual TUI on a daemon thread."""
     from harness_core.terminal_io.tui import launch as tui_launch
 
     await asyncio.gather(

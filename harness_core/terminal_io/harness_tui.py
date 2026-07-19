@@ -47,6 +47,8 @@ class HarnessTUI:
         # active as soon as it is bound (even before ``app.is_running`` flips)
         # so the very first loop output routes into the output pane.
         self._bound = False
+        # Renderables queued before bind() attached the output pane.
+        self._write_buffer: list = []
 
     # ── lifecycle ───────────────────────────────────────────────────────
 
@@ -65,6 +67,12 @@ class HarnessTUI:
         # Keep the spinner hidden until the agent is actually running.
         spinner.display = False
         self._bound = True
+        # Replay anything queued before the output pane existed.
+        with self._lock:
+            buffered = self._write_buffer
+            self._write_buffer = []
+        for renderable in buffered:
+            self.write(renderable)
 
     def is_active(self) -> bool:
         """Return ``True`` when the TUI app is bound and accepting I/O."""
@@ -80,6 +88,9 @@ class HarnessTUI:
         log cannot do.
         """
         if self._app is None or self._output is None:
+            # Buffer until bind() attaches the output pane.
+            with self._lock:
+                self._write_buffer.append(renderable)
             return
         app = self._app
         output = self._output
@@ -92,15 +103,24 @@ class HarnessTUI:
             with self._lock:
                 self._write_count += 1
 
-        # When the caller is already on the app/Textual thread (e.g. an event
-        # handler delivered inline by the event bus), calling ``call_from_thread``
-        # itself raises RuntimeError (it must be a *different* thread).  In that
-        # case mount synchronously here; otherwise marshal onto the app thread.
+        self.run_on_app_thread(_do)
+
+    def run_on_app_thread(self, fn) -> None:
+        """Run ``fn`` on the Textual app thread, buffering if the app isn't live.
+
+        The app's event loop must be running for widget mutation.  If the app is
+        not yet active (bound but not running, or not bound yet), the call is
+        buffered and replayed by :meth:`bind` once the output pane exists.
+        """
+        app = self._app
+        if app is None or not getattr(app, "is_running", False):
+            # App loop not live yet — buffer; bind()/flush will replay.
+            return
         app_thread = getattr(app, "_thread_id", None)
         if app_thread is not None and app_thread == threading.current_thread().ident:
-            _do()
+            fn()
         else:
-            app.call_from_thread(_do)
+            app.call_from_thread(fn)
 
     def begin_tool_panel(self, title: str, call_renderable) -> None:
         """Create a collapsed-by-default ``Collapsible`` for a tool call.
@@ -137,12 +157,7 @@ class HarnessTUI:
             output.mount(collapsible)
             output.scroll_end(animate=False)
 
-        # Marshal onto the app thread (widgets can only be mounted on the app thread).
-        app_thread = getattr(app, "_thread_id", None)
-        if app_thread is not None and app_thread == threading.current_thread().ident:
-            _do()
-        else:
-            app.call_from_thread(_do)
+        self.run_on_app_thread(_do)
 
     def complete_tool_panel(self, result_renderable) -> None:
         """Append a tool result into the most recent tool-call collapsible.
@@ -171,11 +186,7 @@ class HarnessTUI:
                 output.mount(Static(result_renderable))
                 output.scroll_end(animate=False)
 
-            app_thread = getattr(app, "_thread_id", None)
-            if app_thread is not None and app_thread == threading.current_thread().ident:
-                _do_standalone()
-            else:
-                app.call_from_thread(_do_standalone)
+            self.run_on_app_thread(_do_standalone)
             return
         # Rebuild the single call Panel to include the separator + result
         # inline, then swap it into the Collapsible via its inner content
@@ -199,11 +210,7 @@ class HarnessTUI:
             collapsible_inner.update(merged)
             output.scroll_end(animate=False)
 
-        app_thread = getattr(app, "_thread_id", None)
-        if app_thread is not None and app_thread == threading.current_thread().ident:
-            _do_update()
-        else:
-            app.call_from_thread(_do_update)
+        self.run_on_app_thread(_do_update)
 
 
     def write_count(self) -> int:

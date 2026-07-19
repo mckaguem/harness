@@ -1,17 +1,16 @@
-"""Handler methods for terminal I/O topics, extracted from event_listener.py.
+"""Handler methods for terminal I/O topics, invoked by the listener in wiring.py.
 
-This module contains the 13 topic handler methods that were previously nested
-inside :class:`HarnessEventListener` in ``event_listener.py``.  Each method is
+This module contains the 13 topic handler methods that are dispatched as a
+single-hop by the listener wired up in ``wiring.py``.  Each method is
 a standalone async function on :class:`TopicHandlers`, without any filter or
 decorator — sender filtering is applied at the subscription layer instead.
 """
 
 from __future__ import annotations
 
-import re
-from typing import Callable, Optional
+from typing import Callable
 
-from harness_core.eventbus import Event, EventBus, EventListener, event_bus, filter_by_sender
+from harness_core.eventbus import Event
 from harness_core.event_types import (
     AgentResponsePayload, SessionErrorPayload, SystemMessagePayload, TaskListPayload, ToolCallPayload, ToolErrorPayload, ToolResultPayload, TurnStatsPayload,
 )
