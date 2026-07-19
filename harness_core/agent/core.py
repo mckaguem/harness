@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from harness_core.agent.task_list import TaskList
 
 from harness_core.model.provider import Provider
+from harness_core.model.model import Model
 
 from harness_core.agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from harness_core.session.session import Session
@@ -66,6 +67,19 @@ class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
             except Exception as exc:
                 print(f"Warning: Failed to resolve provider for '{agent_type.name}': {exc}")
 
+        # Build a Model abstraction from the AgentType's model config. The Model
+        # wraps the resolved Provider and routes LLM calls through the Responses
+        # API (with previous_response_id chaining).
+        from harness_core.config import get_model_config
+        try:
+            model_config = get_model_config(agent_type.model_name) or {}
+            self._model: Optional[Model] = Model.from_model_config(
+                model_config, provider=self._provider
+            )
+        except Exception as exc:
+            print(f"Warning: Failed to build Model for '{agent_type.name}': {exc}")
+            self._model = None
+
         # Filter tool schemas based on AgentType.
         from harness_core.agent.utils import filter_tool_schemas
         if tool_schemas:
@@ -94,6 +108,10 @@ class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
 
         self._max_loops: int = 100  # Safety ceiling to prevent infinite loops
 
+        # Expose tools to the Session so the Model can read them when building a
+        # request (the Agent owns the tool schemas).
+        self._session.tools = self._tools
+
 
     # -- task list access --------------------------------------------------
 
@@ -111,6 +129,11 @@ class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
     def provider(self):
         """Public accessor for the Provider instance."""
         return self._provider
+
+    @property
+    def model(self):
+        """Public accessor for the wrapped Model instance (or None)."""
+        return self._model
 
     @property
     def context_length(self) -> int:
@@ -143,28 +166,23 @@ class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
 
     # -- internal helpers ----------------------------------------------------
 
-    async def _chat(self, messages: list[dict]) -> dict:
-        """Send *messages* to the provider and return a normalized response dict.
+    async def _chat(self) -> dict:
+        """Run one LLM turn via the wrapped :class:`Model` and return a dict.
 
-        Timing data (duration_ms) is injected by this method. All other normalization
-        is handled inside :meth:`Provider._normalize_response`.
+        Timing data (duration_ms) is injected here; all response normalization
+        is handled inside the Provider.
+
+        Raises:
+            RuntimeError: If no Model/Provider could be resolved for this agent.
         """
         import time
         start_time = time.time()
 
-        if self._provider is None:
-            raise RuntimeError("No provider configured for this agent.")
+        if self._model is None:
+            raise RuntimeError("No model configured for this agent.")
 
         try:
-            response = await self._provider.chat_completion_async(
-                messages=messages,
-                model=self._agent_type.provider_model_name,
-                tools=self._tools if self._tools else None,
-                temperature=self._agent_type.temperature,
-                top_p=self._agent_type.top_p,
-                max_tokens=self._agent_type.max_tokens,
-                reasoning_effort=self._agent_type.reasoning_effort,
-            )
+            response = await self._model.responses(self._session)
         except Exception as exc:
             raise RuntimeError(f"Provider chat request failed: {exc}") from exc
 
@@ -200,8 +218,7 @@ class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
                 break
             loop_count += 1
 
-            messages_to_send = self._session.get_messages()
-            response = await self._chat(messages_to_send)
+            response = await self._chat()
 
             # Provider-normalized shape: ``response["choices"][0]["message"]``.
             message = response["choices"][0]["message"]

@@ -8,14 +8,16 @@ This module provides:
 
 from .utils import get_base_url, tokenize_prompt
 from .provider import Provider, OpenAIProvider, create_provider
+from .model import Model
 from .types import ModelConfig, ProviderConfig, TokenUsage, CompletionResponse
 
 __all__ = [
     "get_base_url",
-    "tokenize_prompt", 
+    "tokenize_prompt",
     "Provider",
     "OpenAIProvider",
     "create_provider",
+    "Model",
     "ModelConfig",
     "ProviderConfig",
     "TokenUsage",

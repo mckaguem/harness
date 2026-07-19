@@ -1,0 +1,163 @@
+"""Model abstraction that wraps a Provider and routes Agent LLM calls.
+
+A :class:`Model` pairs a resolved :class:`Provider` instance with the
+provider-facing model name (``provider_model_name``) and the model-level
+sampling parameters (temperature, top_p, max_tokens, reasoning_effort).
+
+The key behavioural change introduced here is that Agent turns are routed
+through :meth:`Model.responses`, which delegates to the Provider's
+``chat_completion_async`` and — when the Session already holds a previous
+response id — passes it as ``previous_response_id`` so the OpenAI **Responses
+API** can chain context instead of re-sending the entire message list each
+turn. After each call the new response id is captured back onto the Session so
+the chain continues on the following turn.
+"""
+
+from typing import Any, Dict, Mapping, Optional
+
+from harness_core.model.provider import Provider
+
+
+class Model:
+    """Wraps a :class:`Provider` with model-level configuration.
+
+    Instances are normally created via :meth:`from_model_config`, which
+    resolves the :class:`Provider` from a :data:`ModelConfig` mapping (looking
+    up the named provider via the shared config registry) and stores the
+    model-facing parameters needed for every turn.
+    """
+
+    def __init__(self,
+                 provider: Provider,
+                 provider_model_name: str,
+                 temperature: float | None = None,
+                 top_p: float | None = None,
+                 max_tokens: int | None = None,
+                 reasoning_effort: str | None = None):
+        """Initialize a Model.
+
+        Args:
+            provider: The resolved Provider instance used for all turns.
+            provider_model_name: The model string handed to the provider API.
+            temperature: Optional sampling temperature.
+            top_p: Optional nucleus sampling parameter.
+            max_tokens: Optional max output tokens.
+            reasoning_effort: Optional reasoning effort level.
+        """
+        self._provider = provider
+        self._provider_model_name = provider_model_name
+        self._temperature = temperature
+        self._top_p = top_p
+        self._max_tokens = max_tokens
+        self._reasoning_effort = reasoning_effort
+
+    @property
+    def provider(self) -> Provider:
+        """The underlying Provider instance."""
+        return self._provider
+
+    @property
+    def provider_model_name(self) -> str:
+        """The model string handed to the provider API."""
+        return self._provider_model_name
+
+    @classmethod
+    def from_model_config(cls, model_config: Mapping[str, Any],
+                          provider: Optional[Provider] = None) -> "Model":
+        """Build a Model from a :data:`ModelConfig` mapping.
+
+        The ``model_config`` may be a :class:`~harness_core.model.types.ModelConfig`
+        TypedDict or any Mapping with the relevant keys. The ``provider`` field on
+        the config is a *string name* (e.g. ``"openai"``); this method looks up the
+        corresponding :class:`~harness_core.model.types.ProviderConfig` via
+        :func:`harness_core.config.get_provider_config` and resolves a singleton
+        Provider via :meth:`Provider.get_or_create`. If an explicit ``provider``
+        instance is supplied it is used directly instead.
+
+        Args:
+            model_config: Mapping containing at least ``provider_model_name`` and
+                ``provider`` (a string name). Model-level params are read from
+                ``temperature``, ``top_p``, ``max_tokens`` and ``reasoning_effort``
+                when present.
+            provider: Optional pre-built Provider. When provided it is used as-is
+                and the lookup from ``model_config`` is skipped.
+
+        Returns:
+            A fully-configured Model instance.
+        """
+        from harness_core.config import get_provider_config
+
+        if provider is None:
+            provider_name = model_config.get("provider")
+            provider_config = get_provider_config(provider_name) if provider_name else None
+            if provider_config is None:
+                raise ValueError(
+                    f"Could not resolve a ProviderConfig for provider '{provider_name}' "
+                    f"referenced by model config '{model_config.get('name')}'."
+                )
+            provider = Provider.get_or_create(provider_config)
+
+        provider_model_name = model_config.get("provider_model_name") or model_config.get("name") or ""
+        temperature = model_config.get("temperature")
+        top_p = model_config.get("top_p")
+        max_tokens = model_config.get("max_tokens")
+        reasoning_effort = model_config.get("reasoning_effort")
+
+        return cls(
+            provider=provider,
+            provider_model_name=provider_model_name,
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+        )
+
+    async def responses(self, session) -> Dict:
+        """Run one LLM turn for *session* and return the normalized response.
+
+        Delegates to the wrapped Provider's ``chat_completion_async``. When the
+        Session already carries a previous response id (``session.response_id``),
+        it is forwarded as ``previous_response_id`` so the Responses API chains
+        context without re-sending the full message list. The new response id is
+        then captured back onto the Session.
+
+        Args:
+            session: The conversation :class:`~harness_core.session.session.Session`.
+                Must expose ``get_messages()``, ``get_tools()``, ``response_id`` and
+                a settable ``response_id`` attribute.
+
+        Returns:
+            The provider-normalized response dict (``choices`` / ``usage`` / plus
+            convenience keys). The raw ``response_id`` is also attached for the
+            caller's convenience.
+        """
+        kwargs: dict[str, Any] = {
+            "model": self._provider_model_name,
+            "tools": session.get_tools(),
+            "temperature": self._temperature,
+            "top_p": self._top_p,
+            "max_tokens": self._max_tokens,
+            "reasoning_effort": self._reasoning_effort,
+        }
+
+        # Chain context via the OpenAI Responses API: when the session already has
+        # a previous response id, forward it instead of relying solely on the
+        # resent message list.
+        if getattr(session, "response_id", None) is not None:
+            kwargs["previous_response_id"] = session.response_id
+
+        response = await self._provider.chat_completion_async(
+            messages=session.get_messages(),
+            **kwargs,
+        )
+
+        # Capture the new response id (attached by the Provider under the
+        # "response_id" key) so the next turn can chain off it.
+        new_response_id = response.get("response_id")
+        if new_response_id is not None:
+            session.response_id = new_response_id
+
+        return response
+
+
+__all__ = ["Model"]

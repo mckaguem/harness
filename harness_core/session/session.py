@@ -46,6 +46,14 @@ class Session:
         self.filepath: str | None = None
         self._provider: Provider | None = provider
         self._model_name: str = model_name
+
+        # Previous Responses API response id, used to chain turns via
+        # `previous_response_id` instead of resending the whole message list.
+        self.response_id: str | None = None
+
+        # Tool schemas for this session (set by the Agent so the Model can read
+        # them); None when the agent has no tools.
+        self.tools = None
         
         # Generate a unique filename for this session at creation time (if auto-save is enabled)
         if auto_save:
@@ -175,6 +183,14 @@ class Session:
             The complete conversation history (including system prompt).
         """
         return self.messages
+
+    def get_tools(self) -> list[dict] | None:
+        """Return the tool schemas for this session, or None.
+
+        The Agent sets ``self.tools`` at construction so the Model can read them
+        when building a request. Returns ``None`` when no tools are configured.
+        """
+        return self.tools
 
     # -- injection API -------------------------------------------------------
 

@@ -252,10 +252,17 @@ def _to_responses_tools(tools: list[Dict] | None) -> list[Dict] | None:
     return converted
 
 
-def _normalize_response(response) -> dict:
+def _normalize_response(response, response_id=None) -> dict:
     """Convert an OpenAI Responses API response into the normalized
     chat-completion dict shape (``choices`` + ``usage``) shared by both the
     sync and async chat paths.
+
+    Args:
+        response: The raw OpenAI Responses API response object.
+        response_id: Optional raw ``response.id`` from the Responses API. When
+            provided it is attached to the returned dict under ``"response_id"``
+            so callers (e.g. :class:`Model`) can chain subsequent turns via
+            ``previous_response_id``.
     """
     content_text = ""
     tool_calls = []
@@ -317,6 +324,8 @@ def _normalize_response(response) -> dict:
         "model": None,  # placeholder; Agent injects self._agent_type.model_name
         "reasoning": reasoning_val,
         "pre_tool_content": pre_tool_content or "",
+        # Raw Responses API response id, for previous_response_id chaining.
+        "response_id": response_id,
     }
 
 
@@ -391,14 +400,17 @@ class OpenAIProvider(Provider):
             messages: List of message dictionaries with 'role' and 'content'
             model: Model name to use
             **kwargs: Additional provider-specific parameters — currently ``tools``
-                (may be None) plus any of ``temperature``, ``top_p``, ``max_tokens``,
+                (may be None), ``previous_response_id`` (for Responses API
+                chaining), plus any of ``temperature``, ``top_p``, ``max_tokens``,
                 ``reasoning_effort``.
 
         Returns:
             Normalized completion response with ``choices``, ``usage`` and
-            convenience keys (``reasoning``, ``pre_tool_content``).
+            convenience keys (``reasoning``, ``pre_tool_content``,
+            ``response_id``).
         """
         tools = kwargs.get('tools')
+        previous_response_id = kwargs.get('previous_response_id')
         request_kwargs = self._build_request_kwargs(
             messages, model, tools,
             temperature=kwargs.get("temperature"),
@@ -406,13 +418,15 @@ class OpenAIProvider(Provider):
             max_tokens=kwargs.get("max_tokens"),
             reasoning_effort=kwargs.get("reasoning_effort"),
         )
+        if previous_response_id is not None:
+            request_kwargs["previous_response_id"] = previous_response_id
 
         try:
             response = self.client.responses.create(**request_kwargs)
         except Exception as exc:
             raise RuntimeError(f"Provider chat request failed: {exc}") from exc
 
-        return _normalize_response(response)
+        return _normalize_response(response, response_id=getattr(response, "id", None))
 
     async def chat_completion_async(self, messages: list[Dict], model: str, **kwargs):
         """Get chat completion from OpenAI via the Responses API (async).
@@ -420,6 +434,7 @@ class OpenAIProvider(Provider):
         Mirrors :meth:`chat_completion` but awaits the SDK call.
         """
         tools = kwargs.get('tools')
+        previous_response_id = kwargs.get('previous_response_id')
         request_kwargs = self._build_request_kwargs(
             messages, model, tools,
             temperature=kwargs.get("temperature"),
@@ -427,13 +442,15 @@ class OpenAIProvider(Provider):
             max_tokens=kwargs.get("max_tokens"),
             reasoning_effort=kwargs.get("reasoning_effort"),
         )
+        if previous_response_id is not None:
+            request_kwargs["previous_response_id"] = previous_response_id
 
         try:
             response = await self.client.responses.create(**request_kwargs)
         except Exception as exc:
             raise RuntimeError(f"Provider chat request failed: {exc}") from exc
 
-        return _normalize_response(response)
+        return _normalize_response(response, response_id=getattr(response, "id", None))
 
     def tokenize(self, text: str, model: str) -> list[int] | None:
         """Tokenize text using OpenAI tokenizer."""
@@ -467,4 +484,5 @@ __all__ = [
     "OpenAIProvider",
     "create_provider",
     "_normalize_response",
+    "Model",
 ]
