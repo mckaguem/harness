@@ -21,6 +21,12 @@ def cmd_tasks(rest: str, agent=None) -> bool | None:
     return _cmd_tasks(rest, agent)
 
 
+def cmd_goal(rest: str, agent=None) -> bool | None:
+    """Set the active agent's goal."""
+    from harness_core.commands.goal import cmd_goal as _cmd_goal
+    return _cmd_goal(rest, agent)
+
+
 # Command registry mapping command names to handler functions
 COMMANDS = {
     'exit': cmd_exit,
@@ -31,4 +37,5 @@ COMMANDS = {
     'load': cmd_load_session,
     'new': cmd_new,
     'compress': compress_handler,
+    'goal': cmd_goal,
 }

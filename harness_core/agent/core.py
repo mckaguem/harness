@@ -98,6 +98,10 @@ class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
         task_list_id = self._id[len("Agent."):] if self._id.startswith("Agent.") else self._id
         self._task_list: TaskList | None = TaskList(id=task_list_id, sender_id=self._id)
 
+        # Active goal text. Set via the /goal command or forwarded user input.
+        # While non-empty, the agent cannot end its turn (see _handle_no_tool_calls).
+        self.goal: str = ""
+
         # Conversation state is now owned by the Session object.
         self._session = Session(
             system_prompt=agent_type.system_prompt,
@@ -264,6 +268,17 @@ class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
         list) or ``"done"`` (break out with *content* as the response text to
         yield).
         """
+        goal = getattr(self, "goal", "")
+        if goal:
+            block_content = (
+                "A goal has been set:\n"
+                f"{goal}\n\n"
+                "You must complete this goal and then call the `goal_met` tool to clear it "
+                "before you can end your turn."
+            )
+            self._inject_blocking_message(block_content)
+            return ("continue", None)
+
         if self._task_list and self._task_list.has_incomplete_tasks():
             block_content = """[SYSTEM ERROR] Execution termination blocked.
 You still have incomplete tasks in your tasks list.
