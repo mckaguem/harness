@@ -14,15 +14,19 @@ The harness can run in two modes:
 import getopt
 import sys
 import logging
+from pathlib import Path
 
-# Configure the logging system
-logging.basicConfig(
-    filename='/tmp/app.log',      # The file where logs will be saved
-    filemode='a',            # 'a' to append to the file, 'w' to overwrite it each run
-    format='%(asctime)s - %(levelname)s - %(message)s', # The format of the log message
-    level=logging.DEBUG,        # The minimum severity level to capture
-    force=True
-)
+# Configure the logging system — only if no handler is already set up, so that
+# any caller-supplied logging configuration is preserved when embedded as a
+# library. The log file lives in the current working directory (project ethos:
+# everything runs inside CWD).
+if not logging.root.handlers:
+    logging.basicConfig(
+        filename=Path.cwd() / "harness.log",  # The file where logs will be saved
+        filemode='a',            # 'a' to append to the file, 'w' to overwrite it each run
+        format='%(asctime)s - %(levelname)s - %(message)s', # The format of the log message
+        level=logging.DEBUG,        # The minimum severity level to capture
+    )
 
 from harness_core.agent import Agent
 from harness_core.tools import AGENT_TOOLS

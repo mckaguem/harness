@@ -25,9 +25,24 @@ that it must invoke exactly once when done.
 ## Async Iteration
 
 The sub-agent's :meth:`Agent.handle_prompt` now returns an async generator, so
-``_run_one`` iterates with ``async for`` over ``(kind, *args)`` tuples.  A sync
-wrapper (:func:`_run_one_sync`) runs the coroutine in a fresh event loop when
-called from synchronous contexts (e.g. :func:`run_subagent` with ``block=True``).
+``_run_one`` iterates with ``async for`` over ``(kind, *args)`` tuples.
+
+## Async / Sync Entry Points
+
+Two public entry points drive sub-agent execution:
+
+- :func:`run_subagent` (``async def``): the primary coroutine.  Await it directly
+  from async contexts.  With ``block=True`` (default) it runs one sub-agent and
+  returns its :class:`ToolResult`; with ``block=False`` it launches the sub-agent
+  in the background via :class:`SubagentManager` and returns an identifier.
+- :func:`run_subagent_async` (``async def``): runs a single sub-agent off the
+  event loop via ``asyncio.to_thread`` so multiple sub-agents run concurrently.
+- :func:`run_subagents_parallel`: the convenience fan-out.  When called from an
+  async context (a running event loop) it awaits
+  ``asyncio.gather(...)`` directly on the caller's loop — genuine concurrent
+  execution driven by the caller.  When called from synchronous code (no running
+  loop) it runs the gather in a fresh loop via ``asyncio.run``.  Parallel
+  execution is real in both cases (no ``ThreadPoolExecutor`` serialization).
 
 ## Configuration Paths
 
@@ -253,11 +268,12 @@ def run_subagents_parallel(calls: list[Tuple[str, str]]) -> list[ToolResult]:
 
     try:
         loop = asyncio.get_running_loop()
-        # We're inside an async context — run the gather via to_thread to avoid blocking.
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(asyncio.run, _gather())
-            return list(future.result())
+        # Inside an async context: let the caller's loop drive genuine
+        # concurrent execution via asyncio.gather.  We schedule the gather on
+        # the running loop and block until it completes — no worker-thread
+        # asyncio.run, so there is no deadlock footgun.
+        future = asyncio.run_coroutine_threadsafe(_gather(), loop)
+        return list(future.result())
     except RuntimeError:
         # No running event loop — create a fresh one (sync entry point).
         return list(asyncio.run(_gather()))

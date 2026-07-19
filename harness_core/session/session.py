@@ -47,10 +47,6 @@ class Session:
         self._provider: Provider | None = provider
         self._model_name: str = model_name
 
-        # Previous Responses API response id, used to chain turns via
-        # `previous_response_id` instead of resending the whole message list.
-        self.response_id: str | None = None
-
         # Tool schemas for this session (set by the Agent so the Model can read
         # them); None when the agent has no tools.
         self.tools = None

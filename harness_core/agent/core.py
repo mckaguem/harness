@@ -20,6 +20,7 @@ from harness_core.tools.dispatcher import dispatch
 from harness_core.tools.tool_result import ToolResult
 
 from harness_core.agent.mixin import InteractiveLoopMixin, EventListenerLoopMixin
+from harness_core.terminal_io import display_error
 
 
 class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
@@ -65,7 +66,7 @@ class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
             try:
                 self._provider = Provider.get_or_create(agent_type.provider_config)
             except Exception as exc:
-                print(f"Warning: Failed to resolve provider for '{agent_type.name}': {exc}")
+                display_error(f"Warning: Failed to resolve provider for '{agent_type.name}': {exc}")
 
         # Build a Model abstraction from the AgentType's model config. The Model
         # wraps the resolved Provider and routes LLM calls through the Responses
@@ -77,7 +78,7 @@ class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
                 model_config, provider=self._provider
             )
         except Exception as exc:
-            print(f"Warning: Failed to build Model for '{agent_type.name}': {exc}")
+            display_error(f"Warning: Failed to build Model for '{agent_type.name}': {exc}")
             self._model = None
 
         # Filter tool schemas based on AgentType.
@@ -182,7 +183,7 @@ class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
             raise RuntimeError("No model configured for this agent.")
 
         try:
-            response = await self._model.responses(self._session)
+            response = await self._model.chat_turn(self._session)
         except Exception as exc:
             raise RuntimeError(f"Provider chat request failed: {exc}") from exc
 

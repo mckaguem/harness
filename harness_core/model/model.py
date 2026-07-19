@@ -4,14 +4,16 @@ A :class:`Model` pairs a resolved :class:`Provider` instance with the
 provider-facing model name (``provider_model_name``) and the model-level
 sampling parameters (temperature, top_p, max_tokens, reasoning_effort).
 
-Agent turns are routed through :meth:`Model.responses`, which delegates to the
+Agent turns are routed through :meth:`Model.chat_turn`, which delegates to the
 Provider's ``chat_completion_async`` and sends the full conversation transcript
 as ``input`` on every turn.
 """
 
 from typing import Any, Dict, Mapping, Optional
 
+from harness_core.config import get_provider_config
 from harness_core.model.provider import Provider
+from harness_core.session.session import Session
 
 
 class Model:
@@ -81,8 +83,6 @@ class Model:
         Returns:
             A fully-configured Model instance.
         """
-        from harness_core.config import get_provider_config
-
         if provider is None:
             provider_name = model_config.get("provider")
             provider_config = get_provider_config(provider_name) if provider_name else None
@@ -108,7 +108,7 @@ class Model:
             reasoning_effort=reasoning_effort,
         )
 
-    async def responses(self, session) -> Dict:
+    async def chat_turn(self, session: Session) -> dict[str, Any]:
         """Run one LLM turn for *session* and return the normalized response.
 
         Delegates to the wrapped Provider's ``chat_completion_async``. The full

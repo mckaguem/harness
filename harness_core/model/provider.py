@@ -252,16 +252,13 @@ def _to_responses_tools(tools: list[Dict] | None) -> list[Dict] | None:
     return converted
 
 
-def _normalize_response(response, response_id=None) -> dict:
+def _normalize_response(response) -> dict:
     """Convert an OpenAI Responses API response into the normalized
     chat-completion dict shape (``choices`` + ``usage``) shared by both the
     sync and async chat paths.
 
     Args:
         response: The raw OpenAI Responses API response object.
-        response_id: Optional raw ``response.id`` from the Responses API. When
-            provided it is attached to the returned dict under ``"response_id"``
-            for the caller's convenience.
     """
     content_text = ""
     tool_calls = []
@@ -323,8 +320,6 @@ def _normalize_response(response, response_id=None) -> dict:
         "model": None,  # placeholder; Agent injects self._agent_type.model_name
         "reasoning": reasoning_val,
         "pre_tool_content": pre_tool_content or "",
-        # Raw Responses API response id, for the caller's convenience.
-        "response_id": response_id,
     }
 
 
@@ -404,8 +399,7 @@ class OpenAIProvider(Provider):
 
         Returns:
             Normalized completion response with ``choices``, ``usage`` and
-            convenience keys (``reasoning``, ``pre_tool_content``,
-            ``response_id``).
+            convenience keys (``reasoning``, ``pre_tool_content``).
         """
         tools = kwargs.get('tools')
         request_kwargs = self._build_request_kwargs(
@@ -421,7 +415,7 @@ class OpenAIProvider(Provider):
         except Exception as exc:
             raise RuntimeError(f"Provider chat request failed: {exc}") from exc
 
-        return _normalize_response(response, response_id=getattr(response, "id", None))
+        return _normalize_response(response)
 
     async def chat_completion_async(self, messages: list[Dict], model: str, **kwargs):
         """Get chat completion from OpenAI via the Responses API (async).
@@ -442,7 +436,7 @@ class OpenAIProvider(Provider):
         except Exception as exc:
             raise RuntimeError(f"Provider chat request failed: {exc}") from exc
 
-        return _normalize_response(response, response_id=getattr(response, "id", None))
+        return _normalize_response(response)
 
     def tokenize(self, text: str, model: str) -> list[int] | None:
         """Tokenize text using OpenAI tokenizer."""
@@ -476,5 +470,4 @@ __all__ = [
     "OpenAIProvider",
     "create_provider",
     "_normalize_response",
-    "Model",
 ]

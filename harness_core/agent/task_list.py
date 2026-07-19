@@ -95,10 +95,18 @@ class TaskList:
     # -- event emission ----------------------------------------------------
 
     def _emit(self, topic: str) -> None:
-        """Publish a tasklist event if an event loop is running.
+        """Publish a tasklist event synchronously via the event bus.
 
-        In non-async contexts (e.g. unit tests) there is no running loop, so
-        we skip emission — no listeners will be present anyway.
+        ``EventBus.publish`` is a plain synchronous call (no ``await`` and no
+        requirement for a running event loop — it delivers directly via
+        ``asyncio.Queue.put_nowait`` or ``loop.call_soon_threadsafe``). Therefore
+        emission now happens inline on the calling thread, with no prior
+        running-loop guard.
+
+        When there are no subscribers bound to ``topic`` (including non-async
+        contexts such as unit tests where nothing is registered), ``publish``
+        returns immediately without raising — emission degrades gracefully and
+        is effectively skipped.
         """
 
         event_bus.publish(
