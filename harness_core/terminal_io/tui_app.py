@@ -13,9 +13,6 @@ from harness_core.terminal_io.widgets import (
     TaskListSidebar,
 )
 
-thecount = 0
-
-
 class TextualHarnessApp(App):
     """A minimal, idiomatic textual harness shell.
 
@@ -241,13 +238,11 @@ class TextualHarnessApp(App):
         from .harness_tui import get_tui as _get_tui
         tui = _get_tui()
         if tui is not None and message.strip():
-            global thecount
-            thecount += 1
 
             # Display the user's message in the output pane
             try:
                 from harness_core.terminal_io.display import display_user_message
-                display_user_message(message + f'Count = {thecount}')
+                display_user_message(message)
 
             except Exception:
                 pass

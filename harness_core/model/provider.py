@@ -114,14 +114,14 @@ class Provider(ABC):
         Raises:
             ValueError: If required fields are missing from the configuration.
         """
-        from openai import OpenAI as _OpenAIClient
+        from openai import AsyncOpenAI as OpenAIClient
 
         if not config.provider_type:
             raise ValueError("ProviderConfig must include a 'provider_type' field")
         if not config.base_url:
             raise ValueError("ProviderConfig must include a 'base_url' field")
 
-        client = _OpenAIClient(
+        client = OpenAIClient(
             base_url=config.base_url,
             api_key=config.api_key or "",
         )

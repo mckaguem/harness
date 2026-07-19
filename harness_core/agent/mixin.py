@@ -140,8 +140,8 @@ class InteractiveLoopMixin:
     # new event-driven dispatch.
     # ------------------------------------------------------------------
 
-    def _process_and_run_turn(self, user_input: str) -> bool:  # noqa: D401
-        """Process user input and run one agent turn.
+    async def _process_and_run_turn(self, user_input: str) -> bool:  # noqa: D401
+        """Process user input and run one agent turn asynchronously.
 
         Returns True if the loop should exit (e.g., /exit or /quit received).
         This method is called both by :meth:`loop` (legacy path, via deprecated
@@ -164,7 +164,7 @@ class InteractiveLoopMixin:
         if should_break:
             return True
 
-        self._run_turn(effective_input, turn_start)
+        await self._run_turn(effective_input, turn_start)
 
         if not (user_input.startswith('/') and effective_input == user_input):
             try:
@@ -230,7 +230,7 @@ class InteractiveLoopMixin:
 
         return effective_input, False
 
-    def _run_turn(self, effective_input: str, turn_start: float) -> None:  # noqa: D401
+    async def _run_turn(self, effective_input: str, turn_start: float) -> None:  # noqa: D401
         """Wrap ``handle_prompt`` + dispatch with start/stop events.
 
         Publishes ``agent.turn.start`` before and ``agent.turn.stop`` after the
@@ -241,11 +241,11 @@ class InteractiveLoopMixin:
         """
         self.publish("agent.turn.start", ControlPayload(action={}))
         try:
-            self._handle_turn(effective_input, turn_start)
+            await self._handle_turn(effective_input, turn_start)
         finally:
             self.publish("agent.turn.stop", ControlPayload(action={}))
 
-    def _handle_turn(self, effective_input: str, turn_start: float) -> None:  # noqa: D401
+    async def _handle_turn(self, effective_input: str, turn_start: float) -> None:  # noqa: D401
         """Run ``handle_prompt`` and dispatch each output to the appropriate helper.
 
         Iterates defensively so that any exception raised while pulling items
@@ -255,7 +255,7 @@ class InteractiveLoopMixin:
         """
         try:
             outputs = self.handle_prompt(effective_input)
-            for output in outputs:
+            async for output in outputs:
                 kind = output[0]
                 if kind == RESPONSE:
                     _, content, ollama_response, _ = output
@@ -415,7 +415,7 @@ class EventListenerLoopMixin(EventListener):
         if not isinstance(payload, UserInputPayload):
             return
 
-        should_break = self._process_and_run_turn(payload.message)
+        should_break = await self._process_and_run_turn(payload.message)
         if should_break:
             # Signal the run_loop to stop waiting
             try:

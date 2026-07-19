@@ -1,5 +1,6 @@
 """Tests for agent.py — AgentType, filter_tool_schemas, and Agent class."""
 
+import asyncio
 import json
 import os
 from unittest.mock import MagicMock, patch, call
@@ -11,6 +12,21 @@ from harness_core.model.provider import OpenAIProvider
 from harness_core.agent import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from harness_core.model.types import ProviderConfig
 from harness_core.utils import project_root
+
+
+# ---------------------------------------------------------------------------
+# Async helper — converts an async-generator handle_prompt into a list.
+# ---------------------------------------------------------------------------
+def _collect_events(agent, prompt):  # type: (object, str) -> list[tuple]
+    """Run ``agent.handle_prompt(prompt)`` to completion and return a flat list."""
+    events = []
+
+    async def _gather():
+        async for event in agent.handle_prompt(prompt):
+            events.append(event)
+
+    asyncio.run(_gather())
+    return events
 
 
 @pytest.fixture(autouse=True)
@@ -573,13 +589,20 @@ class TestAgentHandlePrompt:
 
     def _make_provider(self, responses):
         """Build a provider mock that passes isinstance(provider, Provider) and
-        returns/cycles *responses* (normalized chat-completion dicts)."""
+        returns/cycles *responses* (normalized chat-completion dicts).
+
+        Since ``Agent._chat`` now calls :meth:`Provider.chat_completion_async`,
+        we set up the async method to return each dict in turn via ``side_effect``.
+        """
         provider = MagicMock(spec=OpenAIProvider)
         provider.get_base_url.return_value = "http://test"
-        if len(responses) == 1:
-            provider.chat_completion.return_value = responses[0]
-        else:
-            provider.chat_completion.side_effect = responses
+
+        # Drive chat_completion_async through an iterator so each call pops
+        # the next response.  We replace the auto-generated coroutine with a
+        # plain AsyncMock whose side_effect yields the responses in order.
+        it = iter(responses)
+        provider.chat_completion_async.side_effect = lambda *a, **kw: next(it)
+
         return provider
 
     @staticmethod
@@ -612,7 +635,7 @@ class TestAgentHandlePrompt:
         with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
             agent = Agent(agent_type, id="test-agent")
 
-        outputs = list(agent.handle_prompt("Hi"))
+        outputs = _collect_events(agent, "Hi")
 
         assert len(outputs) == 1
         kind, content, response, _resp_data = outputs[0]
@@ -632,7 +655,7 @@ class TestAgentHandlePrompt:
         with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
             agent = Agent(agent_type, id="test-agent")
 
-        outputs = list(agent.handle_prompt("List files"))
+        outputs = _collect_events(agent, "List files")
 
         assert len(outputs) == 3
         kind, func_name, args_str, _response_data = outputs[0]
@@ -660,7 +683,7 @@ class TestAgentHandlePrompt:
         with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
             agent = Agent(agent_type, id="test-agent")
 
-        outputs = list(agent.handle_prompt("Do something"))
+        outputs = _collect_events(agent, "Do something")
 
         assert len(outputs) >= 2
         assert outputs[0][0] == TOOL_CALL
@@ -678,7 +701,7 @@ class TestAgentHandlePrompt:
         with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
             agent = Agent(agent_type, id="test-agent")
 
-        list(agent.handle_prompt("Hello"))
+        _collect_events(agent, "Hello")
 
         assert len(agent._session.messages) == 3
         assert agent._session.messages[1]["role"] == "user"
@@ -694,7 +717,7 @@ class TestAgentHandlePrompt:
         with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
             agent = Agent(agent_type, id="test-agent")
 
-        list(agent.handle_prompt("Hi"))
+        _collect_events(agent, "Hi")
 
         assert len(agent._session.messages) == 3
         assert agent._session.messages[2]["role"] == "assistant"
@@ -713,7 +736,7 @@ class TestAgentHandlePrompt:
         with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
             agent = Agent(agent_type, id="test-agent")
 
-        list(agent.handle_prompt("Run command"))
+        _collect_events(agent, "Run command")
 
         assert len(agent._session.messages) == 5
         assert agent._session.messages[3]["role"] == "tool"
@@ -735,7 +758,7 @@ class TestAgentHandlePrompt:
         with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
             agent = Agent(agent_type, id="test-agent")
 
-        outputs = list(agent.handle_prompt("Run commands"))
+        outputs = _collect_events(agent, "Run commands")
 
         assert len(outputs) == 5
         assert outputs[0][0] == TOOL_CALL
@@ -757,6 +780,6 @@ class TestAgentHandlePrompt:
         with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
             agent = Agent(agent_type, id="test-agent")
 
-        outputs = list(agent.handle_prompt("Test"))
+        outputs = _collect_events(agent, "Test")
         assert any(o[0] == ERROR for o in outputs)
 

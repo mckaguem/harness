@@ -1,8 +1,8 @@
 """run_subagent — spawn a sub-agent, run a task, return the result.
 
 Creates a fresh :class:`Agent` from ``agents/<sub_agent>.yaml``, runs
-``handle_prompt(task)`` synchronously on it, and returns structured findings
-back to the calling (parent) agent.
+``handle_prompt(task)`` asynchronously on it (via async generator), and returns
+structured findings back to the calling (parent) agent.
 
 Each call spawns an isolated sub-agent — no shared history with prior calls or
 the parent's conversation.  The sub-agent has access to all tools unless its
@@ -15,10 +15,19 @@ that it must invoke exactly once when done.
 2. Spawn the sub-agent, inject the termination text into its system_prompt via
    :meth:`AgentType.inject_extra_system_prompt`, and pass ``submit_results`` as
    an extra tool schema via :meth:`Agent.spawn_subagent`.
-3. Drive the sub-agent with ``task + termination_prompt``.  When the sub-agent
-   calls ``submit_results``, dispatch that call directly, capture its return
-   string (the parsed JSON payload), and return it immediately to the parent —
-   bypassing any further RESPONSE yields.
+3. Drive the sub-agent with ``task + termination_prompt``.  The agent's
+   :meth:`~Agent.handle_prompt` returns an async generator; :func:`_run_one`
+   iterates it with ``async for`` over ``(kind, *args)`` tuples.  When the
+   sub-agent calls ``submit_results``, dispatch that call directly, capture its
+   return string (the parsed JSON payload), and return it immediately to the
+   parent — bypassing any further RESPONSE yields.
+
+## Async Iteration
+
+The sub-agent's :meth:`Agent.handle_prompt` now returns an async generator, so
+``_run_one`` iterates with ``async for`` over ``(kind, *args)`` tuples.  A sync
+wrapper (:func:`_run_one_sync`) runs the coroutine in a fresh event loop when
+called from synchronous contexts (e.g. :func:`run_subagent` with ``block=True``).
 
 ## Configuration Paths
 
@@ -110,7 +119,7 @@ def _build_function_def() -> dict:
 function_def = _build_function_def()
 
 
-def _run_one(agent: Any, sub_agent: str, task: str) -> ToolResult:
+async def _run_one(agent: Any, sub_agent: str, task: str) -> ToolResult:
     """Spawn a single named sub-agent and execute *task* on it (worker body).
 
     Designed to run inside its own worker thread (via ``asyncio.to_thread``), so
@@ -132,7 +141,7 @@ def _run_one(agent: Any, sub_agent: str, task: str) -> ToolResult:
 
     try:
         result_text = ""
-        for kind, *args in sub.handle_prompt(task):
+        async for kind, *args in sub.handle_prompt(task):
             if kind == TOOL_CALL and args[0] == "submit_results":
                 # Dispatch the submit_results call directly and capture its return value.
                 func_name = args[0]
@@ -171,6 +180,12 @@ def _run_one(agent: Any, sub_agent: str, task: str) -> ToolResult:
         return make_error_result(f"Error running sub-agent '{sub_agent}': {exc}")
 
 
+def _run_one_sync(agent, sub_agent: str, task: str) -> ToolResult:
+    """Sync wrapper around async _run_one via fresh event loop."""
+    import asyncio as _asyncio
+    return _asyncio.run(_run_one(agent, sub_agent, task))
+
+
 def run_subagent(agent, sub_agent: str, task: str, block: bool = True) -> ToolResult:
     """Spawn a named sub-agent and execute *task* on it.
 
@@ -187,7 +202,7 @@ def run_subagent(agent, sub_agent: str, task: str, block: bool = True) -> ToolRe
             (``"subagent-<n>"``) so the caller can later ``await_subagent`` it.
     """
     if block:
-        return _run_one(agent, sub_agent, task)
+        return _run_one_sync(agent, sub_agent, task)
 
     from harness_core.tools.subagent_manager import manager
 
@@ -219,7 +234,7 @@ async def run_subagent_async(sub_agent: str, task: str) -> ToolResult:
     ``asyncio.to_thread`` so that multiple sub-agents can run concurrently
     (each in its own thread/context) when gathered.
     """
-    return await asyncio.to_thread(_run_one, None, sub_agent, task)
+    return await _run_one(None, sub_agent, task)
 
 
 def run_subagents_parallel(calls: list[Tuple[str, str]]) -> list[ToolResult]:
@@ -243,7 +258,16 @@ def run_subagents_parallel(calls: list[Tuple[str, str]]) -> list[ToolResult]:
             *(run_subagent_async(sa, tk) for sa, tk in calls)
         )
 
-    return list(asyncio.create_task(_gather()))
+    try:
+        loop = asyncio.get_running_loop()
+        # We're inside an async context — run the gather via to_thread to avoid blocking.
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(asyncio.run, _gather())
+            return list(future.result())
+    except RuntimeError:
+        # No running event loop — create a fresh one (sync entry point).
+        return list(asyncio.run(_gather()))
 
 
 def summary(sub_agent: str, task: str) -> str:

@@ -2,7 +2,7 @@
 
 import json
 import os
-from typing import (Any, Dict, Generator, Optional, TYPE_CHECKING)
+from typing import Any, AsyncGenerator, Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from harness_core.agent.types import AgentType
@@ -142,7 +142,7 @@ class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
 
     # -- internal helpers ----------------------------------------------------
 
-    def _chat(self, messages: list[dict]) -> dict:
+    async def _chat(self, messages: list[dict]) -> dict:
         """Send *messages* to the provider and return a normalized response dict.
 
         Timing data (duration_ms) is injected by this method. All other normalization
@@ -155,7 +155,7 @@ class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
             raise RuntimeError("No provider configured for this agent.")
 
         try:
-            response = self._provider.chat_completion(
+            response = await self._provider.chat_completion_async(
                 messages=messages,
                 model=self._agent_type.provider_model_name,
                 tools=self._tools if self._tools else None,
@@ -175,8 +175,8 @@ class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
 
         return response
 
-    def handle_prompt(self, user_input: str) -> Generator[tuple[str, Any, Any, Optional[dict[str, Any]]], None, None]:
-        """Process a single user prompt to completion.
+    async def handle_prompt(self, user_input: str) -> AsyncGenerator[tuple[str, Any, Any, Optional[dict[str, Any]]], None]:
+        """Process a single user prompt to completion (async).
 
         Yields tuples of ``(kind, ...)`` where ``kind`` is one of
         :data:`RESPONSE`, :data:`TOOL_CALL`, :data:`TOOL_RESULT` or
@@ -200,7 +200,7 @@ class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
             loop_count += 1
 
             messages_to_send = self._session.get_messages()
-            response = self._chat(messages_to_send)
+            response = await self._chat(messages_to_send)
 
             # Provider-normalized shape: ``response["choices"][0]["message"]``.
             message = response["choices"][0]["message"]
@@ -213,7 +213,8 @@ class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
                 yield (RESPONSE, content, response, None)
                 break
 
-            yield from self._process_tool_calls(message, response)
+            for sub_output in self._process_tool_calls(message, response):
+                yield sub_output
 
     # -- private helpers ---------------------------------------------------
 
