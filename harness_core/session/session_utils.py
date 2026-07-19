@@ -8,7 +8,10 @@ import yaml
 from harness_core.utils import project_root
 
 
-def format_session_yaml(messages: list[dict], agent_type_name: str = "main") -> str:
+def format_session_yaml(
+    messages: list[dict],
+    agent_type_name: str = "main",
+) -> str:
     """Format session messages as YAML with human-readable comment lines.
 
     Uses multiple YAML documents separated by ``---`` so each message is a clean,

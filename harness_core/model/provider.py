@@ -261,8 +261,7 @@ def _normalize_response(response, response_id=None) -> dict:
         response: The raw OpenAI Responses API response object.
         response_id: Optional raw ``response.id`` from the Responses API. When
             provided it is attached to the returned dict under ``"response_id"``
-            so callers (e.g. :class:`Model`) can chain subsequent turns via
-            ``previous_response_id``.
+            for the caller's convenience.
     """
     content_text = ""
     tool_calls = []
@@ -324,7 +323,7 @@ def _normalize_response(response, response_id=None) -> dict:
         "model": None,  # placeholder; Agent injects self._agent_type.model_name
         "reasoning": reasoning_val,
         "pre_tool_content": pre_tool_content or "",
-        # Raw Responses API response id, for previous_response_id chaining.
+        # Raw Responses API response id, for the caller's convenience.
         "response_id": response_id,
     }
 
@@ -400,9 +399,8 @@ class OpenAIProvider(Provider):
             messages: List of message dictionaries with 'role' and 'content'
             model: Model name to use
             **kwargs: Additional provider-specific parameters — currently ``tools``
-                (may be None), ``previous_response_id`` (for Responses API
-                chaining), plus any of ``temperature``, ``top_p``, ``max_tokens``,
-                ``reasoning_effort``.
+                (may be None), plus any of ``temperature``, ``top_p``,
+                ``max_tokens``, ``reasoning_effort``.
 
         Returns:
             Normalized completion response with ``choices``, ``usage`` and
@@ -410,7 +408,6 @@ class OpenAIProvider(Provider):
             ``response_id``).
         """
         tools = kwargs.get('tools')
-        previous_response_id = kwargs.get('previous_response_id')
         request_kwargs = self._build_request_kwargs(
             messages, model, tools,
             temperature=kwargs.get("temperature"),
@@ -418,8 +415,6 @@ class OpenAIProvider(Provider):
             max_tokens=kwargs.get("max_tokens"),
             reasoning_effort=kwargs.get("reasoning_effort"),
         )
-        if previous_response_id is not None:
-            request_kwargs["previous_response_id"] = previous_response_id
 
         try:
             response = self.client.responses.create(**request_kwargs)
@@ -434,7 +429,6 @@ class OpenAIProvider(Provider):
         Mirrors :meth:`chat_completion` but awaits the SDK call.
         """
         tools = kwargs.get('tools')
-        previous_response_id = kwargs.get('previous_response_id')
         request_kwargs = self._build_request_kwargs(
             messages, model, tools,
             temperature=kwargs.get("temperature"),
@@ -442,8 +436,6 @@ class OpenAIProvider(Provider):
             max_tokens=kwargs.get("max_tokens"),
             reasoning_effort=kwargs.get("reasoning_effort"),
         )
-        if previous_response_id is not None:
-            request_kwargs["previous_response_id"] = previous_response_id
 
         try:
             response = await self.client.responses.create(**request_kwargs)

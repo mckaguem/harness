@@ -4,13 +4,9 @@ A :class:`Model` pairs a resolved :class:`Provider` instance with the
 provider-facing model name (``provider_model_name``) and the model-level
 sampling parameters (temperature, top_p, max_tokens, reasoning_effort).
 
-The key behavioural change introduced here is that Agent turns are routed
-through :meth:`Model.responses`, which delegates to the Provider's
-``chat_completion_async`` and — when the Session already holds a previous
-response id — passes it as ``previous_response_id`` so the OpenAI **Responses
-API** can chain context instead of re-sending the entire message list each
-turn. After each call the new response id is captured back onto the Session so
-the chain continues on the following turn.
+Agent turns are routed through :meth:`Model.responses`, which delegates to the
+Provider's ``chat_completion_async`` and sends the full conversation transcript
+as ``input`` on every turn.
 """
 
 from typing import Any, Dict, Mapping, Optional
@@ -115,21 +111,17 @@ class Model:
     async def responses(self, session) -> Dict:
         """Run one LLM turn for *session* and return the normalized response.
 
-        Delegates to the wrapped Provider's ``chat_completion_async``. When the
-        Session already carries a previous response id (``session.response_id``),
-        it is forwarded as ``previous_response_id`` so the Responses API chains
-        context without re-sending the full message list. The new response id is
-        then captured back onto the Session.
+        Delegates to the wrapped Provider's ``chat_completion_async``. The full
+        conversation transcript (``session.get_messages()``) is sent as ``input``
+        on every turn.
 
         Args:
             session: The conversation :class:`~harness_core.session.session.Session`.
-                Must expose ``get_messages()``, ``get_tools()``, ``response_id`` and
-                a settable ``response_id`` attribute.
+                Must expose ``get_messages()`` and ``get_tools()``.
 
         Returns:
             The provider-normalized response dict (``choices`` / ``usage`` / plus
-            convenience keys). The raw ``response_id`` is also attached for the
-            caller's convenience.
+            convenience keys).
         """
         kwargs: dict[str, Any] = {
             "model": self._provider_model_name,
@@ -140,22 +132,10 @@ class Model:
             "reasoning_effort": self._reasoning_effort,
         }
 
-        # Chain context via the OpenAI Responses API: when the session already has
-        # a previous response id, forward it instead of relying solely on the
-        # resent message list.
-        if getattr(session, "response_id", None) is not None:
-            kwargs["previous_response_id"] = session.response_id
-
         response = await self._provider.chat_completion_async(
             messages=session.get_messages(),
             **kwargs,
         )
-
-        # Capture the new response id (attached by the Provider under the
-        # "response_id" key) so the next turn can chain off it.
-        new_response_id = response.get("response_id")
-        if new_response_id is not None:
-            session.response_id = new_response_id
 
         return response
 

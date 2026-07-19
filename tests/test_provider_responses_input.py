@@ -196,3 +196,4 @@ class TestResponsesTools:
             "parameters": {"type": "object"},
             "strict": True,
         }]
+
