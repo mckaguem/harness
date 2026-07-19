@@ -69,7 +69,7 @@ class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
 
         # Build a Model abstraction from the AgentType's model config. The Model
         # wraps the resolved Provider and routes LLM calls through the Responses
-        # API (with previous_response_id chaining).
+        # API, sending the full transcript as input on every turn.
         from harness_core.config import get_model_config
         try:
             model_config = get_model_config(agent_type.model_name) or {}
