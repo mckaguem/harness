@@ -243,7 +243,7 @@ def run_subagents_parallel(calls: list[Tuple[str, str]]) -> list[ToolResult]:
             *(run_subagent_async(sa, tk) for sa, tk in calls)
         )
 
-    return list(asyncio.run(_gather()))
+    return list(asyncio.create_task(_gather()))
 
 
 def summary(sub_agent: str, task: str) -> str:

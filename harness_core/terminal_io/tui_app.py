@@ -1,20 +1,19 @@
-"""Textual Harness App definition for the harness TUI."""
+"""Textual Harness App definition — event-driven TUI entry point."""
 from __future__ import annotations
+import logging
 
-import asyncio
-import traceback
-
-from rich.panel import Panel
-from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import Footer, Header, Static, TextArea
+from textual.widgets import Footer, Header, TextArea
 
 from harness_core.event_types import TaskListPayload
+from harness_core.terminal_io.event_handlers import TopicHandlers
 from harness_core.terminal_io.widgets import (
     StatusSpinner,
     TaskListSidebar,
 )
+
+thecount = 0
 
 
 class TextualHarnessApp(App):
@@ -69,12 +68,31 @@ class TextualHarnessApp(App):
         ("ctrl+g", "submit_input", "Submit")
     ]
 
-    def __init__(self, agent=None, on_exit=None) -> None:
+    def __init__(self, agent_id: str | None = None, on_exit=None) -> None:
         super().__init__()
-        self._agent = agent
+        self._agent_id = agent_id  # Store only the agent id string — no Agent object reference
         self._on_exit = on_exit
         self._output: VerticalScroll | None = None
         self._event_listener: object | None = None  # Keep a reference so it's not garbage collected
+
+        # Instantiate the topic handlers that process each EventBus event.
+        # These are dispatched to from ``on_event_bus_message`` below.
+        self._topic_handlers: TopicHandlers | None = TopicHandlers() if agent_id is not None else None
+
+        # Subscribe the consolidated EventListener that drives the sidebar from
+        # the TaskList event bus and renders system banners (e.g. auto-compress
+        # / agent-ready) via the terminal_io display layer.  The listener filters
+        # by this agent's sender id so only the main agent's events are shown.
+        try:
+            from .event_listener import subscribe_event_listener
+
+            if self._agent_id is not None:
+                listener = subscribe_event_listener(self._agent_id)
+                self._event_listener = listener  # Keep a reference so it's not garbage collected
+                print(listener)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -147,6 +165,37 @@ class TextualHarnessApp(App):
         except Exception:
             return
 
+    # ── event bus bridge ────────────────────────────────────────────────
+
+    async def on_event_bus_message(self, message: "EventBusMessage") -> None:
+        """Handle an :class:`EventBusMessage` dispatched from the harness event bus.
+
+        Unwraps the wrapped :class:`~harness_core.eventbus.Event`, converts its
+        topic name to a Python method name (replacing ``.`` and ``-`` with
+        ``_``, prepending ``handle_``), and dispatches it to the matching
+        handler on :attr:`self._topic_handlers`.
+
+        Args:
+            message: The Textual message carrying the wrapped EventBus event.
+        """
+        from .event_listener import EventBusMessage as _EventBusMessage
+        logging.debug(f'on_event_bus_message, topic: {message.event.topic}')
+        if not isinstance(message, _EventBusMessage):
+            return
+
+        event = message.event
+        handlers = self._topic_handlers
+        if handlers is None:
+            return
+
+        # Convert topic name to method name (e.g. "agent.tasklist.initialize" -> "handle_agent_tasklist_initialize")
+        method_name = f"handle_{event.topic.replace('.', '_').replace('-', '_')}"
+        handler = getattr(handlers, method_name, None)
+        if handler is not None and callable(handler):
+            logging.debug(f'handler {method_name} exists and will be called.')
+            await handler(event)
+        else:
+            logging.debug(f'No handler {method_name} for {event.topic} found.')
 
     async def on_mount(self) -> None:
         from .harness_tui import get_tui as _get_tui
@@ -164,85 +213,65 @@ class TextualHarnessApp(App):
         # Initial paint + heartbeat so the sidebar is always correct.
         sidebar.refresh_tasks()
 
-        # Subscribe the consolidated EventListener that drives the sidebar from
-        # the TaskList event bus and renders system banners (e.g. auto-compress
-        # / agent-ready) via the terminal_io display layer.  The listener filters
-        # by this agent's sender id so only the main agent's events are shown.
-        # We await the subscription here (on_mount runs on the app loop's thread)
-        # so the listener is fully subscribed to the bus BEFORE the worker-thread
-        # user_loop emits its one-shot ``agent.status.ready`` banner — otherwise
-        # the late subscriber would miss that event and the banner would never
-        # appear.
-        try:
-            from .event_listener import subscribe_event_listener
 
-            if self._agent is not None:
-                listener = subscribe_event_listener(self._agent.id)
-                self._event_listener = listener  # Keep a reference so it's not garbage collected
-        except Exception as e:
-            pass
-
-        # Cache the output pane reference for _show_loop_error (worker-thread path).
+        # Cache the output pane reference for error display.
         try:
             self._output = self.query_one("#output", VerticalScroll)
         except Exception:
             self._output = None
 
-        self.call_after_refresh(self._start_loop)
-
-    def _start_loop(self) -> None:
-        """Begin the user loop on a worker thread (app is live now)."""
-        if self._agent is None:
+    def action_submit_input(self) -> None:
+        """Handle user input submission. Reads the current text from the
+        TextArea widget and publishes it as an event for the agent to consume.
+        """
+        try:
+            input_widget = self.query_one("#input", TextArea)
+            message = input_widget.text
+        except Exception:
             return
 
-        def _loop() -> None:
-            try:
-                self._agent.loop(on_exit=self._on_exit)
-            except Exception:
-                # Surface the error in the UI instead of dying silently.
-                self.call_from_thread(
-                    self._show_loop_error, traceback.format_exc()
-                )
-            finally:
-                # The loop exited (e.g. /exit or an error); close the app from
-                # the app thread.
-                self.call_from_thread(self.exit)
+        # Clear + refocus immediately so the user sees feedback right away
+        try:
+            input_widget = self.query_one("#input", TextArea)
+            input_widget.text = ""
+            input_widget.focus()
+        except Exception:
+            pass
 
-        self.run_worker(
-            _loop,
-            thread=True,
-            group="loop",
-            description="harness user loop",
-            exit_on_error=False,  # we handle errors ourselves
-        )
-
-    def _show_loop_error(self, tb: str) -> None:
-        """Render a worker-thread exception into the output pane."""
-        output = self._output
-        if output is not None:
-            output.mount(
-                Static(
-                    Panel(
-                        Text.from_markup(f"[red bold]Loop error:[/]\n{tb}"),
-                        title="Error",
-                        border_style="red",
-                    )
-                )
-            )
-
-    def action_submit_input(self) -> None:
         from .harness_tui import get_tui as _get_tui
+        tui = _get_tui()
+        if tui is not None and message.strip():
+            global thecount
+            thecount += 1
 
-        _get_tui().submit()
+            # Display the user's message in the output pane
+            try:
+                from harness_core.terminal_io.display import display_user_message
+                display_user_message(message + f'Count = {thecount}')
 
+            except Exception:
+                pass
+            # Publish as event for the agent to consume
+            tui.publish_user_input(message)
 
-def launch(agent, on_exit=None) -> None:
-    """Launch the Textual TUI and drive ``user_loop`` on a worker thread.
+    async def start(self):
+        self._event_listener.run()
+        self._event_listener.subscribeToStuff()
+
+        await self.run_async()
+
+async def launch(agent_id: str | None = None, on_exit=None) -> None:
+    """Launch the Textual TUI.
+
+    The agent loop is started independently by ``__main__.py`` — this function
+    only launches the TUI app and does NOT take ownership of the agent's
+    lifecycle or threading.
 
     Args:
-        agent: An initialized :class:`~agent.core.Agent` instance.
-        on_exit: Optional callback invoked when the loop ends (see
-            :func:`agent.loop.user_loop`).
+        agent_id: The agent identifier string (e.g., "Agent.main") used to
+            filter events for display in the sidebar. No Agent object is needed.
+        on_exit: Optional callback invoked when the TUI exits.
     """
-    app = TextualHarnessApp(agent=agent, on_exit=on_exit)
-    app.run()
+    logging.debug('Starting TUI')
+    app = TextualHarnessApp(agent_id=agent_id, on_exit=on_exit)
+    await app.start()

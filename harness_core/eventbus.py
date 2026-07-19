@@ -106,6 +106,8 @@ class EventPublisher:
             payload: A typed :class:`EventPayload` describing the event data.
         """
         from harness_core.eventbus import event_bus
+        import logging
+        logging.debug(f'EventPublisher publish topic {topic} from {self.id}, message {payload}')
         event = Event(topic=topic, sender=self.id, payload=payload)
         self.eventBus.publish(event)
 
@@ -125,39 +127,6 @@ class EventBus:
         self._bindings: Dict[str, Set[str]] = {}
         # Maps agent_id -> tuple of (mailbox, event_loop_bound_to_thread)
         self._mailboxes: Dict[str, Tuple[asyncio.Queue, Optional[asyncio.AbstractEventLoop]]] = {}
-        # Kept for backward compatibility with tests that reference it.
-        self._running_tasks: Set["asyncio.Task"] = set()
-
-    def register_background_task(self, coro: Any):
-        """Register a background task so it is not garbage-collected prematurely.
-
-        This method exists for backward-compatibility with older test fixtures;
-        the current publish path does synchronous delivery and no longer needs
-        explicit task tracking. Callers may still pass coroutines here — they are
-        scheduled as :class:`asyncio.Task` objects, stored in
-        :attr:`_running_tasks`, and automatically removed when they complete.
-
-        Args:
-            coro: A coroutine (or existing Task) to register and run.
-
-        Returns:
-            The registered :class:`asyncio.Task` so callers can await it directly.
-        """
-        if asyncio.iscoroutine(coro):
-            task = asyncio.create_task(coro)
-        elif isinstance(coro, asyncio.Task):
-            task = coro
-        else:  # pragma: no cover - defensive; callers pass coroutines or Tasks
-            raise TypeError(
-                f"register_background_task expects a coroutine or Task, got {type(coro).__name__}"
-            )
-
-        def _on_done(t: "asyncio.Task") -> None:
-            self._running_tasks.discard(t)
-
-        task.add_done_callback(_on_done)
-        self._running_tasks.add(task)
-        return task
 
     def register_agent(self, agent_id: str) -> Tuple[asyncio.Queue[Any], Optional[asyncio.AbstractEventLoop]]:
         """Registers an agent using the event loop of the CALLING thread.
@@ -250,6 +219,10 @@ class EventBus:
             agent_id: The target agent's unique identifier (used to look up its
                 mailbox and loop from :attr:`_mailboxes`).
         """
+        import logging
+        
+        logging.debug(f'sender={event.sender}, recipient={agent_id}, message={event.payload}')
+
         entry = self._mailboxes.get(agent_id)
         if not entry:
             return
@@ -346,6 +319,10 @@ class EventBus:
         for agent_id in self._bindings[event.topic]:
             self._deliver_to_agent(event, agent_id)
 
+
+# Singleton instance of the event bus
+event_bus = EventBus()
+
 class EventListener:
     """Base class for event listeners using the mailbox pattern.
 
@@ -359,23 +336,25 @@ class EventListener:
     a specific handler method.
     """
 
-    def __init__(self, agent_id: str, bus: EventBus):
+    def __init__(self, eventBus: EventBus, agent_id: str):
         """Initialize the event listener.
         
         Args:
             agent_id: Unique identifier for this listener/agent
             bus: The EventBus instance to use for communication
         """
-        self.agent_id = agent_id
-        self.bus = bus
+        self._id = agent_id
+        self.eventBus = eventBus
 
-        logger.debug("Creating EventListener for agent %s on loop %r", self.agent_id, asyncio.get_running_loop())
+        #logger.debug("Creating EventListener for agent %s on loop %r", self._id, asyncio.get_running_loop())
 
-        logger.info("Initializing EventListener for agent %s", self.agent_id)
+    def run(self):
+        
+        logger.info("Starting EventListener for agent %s", self._id)
 
         # 1. Register with the bus. This binds our mailbox to 
         #    the current worker thread's event loop.
-        self.mailbox, _loop = self.bus.register_agent(self.agent_id)
+        self.mailbox, _loop = self.eventBus.register_agent(self._id)
         
         # 2. Keep a local strong reference to the listener task
         #    to prevent garbage collection while we're running.
@@ -387,11 +366,12 @@ class EventListener:
                 self._listener_task.result()
             except Exception as e:
                 logger.error("Listener task failed immediately in __init__: %s", e)
-        logger.info("Listener for agent %s registered with bus on loop %r", self.agent_id)
+        logger.info("Listener for agent %s registered with bus", self._id)
 
+    
     async def _mailbox_listener(self) -> None:
         """The single consumer loop. Processes everything sequentially."""
-        logger.info("Mailbox listener started for agent %s", self.agent_id)
+        logger.info("Mailbox listener started for agent %s", self._id)
         try:
             while True:
                 # Yields control to the loop if the mailbox is empty.
@@ -399,18 +379,18 @@ class EventListener:
                 message = await self.mailbox.get()
 
                 topic = message.topic or "direct"
-                logger.debug("Processing event for agent %s on topic '%s'", self.agent_id, topic)
+                logger.debug("Processing event for agent %s on topic '%s'", self._id, topic)
 
                 try:
                     await self._handle_incoming(message)
-                    logger.debug("Successfully handled event on topic '%s' for agent %s", topic, self.agent_id)
+                    logger.debug("Successfully handled event on topic '%s' for agent %s", topic, self._id)
                 except Exception as e:
                     # Log full traceback with handler name and payload details — but DON'T re-raise!
                     # Re-raising would kill the listener task and silently stop all future events.
                     import traceback
                     logger.exception(
                         "Unhandled exception in handler for agent %s on topic '%s':\n%s\nPayload: %r",
-                        self.agent_id,
+                        self._id,
                         topic,
                         e,
                         message.payload if hasattr(message.payload, 'to_dict') else str(message.payload)
@@ -419,7 +399,7 @@ class EventListener:
                 self.mailbox.task_done()
         except asyncio.CancelledError:
             # Listener cancelled — the bus will handle cleanup via deregister_agent
-            logger.info("Mailbox listener cancelled for agent %s", self.agent_id)
+            logger.info("Mailbox listener cancelled for agent %s", self._id)
 
     async def _handle_incoming(self, message: Event) -> None:
         """Dispatch incoming message to the appropriate handler method.
@@ -437,7 +417,7 @@ class EventListener:
                 # Fall back to default_handler for direct messages without handle_direct
                 logger.warning(
                     "Received direct message for agent %s with no handle_direct method",
-                    self.agent_id,
+                    self._id,
                 )
                 await self.default_handler(message)
         else:
@@ -445,21 +425,21 @@ class EventListener:
             topic = message.topic.replace(".", "_").replace("-", "_")
             handler_name = f"handle_{topic}"
 
-            logger.debug("Looking up handler '%s' for agent %s", handler_name, self.agent_id)
+            logger.debug("Looking up handler '%s' for agent %s", handler_name, self._id)
 
             handler = getattr(self, handler_name, None)
             if handler is not None and callable(handler):
                 logger.debug("Calling handler '%s'", handler_name)
                 try:
                     await handler(message)
-                    logger.debug("Successfully called handler '%s' for agent %s", handler_name, self.agent_id)
+                    logger.debug("Successfully called handler '%s' for agent %s", handler_name, self._id)
                 except Exception as e:
                     # Log full traceback with payload details for debugging
                     import traceback
                     logger.exception(
                         "Handler '%s' failed for agent %s:\n%s\nPayload type: %r\nPayload data: %r",
                         handler_name,
-                        self.agent_id,
+                        self._id,
                         e,
                         type(message.payload).__name__,
                         message.payload.to_dict() if hasattr(message.payload, 'to_dict') else str(message.payload)
@@ -469,7 +449,7 @@ class EventListener:
                 logger.warning(
                     "No handler found for topic '%s' on agent %s",
                     topic,
-                    self.agent_id,
+                    self._id,
                 )
 
     async def handle(self, event: Event) -> None:
@@ -501,7 +481,7 @@ class EventListener:
         """
         pass  # Do nothing by default
 
-    def subscribe(self, topics: List[str]) -> None:
+    def subscribe(self, topics: List[str] = []) -> None:
         """Subscribe this listener to the specified topics and auto-discovered topics.
 
         This method:
@@ -511,8 +491,6 @@ class EventListener:
         Args:
             topics: List of additional topics to subscribe to
         """
-        if topics is None:
-            topics = []
 
         # Auto-discover handler methods
         discovered_topics = []
@@ -529,7 +507,8 @@ class EventListener:
 
         # Subscribe to all topics on the bus
         for topic in all_topics:
-            self.bus.subscribe(self.agent_id, topic)
+            logging.debug(f'{self._id} subscribed to {topic}')
+            self.eventBus.subscribe(self._id, topic)
 
     def unsubscribe(self, topics: List[str]) -> None:
         """Unsubscribe this listener from the specified topics.
@@ -538,7 +517,7 @@ class EventListener:
             topics: List of topics to unsubscribe from
         """
         for topic in topics:
-            self.bus.unsubscribe(self.agent_id, topic)
+            self.eventBus.unsubscribe(self._id, topic)
 
     def send_direct(self, target: str, payload: Any) -> None:
         """Send a message straight to another agent without blocking.
@@ -547,7 +526,7 @@ class EventListener:
             target: The target agent_id
             payload: Arbitrary data to send
         """
-        self.bus.send_direct(sender=self.agent_id, target_agent_id=target, payload=payload)
+        self.eventBus.send_direct(sender=self._id, target_agent_id=target, payload=payload)
 
     def publish(self, topic: str, payload: Any) -> None:
         """Broadcast to a topic without blocking.
@@ -556,8 +535,4 @@ class EventListener:
             topic: The topic to publish to
             payload: Arbitrary data to send
         """
-        self.bus.publish_to_topic(sender=self.agent_id, topic=topic, payload=payload)
-
-
-# Singleton instance of the event bus
-event_bus = EventBus()
+        self.eventBus.publish_to_topic(sender=self._id, topic=topic, payload=payload)

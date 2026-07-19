@@ -4,13 +4,18 @@ Consolidates all interactive-loop logic previously split between
 ``harness_core.agent.loop`` and the thin ``Agent.user_loop()`` delegator in
 ``harness_core.agent.core``. The :class:`InteractiveLoopMixin` is intended to be
 mixed into :class:`~harness_core.agent.core.Agent` (or a subclass) so callers
-(e.g. the TUI) can use :meth:`loop` as a uniform interface without reaching
+can use :meth:`loop` or :meth:`run_loop` as a uniform interface without reaching
 into agent internals.
+
+The loop is now event-driven: user input arrives via events from the TUI on
+the ``tui.user_input`` topic, dispatched by :class:`EventListenerLoopMixin`.
 """
 
+import asyncio
 import json
 import time as _time
 import traceback
+import logging
 
 from harness_core.agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from harness_core.commands import COMMANDS
@@ -23,7 +28,9 @@ from harness_core.event_types import (
     ToolErrorPayload,
     ToolResultPayload,
     TurnStatsPayload,
+    UserInputPayload,
 )
+from harness_core.eventbus import Event, EventListener, EventPublisher, filter_by_sender
 from harness_core.skills.interceptor import InterceptorKind, intercept_message
 from harness_core.session.context_compression import check_and_compress_if_needed
 
@@ -72,34 +79,103 @@ class InteractiveLoopMixin:
     """
 
     def loop(self, on_exit=None) -> None:  # noqa: D401
-        """Run the interactive command loop for this agent.
+        """DEPRECATED. Use :meth:`run_loop` instead.
+
+        The old blocking prompt_user() model has been replaced by an event-driven
+        architecture where user input arrives via events from the TUI. This method
+        is kept for backward compatibility and simply delegates to run_loop().
 
         Args:
             on_exit: Optional callback invoked just before the loop exits due
                 to ``/exit`` or ``/quit``. Receives ``(agent, messages)``.
         """
-        from harness_core.terminal_io import prompt_user  # local: only used here
+        self.run_loop(on_exit=on_exit)
+
+    async def run_loop(self, on_exit=None) -> None:  # noqa: D401
+        """Run the interactive loop using events for user input.
+
+        Unlike :meth:`loop`, this does NOT call prompt_user(). Instead it relies
+        on :class:`EventListenerLoopMixin` to receive user input as events from
+        the TUI and dispatch them through _process_and_run_turn.
+
+        This is an async method that MUST be called with ``await`` inside an
+        asyncio event loop context (e.g., via ``asyncio.run()`` in __main__.py).
+
+        The method:
+        1. Lazily initializes :class:`EventListenerLoopMixin` (which requires a
+           running event loop for its mailbox listener task)
+        2. Publishes the "agent.status.ready" banner event
+        3. Blocks until /exit or /quit is received via _wait_for_exit()
+
+        Args:
+            on_exit: Optional callback invoked just before the loop exits due
+                to ``/exit`` or ``/quit``. Receives ``(agent, messages)``.
+        """
+
+        logging.debug('Starting agent.')
+        self._on_exit_callback = on_exit
+
+        # Run the event loop
+        self.run()
+        self.subscribe()
+
 
         self._publish_ready_status()
 
-        while True:
-            user_input = prompt_user()
-            turn_start = _time.time()
+        # Block until exit signal (set by /exit or error in dispatch path).
+        await self._wait_for_exit()
 
-            effective_input, should_break = self._process_user_input(user_input, on_exit)
-            if should_break:
-                break
+    async def _wait_for_exit(self):  # noqa: D401
+        """Block the current coroutine until the loop exit event is set.
 
-            self._run_turn(effective_input, turn_start)
+        Called from run_loop() — waits for /exit or /quit to be processed by
+        EventListenerLoopMixin, which sets self._loop_exit_event.
+        """
+        if not hasattr(self, '_loop_exit_event') or self._loop_exit_event is None:
+            self._loop_exit_event = asyncio.Event()
+        await self._loop_exit_event.wait()
 
-            if not (user_input.startswith('/') and effective_input == user_input):
-                try:
-                    self._check_and_publish_compression(self)
-                except Exception as e:
-                    self.publish(
-                        "agent.session.error",
-                        SessionErrorPayload(message=f"Auto-compression check failed: {e}"),
-                    )
+    # ------------------------------------------------------------------
+    # Internal turn processing — shared by both legacy synchronous loop and
+    # new event-driven dispatch.
+    # ------------------------------------------------------------------
+
+    def _process_and_run_turn(self, user_input: str) -> bool:  # noqa: D401
+        """Process user input and run one agent turn.
+
+        Returns True if the loop should exit (e.g., /exit or /quit received).
+        This method is called both by :meth:`loop` (legacy path, via deprecated
+        alias) and by :class:`EventListenerLoopMixin.handle_tui_user_input`
+        (event-driven path).
+
+        Args:
+            user_input: The raw user input text. May be a slash command or
+                regular message. Skill-interception may modify this into
+                effective_input before it reaches handle_prompt.
+
+        Returns:
+            True if the loop should exit, False otherwise.
+        """
+        turn_start = _time.time()
+
+        effective_input, should_break = self._process_user_input(
+            user_input, on_exit=self._on_exit_callback
+        )
+        if should_break:
+            return True
+
+        self._run_turn(effective_input, turn_start)
+
+        if not (user_input.startswith('/') and effective_input == user_input):
+            try:
+                self._check_and_publish_compression(self)
+            except Exception as e:
+                self.publish(
+                    "agent.session.error",
+                    SessionErrorPayload(message=f"Auto-compression check failed: {e}"),
+                )
+
+        return False
 
     # ------------------------------------------------------------------
     # Public helpers (intentionally prefixed with ``_`` — part of the loop
@@ -282,3 +358,79 @@ class InteractiveLoopMixin:
         """Local wrapper so :func:`~harness_core.tools.dispatcher.summarize` is imported lazily."""
         from harness_core.tools.dispatcher import summarize
         return summarize(func_name, args_dict)
+
+
+class EventListenerLoopMixin(EventListener):
+    """Mix-in that listens for user input events from the TUI and dispatches them.
+
+    This replaces the old blocking ``prompt_user()`` model with an event-driven one:
+
+    - The TUI publishes :class:`~harness_core.event_types.UserInputPayload` events
+      to the ``tui.user_input`` topic on the EventBus.
+    - This mixin receives those events (filtered by sender id) and calls
+      :meth:`InteractiveLoopMixin._process_and_run_turn`.
+    - No thread-based prompting is needed; the agent processes input as events arrive.
+
+    **IMPORTANT**: This mixin MUST be initialized from within an asyncio event loop
+    context (e.g., inside :meth:`InteractiveLoopMixin.run_loop` which runs via
+    ``asyncio.run()``). The :class:`~harness_core.eventbus.EventListener` base class
+    calls ``asyncio.create_task()`` in ``__init__``, which requires a running event loop.
+
+    Initialization is done lazily inside ``run_loop()`` so that Agent can be created
+    in synchronous code without crashing.
+    """
+
+    TUI_SENDER_PATTERN = r"^Tui\\.main$"
+
+    def __init__(self, eventBus: EventBus=None, id='', *args, **kwargs) -> None:  # noqa: D401
+        """Initialize the event listener mixin.
+
+        Accepts event_bus and id from Agent.__init__ via MRO chain as positional
+        arguments (matching these named parameters). Calls EventPublisher.__init__
+        explicitly to set self.eventBus and self._id (required by later
+        EventListener initialization). Does NOT call EventListener.__init__ here —
+        that's done lazily inside run_loop() which requires a running asyncio event loop.
+
+        The MRO chain is: Agent → InteractiveLoopMixin (no __init__) → EventListenerLoopMixin.
+        When Agent calls super().__init__(event_bus, self._id), the args are passed
+        positionally and match these named parameters directly.
+        """
+
+        super().__init__(eventBus, id)
+        #EventPublisher.__init__(self, eventBus, id)
+
+    #@filter_by_sender(TUI_SENDER_PATTERN)
+    async def handle_tui_user_input(self, event: Event) -> None:  # noqa: D401
+        """Handle a user input event from the TUI.
+
+        Extracts the message text and dispatches it through the InteractiveLoopMixin
+        processing pipeline via _process_and_run_turn(). When /exit or /quit is
+        received (should_break returns True), signals loop exit by setting
+        self._loop_exit_event so run_loop() can return.
+
+        Args:
+            event: The Event containing a UserInputPayload from the TUI.
+        """
+        payload = event.payload
+        if not isinstance(payload, UserInputPayload):
+            return
+
+        should_break = self._process_and_run_turn(payload.message)
+        if should_break:
+            # Signal the run_loop to stop waiting
+            try:
+                self._loop_exit_event.set()
+            except AttributeError:
+                pass  # _loop_exit_event not set yet (shouldn't happen in normal flow)
+
+    async def _dispatch_user_input(self, message: str) -> None:  # noqa: D401
+        """Alternative dispatch entry point for user input.
+
+        Currently handle_tui_user_input handles dispatch directly via
+        _process_and_run_turn(), but this method is provided as a hook for
+        future extensions (e.g., logging, filtering).
+
+        Args:
+            message: The user's submitted text content.
+        """
+        await self._process_and_run_turn(message)

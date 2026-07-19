@@ -274,6 +274,24 @@ class ToolErrorPayload(EventPayload):
 
 
 @dataclass(kw_only=True)
+class UserInputPayload(EventPayload):
+    """Event payload for user-submitted text input from the TUI.
+
+    Carries the message text and source identifier when a user submits input
+    through the terminal interface. Published as an event to notify agents
+    of new user messages in the event-driven architecture.
+
+    Attributes:
+        message: The user's submitted text content (empty string if blank submission)
+        source: Identifier of where the input came from (e.g., "tui", "cli").
+                Defaults to "tui" for terminal interface submissions.
+    """
+
+    message: str = ""
+    source: str = "tui"
+
+
+@dataclass(kw_only=True)
 class ControlPayload(EventPayload):
     """Event payload for control events (spinner start/stop, turn start/stop).
 

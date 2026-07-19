@@ -1,4 +1,4 @@
-"""HarnessTUI controller for the harness TUI."""
+"""Event-driven controller for the harness TUI."""
 from __future__ import annotations
 
 import threading
@@ -22,12 +22,14 @@ if TYPE_CHECKING:
 
 
 class HarnessTUI:
-    """Controller singleton for the Textual TUI.
+    """Event-driven controller for the Textual TUI.
 
-    The app runs on the main thread while :func:`agent.loop.user_loop` runs on
-    a worker thread.  Widget mutation must therefore only happen on the app
-    thread; every operation here funnels through ``app.call_from_thread`` so it
-    is safe to call from the loop thread.
+    The app runs on the main thread while the agent loop runs in a worker
+    thread.  Widget mutation must therefore only happen on the app thread;
+    every operation here funnels through ``app.call_from_thread`` so it is
+    safe to call from the loop thread.  Input handling is now event-driven:
+    user input is published via :meth:`publish_user_input` instead of blocking
+    with a prompt/submit cycle.
     """
 
     def __init__(self) -> None:
@@ -45,12 +47,6 @@ class HarnessTUI:
         # active as soon as it is bound (even before ``app.is_running`` flips)
         # so the very first loop output routes into the output pane.
         self._bound = False
-
-        # Pending prompt state.  The worker (loop) thread blocks on ``_pending``
-        # while the app thread resolves it from the input widget.
-        self._pending: threading.Event | None = None
-        self._pending_value: str = ""
-        self._pending_prompt: str | None = ""
 
     # ── lifecycle ───────────────────────────────────────────────────────
 
@@ -135,7 +131,7 @@ class HarnessTUI:
             # Stash the original call Panel so complete_tool_panel can rebuild
             # it with the inline result (call + separator + result) and swap it
             # into the same Collapsible without re-mounting the whole widget.
-            self._tool_stack.append((collapsible, call_renderable))
+            self._tool_stack.append((collapsible, inner, call_renderable))
 
         def _do() -> None:
             output.mount(collapsible)
@@ -165,9 +161,10 @@ class HarnessTUI:
         with self._lock:
             entry = self._tool_stack.pop() if self._tool_stack else None
         collapsible = entry[0] if entry else None
-        call_panel = entry[1] if entry else None
+        collapsible_inner = entry[1] if entry else None
+        call_panel = entry[2] if entry else None
 
-        if collapsible is None or call_panel is None:
+        if collapsible is None or collapsible_inner is None or call_panel is None:
             # No matching call on the stack (e.g. a stray result) — render
             # it as a standalone panel so it is not lost.
             def _do_standalone() -> None:
@@ -199,7 +196,7 @@ class HarnessTUI:
         )
 
         def _do_update() -> None:
-            collapsible.query_one("#tool-content", Static).update(merged)
+            collapsible_inner.update(merged)
             output.scroll_end(animate=False)
 
         app_thread = getattr(app, "_thread_id", None)
@@ -240,16 +237,6 @@ class HarnessTUI:
             return
         self._app.update_sidebar_tasks_from_payload(payload)
 
-    def update_sidebar_model(self, text: str | None) -> None:
-        """Push the model name to the right sidebar (thread-safe).
-
-        Delegates to the running :class:`TextualHarnessApp`, which marshals the
-        update onto the app thread.
-        """
-        if self._app is None:
-            return
-        self._app.update_sidebar_model(text)
-
     def update_sidebar_model_name(self, text: str | None) -> None:
         """Push the model name to the right sidebar widget (thread-safe).
 
@@ -272,74 +259,23 @@ class HarnessTUI:
         if self._spinner is not None:
             self._spinner.display = False
 
-    # ── blocking prompt (used by prompt_user inside the TUI) ────────────
+    # ── user input events ───────────────────────────────────────────────
 
-    def prompt(self, prompt_str: str = "") -> str:
-        """Block the calling (loop) thread until the user submits input.
+    def publish_user_input(self, message: str) -> None:
+        """Publish user input as an event instead of blocking.
 
-        Returns the assembled text (newlines preserved).  An empty submission
-        returns ``""``.
+        Called from the TUI when the user submits text via the input widget.
+        This replaces the old prompt()/submit() blocking pattern with an
+        event-driven approach that notifies subscribed agents.
+
+        Args:
+            message: The user's submitted text content.
         """
-        # Import here to avoid circular import with display.py
-        from harness_core.terminal_io.display import display_user_message
+        from .event_publisher import get_tui_publisher
 
-        if self._app is None:
-            raise RuntimeError("HarnessTUI.prompt called while TUI is not bound")
-
-        app = self._app
-        event = threading.Event()
-        with self._lock:
-            self._pending = event
-            self._pending_value = ""
-            self._pending_prompt = prompt_str
-
-        # Arm the input box on the app thread (it owns the live TextArea).
-        def _arm() -> None:
-            self._arm_input()
-
-        app.call_from_thread(_arm)
-
-        # Block the worker thread until the app thread resolves the event.
-        event.wait()
-
-        with self._lock:
-            self._pending = None
-            self._pending_prompt = None
-            value = self._pending_value
-        if value.strip():
-            display_user_message(value)
-        return value
-
-    def _arm_input(self) -> None:
-        """Focus + clear the input box. Called from the app thread only."""
-        if self._input is None:
-            return
-        self._input.placeholder = self._pending_prompt or ""
-        # Setting .text requires an active app; only valid on the app thread
-        # while the widget is mounted, which is always the case here.
-        self._input.text = ""
-        self._input.focus()
-
-    def submit(self) -> None:
-        """Resolve a pending :meth:`prompt` with the current input text.
-
-        Called from the app thread (e.g. the Ctrl+Enter key handler) where the
-        ``TextArea`` is a live, mounted widget.  After capturing the text we
-        immediately clear the box so the submitted content does not linger in
-        the input for the rest of the turn; ``_arm_input`` also clears/focuses
-        on the next prompt, but that only happens once the agent responds.
-        """
-        with self._lock:
-            if self._pending is None or self._input is None:
-                return
-            input_widget = self._input
-            self._pending_value = input_widget.text
-            event = self._pending
-        # Clear + refocus the box now (not when the next prompt arms) so it is
-        # empty and ready for the user's next message immediately on submit.
-        input_widget.text = ""
-        input_widget.focus()
-        event.set()
+        publisher = get_tui_publisher()
+        if publisher is not None:
+            publisher.publish_user_input(message)
 
     def reset(self) -> None:
         """Detach the app (called on shutdown)."""
@@ -347,9 +283,6 @@ class HarnessTUI:
         self._input = None
         self._output = None
         self._spinner = None
-        self._pending = None
-        self._pending_value = ""
-        self._pending_prompt = ""
         self._bound = False
         self._tool_stack = []
 

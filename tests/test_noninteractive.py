@@ -233,8 +233,8 @@ class TestRunNonInteractive:
         with patch("harness_core.__main__.build_agent") as mock_build:
             with pytest.raises(SystemExit) as exc:
                 # Imported lazily to avoid side effects at module load.
-                from harness_core.__main__ import main
-                main(["--help"])
+                from harness_core.__main__ import blarg
+                blarg(["--help"])
         assert exc.value.code == 0
         # build_agent must NOT be invoked in help mode.
         mock_build.assert_not_called()

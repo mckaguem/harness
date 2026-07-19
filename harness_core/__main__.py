@@ -20,6 +20,18 @@ from harness_core.tools import AGENT_TOOLS
 from harness_core.skills.discovery import discover_skills
 from harness_core.config import load_harness_config
 
+import threading
+import asyncio
+
+import logging
+
+# Configure the logging system
+logging.basicConfig(
+    filename='app.log',      # The file where logs will be saved
+    filemode='a',            # 'a' to append to the file, 'w' to overwrite it each run
+    format='%(asctime)s - %(levelname)s - %(message)s', # The format of the log message
+    level=logging.DEBUG        # The minimum severity level to capture
+)
 
 USAGE = """\
 Usage: harness.py [options]
@@ -121,129 +133,29 @@ def build_agent():
         agent = Agent.from_agent_name("main", tool_schemas=AGENT_TOOLS)
         agent._id = "Agent.main"
     except Exception as exc:
+        logging.exception(exc)
         sys.stderr.write(f"\n[harness] FATAL: Failed to create main agent: {exc}\n")
         sys.exit(1)
 
     return agent
 
-
-def run_non_interactive(agent, message):
-    """Run a single *message* to completion and exit cleanly.
-
-    This drives the same engine as the interactive loop
-    (:meth:`Agent.handle_prompt`) but without any TUI/REPL. It mirrors the
-    slash-command and skill-interception handling of ``user_loop`` for a single
-    prompt, then iterates the generator yielded by ``handle_prompt`` and renders
-    each event with the shared ``terminal_io`` display helpers.
-
-    Args:
-        agent: A configured :class:`~agent.core.Agent`.
-        message: The user prompt to run.
-
-    Returns:
-        int: ``0`` on success (intended to be passed to ``sys.exit``).
-    """
-    from harness_core.agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
-    from harness_core.commands import COMMANDS
-    from harness_core.skills.interceptor import intercept_message, InterceptorKind
-    from harness_core.terminal_io import (
-        display_tool_call,
-        display_tool_result,
-        display_error,
-        display_agent_response,
-        display_user_message,
-        display_turn_stats,
-    )
-    from rich.console import Console
-
-    _console = Console()
-
-    # --- Slash-command / skill interception (single prompt) ----------------
-    effective_input = message
-    if message.startswith('/'):
-        parts = message[1:].split(' ', 1)
-        command_name = parts[0].lower()
-        rest = parts[1] if len(parts) > 1 else ''
-
-        handler = COMMANDS.get(command_name)
-        if handler:
-            handler(rest, agent=agent)
-            # /exit or /quit request termination; other built-in commands are
-            # handled directly and need no LLM call.
-            return 0
-
-        # No built-in handler — run the skill-activation interceptor.
-        outcome = intercept_message(message)
-        if outcome.kind == InterceptorKind.ACTIVATED:
-            agent.inject_text(outcome.payload)
-            effective_input = outcome.stripped_message if outcome.stripped_message else message
-        elif outcome.kind == InterceptorKind.RESTRICTED:
-            display_error(outcome.payload)
-            effective_input = outcome.stripped_message if outcome.stripped_message else message
-        else:
-            effective_input = message
-
-    # Echo the prompt for visibility (no TUI to render the typed text).
-    if effective_input.strip():
-        display_user_message(effective_input)
-
-    # --- Drive the agent engine to completion ------------------------------
-    turn_start = time.time()
-    for output in agent.handle_prompt(effective_input):
-        kind = output[0]
-        if kind == RESPONSE:
-            _, content, ollama_response, _ = output
-            elapsed = time.time() - turn_start
-            reasoning = (
-                (ollama_response or {}).get("reasoning")
-                if isinstance(ollama_response, dict) else None
-            )
-            display_agent_response(content, ollama_response, agent.context_length, reasoning=reasoning)
-            display_turn_stats(ollama_response, agent.context_length, elapsed_seconds=elapsed)
-        elif kind == TOOL_CALL:
-            _, func_name, args_str, response_data = output
-            pre_content = (response_data or {}).get("pre_tool_content", "") or ""
-            reasoning = (response_data or {}).get("reasoning", "") or ""
-            display_tool_call(func_name, args_str, pre_content=pre_content, reasoning=reasoning)
-        elif kind == TOOL_RESULT:
-            _, func_name, result, response_data = output
-            display_tool_result(func_name, result)
-        elif kind == ERROR:
-            _, description, _, _ = output
-            display_error(description)
-
-    return 0
-
-
-def main(argv=None):
-    if argv is None:
-        argv = sys.argv[1:]
-
-    args = parse_args(argv)
-    if args["help"]:
-        sys.stdout.write(USAGE)
-        sys.exit(0)
-
-    message = args["message"]
-
-    # ------------------------------------------------------------------
-    # Phase 2 (shared): Build the configured Agent.  Both code paths below
-    # use this same pipeline.
-    # ------------------------------------------------------------------
+async def blarg(argv=None):
     agent = build_agent()
 
-    # ------------------------------------------------------------------
-    # Non-interactive mode: run the single prompt and exit.
-    # ------------------------------------------------------------------
-    if message is not None:
-        sys.exit(run_non_interactive(agent, message))
 
-    # ------------------------------------------------------------------
-    # Phase 7: Interactive mode — launch the Textual TUI.
-    # ------------------------------------------------------------------
-    from harness_core.terminal_io.tui import launch
-    launch(agent)
+    """Run the Textual TUI on a daemon thread."""
+    from harness_core.terminal_io.tui import launch as tui_launch
+
+    await asyncio.gather(
+        tui_launch(agent_id=agent._id),
+        agent.run_loop()
+    )
+
+def main(argv=None):
+    asyncio.run(blarg())
+
 
 
 if __name__ == "__main__":
     main()
+

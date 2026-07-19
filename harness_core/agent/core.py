@@ -17,11 +17,17 @@ from harness_core.eventbus import generate_unique_id, EventPublisher, event_bus
 from harness_core.tools.dispatcher import dispatch
 from harness_core.tools.tool_result import ToolResult
 
-from harness_core.agent.mixin import InteractiveLoopMixin
+from harness_core.agent.mixin import InteractiveLoopMixin, EventListenerLoopMixin
 
 
-class Agent(InteractiveLoopMixin, EventPublisher):
-    """Owns the conversation state and handles a single user turn."""
+class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
+    """Owns the conversation state and handles a single user turn.
+    
+    The class hierarchy is:
+    - InteractiveLoopMixin: Provides run_loop() for event-driven interactive operation
+    - EventListenerLoopMixin: Subscribes to tui.user_input events (initialized lazily in run_loop)
+    - EventPublisher: Publishes agent.* events via the EventBus
+    """
     
     def __init__(self,
                  agent_type: "AgentType",
@@ -38,6 +44,13 @@ class Agent(InteractiveLoopMixin, EventPublisher):
                 agent type's allowed tools.
             extra_tools: Optional list of extra tool schemas to append (e.g.
                 runtime-injected ones like submit_results).
+        
+        Note:
+            The :class:`~harness_core.agent.mixin.EventListenerLoopMixin` is 
+            initialized lazily inside :meth:`InteractiveLoopMixin.run_loop`, which 
+            requires a running asyncio event loop context. This allows the Agent to 
+            be created in synchronous code (e.g., ``__main__.py``) without crashing
+            on ``asyncio.create_task()`` in EventListener.__init__.
         """
         self._agent_type = agent_type
         self._id = f"Agent.{id}"
@@ -79,6 +92,7 @@ class Agent(InteractiveLoopMixin, EventPublisher):
         )
 
         self._max_loops: int = 100  # Safety ceiling to prevent infinite loops
+
 
     # -- task list access --------------------------------------------------
 
