@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch, call
 from pathlib import Path
 
@@ -782,4 +783,145 @@ class TestAgentHandlePrompt:
 
         outputs = _collect_events(agent, "Test")
         assert any(o[0] == ERROR for o in outputs)
+
+
+class TestProcessUserInput:
+    """Tests for Agent._process_user_input() slash-command / routing dispatch.
+
+    ``_process_user_input`` is a synchronous method that maps a raw user line
+    to ``(effective_input, should_break)``. Recognized COMMANDS entries are
+    consumed (their text is NOT sent to the model) unless a handler opts in to
+    forwarding trailing text via a ``(text, should_break)`` tuple.
+
+    These tests monkey-patch ``harness_core.commands.COMMANDS`` with lightweight
+    stubs so that built-in command handlers (which create sessions, spawn
+    sub-agents, or touch the TUI) do not run during the test.
+    """
+
+    @staticmethod
+    def _make_agent():
+        """Build a lightweight, headless Agent (no real provider calls needed)."""
+        from harness_core.agent import Agent, AgentType
+
+        agent_type = AgentType(model_name="test", system_prompt="Test", agent_tools=[])
+        agent_type.provider_config = ProviderConfig(
+            name="test", provider_type="openai",
+            base_url="http://test.invalid/v1", api_key="test",
+        )
+        return Agent(agent_type, id="test-agent")
+
+    @staticmethod
+    @contextmanager
+    def _with_stub_commands(overrides):
+        """Patch COMMANDS with stubs, yielding; restore the original afterwards."""
+        import harness_core.commands as cmds
+
+        original = dict(cmds.COMMANDS)
+        try:
+            cmds.COMMANDS.clear()
+            cmds.COMMANDS.update({
+                'exit': lambda rest, agent=None: True,
+                'quit': lambda rest, agent=None: True,
+                'sub': lambda rest, agent=None: None,
+                'tasks': lambda rest, agent=None: None,
+                'save': lambda rest, agent=None: None,
+                'load': lambda rest, agent=None: None,
+                'new': lambda rest, agent=None: None,
+                'compress': lambda rest, agent=None: None,
+            })
+            cmds.COMMANDS.update(overrides)
+            yield
+        finally:
+            cmds.COMMANDS.clear()
+            cmds.COMMANDS.update(original)
+
+    def test_new_command_is_consumed(self):
+        """``/new`` is a recognized command and must be consumed (no model input)."""
+        agent = self._make_agent()
+        with self._with_stub_commands({}):
+            effective, should_break = agent._process_user_input("/new")
+        assert effective == ""
+        assert should_break is False
+
+    def test_tasks_command_is_consumed(self):
+        """``/tasks`` is a recognized command and must be consumed."""
+        agent = self._make_agent()
+        with self._with_stub_commands({}):
+            effective, should_break = agent._process_user_input("/tasks")
+        assert effective == ""
+        assert should_break is False
+
+    def test_sub_command_name_not_forwarded(self):
+        """``/sub analyst`` consumes the command; the name is NOT forwarded."""
+        agent = self._make_agent()
+        with self._with_stub_commands({}):
+            effective, should_break = agent._process_user_input("/sub analyst")
+        assert effective == ""
+        assert should_break is False
+
+    def test_load_command_is_consumed(self):
+        """``/load foo.yaml`` is consumed; the path is NOT forwarded."""
+        agent = self._make_agent()
+        with self._with_stub_commands({}):
+            effective, should_break = agent._process_user_input("/load foo.yaml")
+        assert effective == ""
+        assert should_break is False
+
+    def test_exit_command_breaks_loop(self):
+        """``/exit`` is consumed and signals the loop should break."""
+        agent = self._make_agent()
+        with self._with_stub_commands({}):
+            effective, should_break = agent._process_user_input("/exit")
+        assert effective == ""
+        assert should_break is True
+
+    def test_quit_command_breaks_loop(self):
+        """``/quit`` is consumed and signals the loop should break."""
+        agent = self._make_agent()
+        with self._with_stub_commands({}):
+            effective, should_break = agent._process_user_input("/quit")
+        assert effective == ""
+        assert should_break is True
+
+    def test_normal_chat_passthrough(self):
+        """A non-slash line is returned unchanged with no break."""
+        agent = self._make_agent()
+        with self._with_stub_commands({}):
+            effective, should_break = agent._process_user_input("hello world")
+        assert effective == "hello world"
+        assert should_break is False
+
+    def test_unknown_command_fallthrough(self):
+        """Unknown slash commands fall through; the raw input is preserved."""
+        agent = self._make_agent()
+        with self._with_stub_commands({}):
+            effective, should_break = agent._process_user_input("/unknowncmd")
+        assert effective == "/unknowncmd"
+        assert should_break is False
+
+    def test_opt_in_forwarding_tuple(self):
+        """A handler may opt in to forwarding trailing text via a tuple."""
+
+        def _goal_handler(rest, agent=None):
+            return (rest, False)
+
+        agent = self._make_agent()
+        with self._with_stub_commands({'goal': _goal_handler}):
+            effective, should_break = agent._process_user_input(
+                "/goal fix all failing tests"
+            )
+        assert effective == "fix all failing tests"
+        assert should_break is False
+
+    def test_opt_in_forwarding_with_break(self):
+        """A handler may opt in to forwarding with a True break signal."""
+
+        def _quit2_handler(rest, agent=None):
+            return ("", True)
+
+        agent = self._make_agent()
+        with self._with_stub_commands({'quit2': _quit2_handler}):
+            effective, should_break = agent._process_user_input("/quit2")
+        assert effective == ""
+        assert should_break is True
 

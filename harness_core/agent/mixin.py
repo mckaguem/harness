@@ -164,7 +164,8 @@ class InteractiveLoopMixin:
         if should_break:
             return True
 
-        await self._run_turn(effective_input, turn_start)
+        if effective_input and effective_input.strip():
+            await self._run_turn(effective_input, turn_start)
 
         if not (user_input.startswith('/') and effective_input == user_input):
             try:
@@ -198,8 +199,19 @@ class InteractiveLoopMixin:
 
         Returns:
             A tuple ``(effective_input, should_break)`` where ``effective_input``
-            is the text to feed into ``handle_prompt``, and ``should_break``
+            is the text to feed into ``handle_prompt`` and ``should_break``
             indicates whether the outer loop should exit.
+
+            For a recognized ``COMMANDS`` entry the raw ``/command`` portion is
+            consumed and never forwarded. By default the whole command (including
+            any trailing text) is consumed and nothing reaches the model. A handler
+            may OPT IN to forwarding by returning a ``(text, should_break)`` tuple,
+            in which case ``text`` (stripped) is forwarded to the model. This keeps
+            the path open for forwarding commands like
+            ``/goal fix all failing tests``. A self-contained command with no
+            trailing text (e.g. ``/new``) is fully handled and returns
+            ``("", False)`` so nothing reaches the model. A command that exits the
+            loop returns ``("", True)``.
         """
         if not user_input.startswith('/'):
             return user_input, False
@@ -211,12 +223,27 @@ class InteractiveLoopMixin:
         handler = COMMANDS.get(command_name)
         if handler is not None:
             result = handler(rest, agent=self)
+            # A handler may opt into forwarding trailing text to the model by
+            # returning a (text, should_break) tuple. Anything else (None/True/False)
+            # means the command is fully handled and its text is consumed. This keeps
+            # the path open for forwarding commands like
+            # "/goal fix all failing tests" or "/code-review review the code in /src"
+            # without forcing every built-in command to leak its arguments to the model.
+            if isinstance(result, tuple) and len(result) == 2:
+                forward_text, should_break = result
+                forward_text = (forward_text or "").strip()
+                if should_break:
+                    if on_exit is not None:
+                        on_exit(self, self._session.messages)
+                    return "", True
+                return forward_text, False
+            # Non-tuple result: command fully handled; consume its text.
             if result is True and on_exit is not None:
                 on_exit(self, self._session.messages)
-                return user_input, True
+                return "", True
             elif result is True:
-                return user_input, True
-            return user_input, False
+                return "", True
+            return "", False
 
         outcome = intercept_message(user_input)
         if outcome.kind == InterceptorKind.ACTIVATED:
