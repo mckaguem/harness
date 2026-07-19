@@ -100,14 +100,9 @@ class TaskList:
         In non-async contexts (e.g. unit tests) there is no running loop, so
         we skip emission — no listeners will be present anyway.
         """
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return
-        loop.create_task(
-            event_bus.publish(
-                Event(topic=topic, sender=self._sender_id, payload=TaskListPayload.from_task_list(self))
-            )
+
+        event_bus.publish(
+            Event(topic=topic, sender=self._sender_id, payload=TaskListPayload.from_task_list(self))
         )
 
     # -- initialization ----------------------------------------------------

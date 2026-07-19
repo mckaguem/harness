@@ -16,7 +16,7 @@ def _accepts_agent(fn: Callable[..., Any]) -> bool:
     return "agent" in params
 
 
-def dispatch(func_name: str, args: dict, agent: Any) -> ToolResult | tuple:
+async def dispatch(func_name: str, args: dict, agent: Any) -> ToolResult | tuple:
     """Call the tool implementation matching *func_name* with keyword *args*.
 
     Tools that need the calling agent declare an ``agent`` parameter; the dispatcher
@@ -41,6 +41,9 @@ def dispatch(func_name: str, args: dict, agent: Any) -> ToolResult | tuple:
     if "agent" not in args and _accepts_agent(fn):
         args = {**args, "agent": agent}
 
+    if inspect.iscoroutinefunction(fn):
+        return await fn(**args)
+    
     return fn(**args)
 
 

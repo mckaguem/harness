@@ -13,7 +13,16 @@ The harness can run in two modes:
 
 import getopt
 import sys
-import time
+import logging
+
+# Configure the logging system
+logging.basicConfig(
+    filename='app.log',      # The file where logs will be saved
+    filemode='a',            # 'a' to append to the file, 'w' to overwrite it each run
+    format='%(asctime)s - %(levelname)s - %(message)s', # The format of the log message
+    level=logging.DEBUG,        # The minimum severity level to capture
+    force=True
+)
 
 from harness_core.agent import Agent
 from harness_core.tools import AGENT_TOOLS
@@ -23,15 +32,7 @@ from harness_core.config import load_harness_config
 import threading
 import asyncio
 
-import logging
 
-# Configure the logging system
-logging.basicConfig(
-    filename='app.log',      # The file where logs will be saved
-    filemode='a',            # 'a' to append to the file, 'w' to overwrite it each run
-    format='%(asctime)s - %(levelname)s - %(message)s', # The format of the log message
-    level=logging.DEBUG        # The minimum severity level to capture
-)
 
 USAGE = """\
 Usage: harness.py [options]

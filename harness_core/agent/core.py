@@ -2,6 +2,7 @@
 
 import json
 import os
+import logging
 from typing import Any, AsyncGenerator, Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -213,7 +214,7 @@ class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
                 yield (RESPONSE, content, response, None)
                 break
 
-            for sub_output in self._process_tool_calls(message, response):
+            async for sub_output in self._process_tool_calls(message, response):
                 yield sub_output
 
     # -- private helpers ---------------------------------------------------
@@ -266,7 +267,7 @@ or update their status to 'failed' before stopping."""
         prepared_block = self._session.prepare_message_for_injection(block_dict)
         self._session.add_user_message(prepared_block["content"])
 
-    def _process_tool_calls(self, message: dict, response: dict) -> Generator[tuple[str, Any, Any, Optional[dict[str, Any]]], None, None]:
+    async def _process_tool_calls(self, message: dict, response: dict) -> AsyncGenerator[tuple[str, Any, Any, Optional[dict[str, Any]]], None, None]:
         """Process all tool calls in an assistant message.
 
         Iterates over the tool calls in *message*, yielding TOOL_CALL events and
@@ -332,14 +333,17 @@ or update their status to 'failed' before stopping."""
                 pending_parallel.append((tool_call, args))
                 continue
 
-            yield from self._execute_single_tool(tool_call_id, func_name, args, raw_args, response)
+            async for sub_result in self._execute_single_tool(tool_call_id, func_name, args, raw_args, response):
+                yield sub_result
+
 
         # Run any deferred run_subagent calls concurrently and feed each
         # result back into the conversation for the next model round.
         if pending_parallel:
-            yield from self._process_parallel_subagents(pending_parallel, response)
+            async for sub_result in self._process_parallel_subagents(pending_parallel, response):
+                yield sub_result
 
-    def _execute_single_tool(self, tool_call_id: str, func_name: str, args: dict, raw_args: str, response: dict) -> Generator[tuple[str, Any, Any, Optional[dict[str, Any]]], None, None]:
+    async def _execute_single_tool(self, tool_call_id: str, func_name: str, args: dict, raw_args: str, response: dict) -> AsyncGenerator[tuple[str, Any, Any, Optional[dict[str, Any]]], None, None]:
         """Dispatch a single tool call via :func:`dispatch` and yield its result.
 
         Yields either an ERROR event (on ``KeyError`` for unknown functions or
@@ -347,7 +351,7 @@ or update their status to 'failed' before stopping."""
         :class:`ToolResult`.  Returns silently otherwise.
         """
         try:
-            return_result = dispatch(func_name, args, self)
+            return_result = await dispatch(func_name, args, self)
         except KeyError:
             description = f"Unknown function '{func_name}'."
             yield (ERROR, description, None, None)
@@ -355,6 +359,7 @@ or update their status to 'failed' before stopping."""
         except Exception as exc:
             # Handle unexpected errors (e.g., wrong args to tool)
             description = f"Error calling {func_name}: {exc}"
+            logging.exception(exc)
             yield (ERROR, description, None, None)
             return
 
@@ -364,7 +369,7 @@ or update their status to 'failed' before stopping."""
         self._session.add_tool_result(func_name, return_result.llm_text, tool_call_id)
         yield (TOOL_RESULT, func_name, return_result, response)
 
-    def _process_parallel_subagents(self, pending_parallel: list, response: dict) -> Generator[tuple[str, Any, Any, Optional[dict[str, Any]]], None, None]:
+    async def _process_parallel_subagents(self, pending_parallel: list, response: dict) -> AsyncGenerator[tuple[str, Any, Any, Optional[dict[str, Any]]], None, None]:
         """Execute deferred parallel ``run_subagent`` calls and yield their results.
 
         Uses :func:`harness_core.tools.run_subagent.run_subagents_parallel` to run

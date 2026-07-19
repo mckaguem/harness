@@ -43,7 +43,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
-from harness_core.tools.dispatcher import dispatch
+
 from harness_core.tools.tool_result import ToolResult
 from harness_core.tools.utils import _strip_ansi, make_error_result
 
@@ -128,7 +128,7 @@ async def _run_one(agent: Any, sub_agent: str, task: str) -> ToolResult:
     reference to a calling agent context during dispatch.
     """
     from harness_core.agent import Agent, RESPONSE, TOOL_CALL  # noqa: F401 (explicit guards)
-
+    from harness_core.tools.dispatcher import dispatch
     termination_prompt = TERMINATION_PROMPT
 
     sub = Agent.from_agent_name(
@@ -154,7 +154,7 @@ async def _run_one(agent: Any, sub_agent: str, task: str) -> ToolResult:
                     )
                     return make_error_result(description)
 
-                result = dispatch(func_name, args_data, sub)  # pass the sub-agent itself
+                result = await dispatch(func_name, args_data, sub)  # pass the sub-agent itself
                 return ToolResult(
                     llm_text=_strip_ansi(str(result)),
                     display_text=_strip_ansi(str(result)),
@@ -179,14 +179,7 @@ async def _run_one(agent: Any, sub_agent: str, task: str) -> ToolResult:
     except Exception as exc:
         return make_error_result(f"Error running sub-agent '{sub_agent}': {exc}")
 
-
-def _run_one_sync(agent, sub_agent: str, task: str) -> ToolResult:
-    """Sync wrapper around async _run_one via fresh event loop."""
-    import asyncio as _asyncio
-    return _asyncio.run(_run_one(agent, sub_agent, task))
-
-
-def run_subagent(agent, sub_agent: str, task: str, block: bool = True) -> ToolResult:
+async def run_subagent(agent, sub_agent: str, task: str, block: bool = True) -> ToolResult:
     """Spawn a named sub-agent and execute *task* on it.
 
     Args:
@@ -202,7 +195,7 @@ def run_subagent(agent, sub_agent: str, task: str, block: bool = True) -> ToolRe
             (``"subagent-<n>"``) so the caller can later ``await_subagent`` it.
     """
     if block:
-        return _run_one_sync(agent, sub_agent, task)
+        return await _run_one(agent, sub_agent, task)
 
     from harness_core.tools.subagent_manager import manager
 
