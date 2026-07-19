@@ -4,6 +4,7 @@ __pycache__
 __pypackages__/
 .pytest_cache
 session.txt
+harness.log
 .harness_py
 .env
 harness.egg-info/
