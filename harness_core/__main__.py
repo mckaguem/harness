@@ -22,7 +22,7 @@ from pathlib import Path
 # everything runs inside CWD).
 if not logging.root.handlers:
     logging.basicConfig(
-        filename=Path.cwd() / "harness.log",  # The file where logs will be saved
+        filename=Path.cwd() / ".sessions" / "harness.log",  # The file where logs will be saved
         filemode='a',            # 'a' to append to the file, 'w' to overwrite it each run
         format='%(asctime)s - %(levelname)s - %(message)s', # The format of the log message
         level=logging.DEBUG,        # The minimum severity level to capture

@@ -6,6 +6,37 @@ from typing import Any, Callable
 from harness_core.tools.tool_result import ToolResult
 import harness_core.tools as tools_module
 
+# Maximum number of characters allowed in a tool result's textual output before
+# it is truncated (with a notice appended).
+OUTPUT_TRUNCATION_LIMIT = 2500
+
+_TRUNCATION_NOTICE = "\n\n[Output truncated at 2500 characters because it was too long.]"
+
+
+def _truncate_result(result: ToolResult) -> ToolResult:
+    """Return *result* with its text truncated if it exceeds the limit.
+
+    Both ``llm_text`` and ``display_text`` are capped at
+    :data:`OUTPUT_TRUNCATION_LIMIT` characters, with a notice appended when the
+    original text was strictly longer. Non-``ToolResult`` inputs are returned
+    unchanged.
+    """
+    if not isinstance(result, ToolResult):
+        return result
+
+    def _cap(text: str) -> str:
+        if len(text) > OUTPUT_TRUNCATION_LIMIT:
+            return text[:OUTPUT_TRUNCATION_LIMIT] + _TRUNCATION_NOTICE
+        return text
+
+    return ToolResult(
+        llm_text=_cap(result.llm_text),
+        display_text=_cap(result.display_text),
+        type_tag=result.type_tag,
+        title=result.title,
+        theme=result.theme,
+    )
+
 
 def _accepts_agent(fn: Callable[..., Any]) -> bool:
     """Return True if *fn* declares an ``agent`` parameter in its signature."""
@@ -31,8 +62,10 @@ async def dispatch(func_name: str, args: dict, agent: Any) -> ToolResult | tuple
 
     Returns:
         Whatever the underlying tool function returns — typically a :class:`ToolResult`.
-        Raises ``KeyError`` if *func_name* isn't registered; callers should treat
-        that as "unknown tool".
+        Tool results whose textual output exceeds :data:`OUTPUT_TRUNCATION_LIMIT`
+        characters are truncated (with a notice appended); raw tuples are returned
+        untouched. Raises ``KeyError`` if *func_name* isn't registered; callers
+        should treat that as "unknown tool".
     """
     mod = tools_module.DISPATCH_REGISTRY[func_name]  # raises KeyError for unknown tools
     fn = getattr(mod, func_name)
@@ -42,9 +75,9 @@ async def dispatch(func_name: str, args: dict, agent: Any) -> ToolResult | tuple
         args = {**args, "agent": agent}
 
     if inspect.iscoroutinefunction(fn):
-        return await fn(**args)
-    
-    return fn(**args)
+        return _truncate_result(await fn(**args))
+
+    return _truncate_result(fn(**args))
 
 
 def summarize(func_name: str, args: dict) -> str:

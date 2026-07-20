@@ -1,12 +1,55 @@
 """grep — search for patterns across files in the current working directory."""
 
 import os
+import pathspec
 import re
 from pathlib import Path
 from harness_core.tools.utils import _strip_ansi, is_safe_path, make_error_result
 from harness_core.tools.tool_result import ToolResult
 from harness_core.utils import project_root
 
+
+ignore_paths = {"__pycache__", ".git"}
+
+
+def _load_gitignore_spec(root: Path):
+    """Return a gitignore-style PathSpec for *root*, or None if no .gitignore.
+
+    When a ``.gitignore`` file exists at *root*, it is parsed and returned as a
+    :class:`pathspec.PathSpec` so that git's ignore semantics can be applied.
+    When no ``.gitignore`` is present, returns ``None`` which signals "dotfile
+    fallback mode" — any path component starting with a dot is ignored.
+    """
+    gitignore = root / ".gitignore"
+    if not gitignore.is_file():
+        return None
+    patterns = []
+    try:
+        with open(gitignore, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                patterns.append(line)
+    except OSError:
+        return None
+    return pathspec.PathSpec.from_lines(
+        pathspec.patterns.gitwildmatch.GitWildMatchPattern, patterns
+    )
+
+
+def _is_ignored(rel_path: Path, spec, gitignore_mode: bool) -> bool:
+    """Return True if *rel_path* should be skipped during a directory walk.
+
+    ``gitignore_mode`` is True when *spec* is a parsed ``.gitignore``
+    (``spec is not None``); in that case we defer to git's ignore semantics via
+    ``spec.match_file``. Otherwise (dotfile fallback mode) a path is ignored if
+    ANY of its components starts with a dot, which excludes dotfiles,
+    dot-directories, and everything beneath them.
+    """
+    if gitignore_mode:
+        return spec.match_file(str(rel_path))
+    return any(part.startswith(".") for part in rel_path.parts)
 
 def grep(
     pattern: str,
@@ -26,8 +69,12 @@ def grep(
         Literal substring (default) or Python regex when ``use_regex=True``.
     path : str
         File or directory within cwd to search. Directories are searched
-        recursively; binary files and paths under ``__pycache__`` / `.git/` are
-        skipped automatically.
+        recursively. Ignore rules are applied during the recursive walk:
+        if a ``.gitignore`` exists at the project root, all paths git would
+        ignore are skipped; otherwise (no ``.gitignore``) any dotfile or
+        dot-directory and its contents are skipped. Binary files are always
+        skipped via a content sniff, and ``__pycache__`` / ``.git`` are never
+        descended into. A directly named file target is always searched.
     use_regex : bool, optional
         Treat *pattern* as a regex. Defaults to False.
     file_filter : str | None, optional
@@ -59,6 +106,10 @@ def grep(
         cwd = Path.cwd().resolve()
     target = (cwd / path).resolve()
 
+    # Load ignore rules once. gitignore_mode is True when a .gitignore exists.
+    gitignore_spec = _load_gitignore_spec(cwd)
+    gitignore_mode = gitignore_spec is not None
+
     try:
         compiled = re.compile(pattern) if use_regex else None
     except re.error as e:
@@ -70,10 +121,13 @@ def grep(
     try:
         if target.is_dir():
             for root, dirs, names in os.walk(target):
-                # Prune noisy directories upfront so we don't descend into them.
+                # Prune noisy/ignored directories upfront so we don't descend
+                # into them. Resolve each dir relative to cwd to apply ignore
+                # rules consistently, and keep the __pycache__/.git safety net.
                 dirs[:] = [
                     d for d in dirs
-                    if d not in {"__pycache__", ".git"} and not d.startswith(".")
+                    if d not in ignore_paths
+                    and not _is_ignored((Path(root) / d).relative_to(cwd), gitignore_spec, gitignore_mode)
                 ]
                 for name in sorted(names):
                     full = Path(root) / name
@@ -84,10 +138,13 @@ def grep(
                         continue
                     try:
                         rel = full.relative_to(cwd)
-                        files_to_search.append(rel)
                     except ValueError:
                         # Defensive — shouldn't happen after safety check.
-                        pass
+                        continue
+                    # Skip files that match ignore rules (gitignore or dotfile).
+                    if _is_ignored(rel, gitignore_spec, gitignore_mode):
+                        continue
+                    files_to_search.append(rel)
         elif target.is_file():
             files_to_search.append(target.relative_to(cwd))
         else:
