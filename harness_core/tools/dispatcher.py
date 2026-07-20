@@ -8,7 +8,7 @@ import harness_core.tools as tools_module
 
 # Maximum number of characters allowed in a tool result's textual output before
 # it is truncated (with a notice appended).
-OUTPUT_TRUNCATION_LIMIT = 2500
+OUTPUT_TRUNCATION_LIMIT = 30000
 
 _TRUNCATION_NOTICE = "\n\n[Output truncated at 2500 characters because it was too long.]"
 
