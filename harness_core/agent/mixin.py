@@ -386,6 +386,14 @@ class InteractiveLoopMixin:
         from harness_core.tools.dispatcher import summarize
         return summarize(func_name, args_dict)
 
+    def request_exit(self) -> None:
+        """Signal the agent loop to exit (called by Manager on shutdown)."""
+        try:
+            if hasattr(self, '_loop_exit_event') and self._loop_exit_event is not None:
+                self._loop_exit_event.set()
+        except Exception:
+            pass
+
 
 class EventListenerLoopMixin(EventListener):
     """Mix-in that listens for user input events from the TUI and dispatches them.

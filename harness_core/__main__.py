@@ -33,7 +33,6 @@ from harness_core.tools import AGENT_TOOLS
 from harness_core.skills.discovery import discover_skills
 from harness_core.config import load_harness_config
 
-import threading
 import asyncio
 
 
@@ -147,12 +146,9 @@ def build_agent():
 async def blarg(argv=None):
     agent = build_agent()
 
-    from harness_core.terminal_io.tui import launch as tui_launch
-
-    await asyncio.gather(
-        tui_launch(agent_id=agent._id),
-        agent.run_loop()
-    )
+    from harness_core.runtime.manager import Manager
+    manager = Manager(agent)
+    await manager.run()
 
 def main(argv=None):
     asyncio.run(blarg())

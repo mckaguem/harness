@@ -303,3 +303,20 @@ class ControlPayload(EventPayload):
     """
 
     action: dict[str, Any] | None = None
+
+@dataclass(kw_only=True)
+class AppControlPayload(EventPayload):
+    """Event payload for process-level control actions (quit confirm, etc.).
+
+    Attributes:
+        action: The control action type (e.g., "quit_confirm").
+        message: Optional human-readable message associated with the action.
+    """
+
+    action: str = ""
+    message: str = ""
+
+
+# Event topic constants for process-level quit coordination.
+PROCESS_CONTROL_QUIT = "process_control_quit"
+PROCESS_CONTROL_QUIT_CONFIRM = "process_control_quit_confirm"

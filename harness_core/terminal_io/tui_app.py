@@ -3,14 +3,88 @@ from __future__ import annotations
 import logging
 
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import Footer, Header, TextArea
+from textual.screen import ModalScreen
+from textual.widgets import Button, Footer, Header, Static, TextArea
+
+from textual.events import Message
 
 from harness_core.event_types import TaskListPayload
 from harness_core.terminal_io.widgets import (
     StatusSpinner,
     TaskListSidebar,
 )
+
+
+class ShowQuitDialog(Message):
+    """Custom message dispatched when a quit request needs the dialog shown.
+
+    Post this via app.post_message() from anywhere — it gets processed inside
+    Textual's _process_messages loop where active_app ContextVar is set, so
+    push_screen() can render without LookupError.
+    """
+    pass
+
+
+class QuitConfirmDialog(ModalScreen[bool]):
+    """Confirmation dialog shown when user presses Ctrl+Q."""
+
+    CSS = """
+    QuitConfirmDialog {
+        align: center middle;
+        background: $surface 80%;
+        width: 50;
+        height: 9;
+        
+        > Vertical {
+            width: 100%;
+            height: 100%;
+            align: center middle;
+        }
+    }
+
+    #quit-message {
+        margin-bottom: 1;
+    }
+
+    #quit-buttons {
+        dock: bottom;
+        padding: 1 2;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "dismiss(False)", "Cancel"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        yield Vertical(
+            Static("[b]Are you sure you want to quit?[/b]", id="quit-message"),
+            Horizontal(
+                Button("Yes", variant="primary", id="quit-yes"),
+                Button("No", variant="default", id="quit-no"),
+            ),
+            id="quit-buttons",
+        )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button presses in the dialog."""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        if event.button.id == "quit-yes":
+            # Publish quit confirm via app then close with True
+            logger.debug("QuitConfirmDialog: publishing quit_confirm...")
+            try:
+                self.app.publish_quit_confirm()
+                logger.debug("QuitConfirmDialog: publish succeeded, dismissing...")
+                self.dismiss(True)
+            except Exception as e:
+                logger.error(f"QuitConfirmDialog: PUBLISH FAILED: {type(e).__name__}: {e}")
+        else:
+            self.dismiss(False)
+
 
 class TextualHarnessApp(App):
     """A minimal, idiomatic textual harness shell.
@@ -60,7 +134,7 @@ class TextualHarnessApp(App):
     """
 
     BINDINGS = [
-        ("ctrl+q", "quit", "Quit"),
+        ("ctrl+q", "confirm_quit", "Quit"),
         ("ctrl+g", "submit_input", "Submit")
     ]
 
@@ -171,6 +245,44 @@ class TextualHarnessApp(App):
             from .event_listener import subscribe_event_listener
             from harness_core.eventbus import event_bus
             self._event_listener = subscribe_event_listener(self._agent_id, event_bus)
+
+    async def on_ShowQuitDialog(self, event) -> None:
+        """Handle a quit-request dialog push.
+
+        Dispatched by Textual's message pump inside its active_app ContextVar,
+        so push_screen() can render without LookupError.
+        """
+        from harness_core.runtime.manager import Manager
+
+        # Get the manager from where it was stored
+        manager = getattr(self, "_manager", None)
+        if manager is not None:
+            listener = getattr(manager, "_listener", None)
+            if listener is not None and hasattr(listener, "handle_show_quit_dialog"):
+                await listener.handle_show_quit_dialog(event)
+
+    def action_confirm_quit(self) -> None:
+        """Show confirmation dialog before quitting."""
+        self.push_screen(QuitConfirmDialog())
+
+    def publish_quit_confirm(self) -> None:
+        """Publish the PROCESS_CONTROL_QUIT_CONFIRM event via the event bus."""
+        from .event_publisher import get_tui_publisher
+        publisher = get_tui_publisher()
+        if publisher is not None:
+            from harness_core.event_types import AppControlPayload, PROCESS_CONTROL_QUIT_CONFIRM
+            publisher.publish(
+                PROCESS_CONTROL_QUIT_CONFIRM,
+                AppControlPayload(action="quit_confirm"),
+            )
+
+    def request_exit(self) -> None:
+        """Signal that the app should close (called by Manager on shutdown)."""
+        if self.is_running:
+            try:
+                self.exit()
+            except Exception:
+                pass
 
     def action_submit_input(self) -> None:
         """Handle user input submission. Reads the current text from the
