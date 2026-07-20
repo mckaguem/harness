@@ -97,6 +97,8 @@ class TextualHarnessApp(App):
         Footer
     """
 
+    TITLE = "harness.py"
+
     CSS = """
     TextArea {
         height: 10;
@@ -236,6 +238,12 @@ class TextualHarnessApp(App):
             self._output = self.query_one("#output", VerticalScroll)
         except Exception:
             self._output = None
+
+        # Focus the text input on startup so the user can type immediately.
+        try:
+            self.query_one("#input", TextArea).focus()
+        except Exception:
+            pass
 
         # Start the TUI's event-bus listener ONCE, on the app thread while the
         # app is running, so events mutate widgets only from the live app loop.
