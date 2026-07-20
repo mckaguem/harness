@@ -16,6 +16,9 @@ from harness_core.event_types import (
     AppControlPayload,
 )
 from harness_core.terminal_io.tui_app import TextualHarnessApp
+from harness_core.agent import Agent
+from harness_core.tools import AGENT_TOOLS
+from harness_core.session.session_utils import create_run_folder
 
 logger = logging.getLogger(__name__)
 
@@ -30,14 +33,13 @@ class Manager:
         received, signal the agent to exit and close the TUI.
     """
 
-    def __init__(self, agent) -> None:
+    def __init__(self, agent=None) -> None:
         """Store the agent to be managed.
 
         Args:
-            agent: The constructed :class:`~harness_core.agent.Agent` instance.
-                It is expected to expose ``_id`` (its agent id) and a
-                ``request_exit()`` coroutine/method that sets its loop exit
-                event so ``run_loop`` returns.
+            agent: An optional pre-built :class:`~harness_core.agent.Agent`
+                instance. If omitted, the agent must be created later via
+                :meth:`launch_agent` before :meth:`run` is called.
         """
         self._agent = agent
         self._app: "TextualHarnessApp | None" = None
@@ -45,8 +47,41 @@ class Manager:
         self._tui_task: "asyncio.Task | None" = None
         self._agent_task: "asyncio.Task | None" = None
 
+    def launch_agent(
+        self,
+        agent_name: str,
+        tool_schemas=None,
+        extra_tools=None,
+    ) -> "Agent":
+        """Create and store a new agent (generic agent-launch helper).
+
+        Starts a fresh run folder (so this launch and any subagents it spawns are
+        organised under a single date-time directory) and builds the agent via
+        :meth:`Agent.from_agent_name`. The created agent is stored on
+        ``self._agent`` and returned.
+
+        Args:
+            agent_name: The discovery name of the agent (e.g. ``"main"``).
+            tool_schemas: Optional list of tool schemas. Defaults to
+                ``AGENT_TOOLS`` when ``None``.
+            extra_tools: Optional extra tools passed through to the agent.
+
+        Returns:
+            The constructed :class:`~harness_core.agent.Agent` instance.
+        """
+        tool_schemas = AGENT_TOOLS if tool_schemas is None else tool_schemas
+        # Start a fresh run folder for this launch.
+        create_run_folder()
+        self._agent = Agent.from_agent_name(
+            agent_name, tool_schemas=tool_schemas, extra_tools=extra_tools
+        )
+        return self._agent
+
     async def run(self) -> None:
         """Run the agent loop and the TUI concurrently until shutdown."""
+        if self._agent is None:
+            raise RuntimeError("No agent launched; call launch_agent(...) first.")
+
         self._listener = _ShutdownListener(self)
 
         # Run listener on SEPARATE worker thread so we can use app.call_from_thread()
@@ -76,6 +111,7 @@ class Manager:
         try:
             self._listener.subscribe([PROCESS_CONTROL_QUIT, PROCESS_CONTROL_QUIT_CONFIRM])
 
+            # TODO(headless): skip start_tui() when running headless
             self._tui_task = asyncio.create_task(self._launch_tui())
             self._agent_task = asyncio.create_task(self._agent.run_loop())
 

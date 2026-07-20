@@ -1,14 +1,13 @@
-"""Entry point — wires up configuration and starts the agent loop.
+"""Entry point — owns config/agent/skill discovery and delegates to Manager.
 
-The harness can run in two modes:
+This module is responsible for the shared "startup pipeline" that precedes any
+run: loading harness configuration and discovering skills and agents. It then
+delegates agent creation and execution to :class:`~harness_core.runtime.manager.Manager`,
+which owns the agent loop and the Textual TUI.
 
-* **Interactive** (default) — launches the Textual TUI. The TUI is required;
-  if it fails to start, the application exits with an error.
-* **Non-interactive** — when ``--message "<prompt>"`` (short ``-m``) is
-  supplied, the harness loads configuration, discovers skills/agents, builds
-  the main :class:`~agent.core.Agent`, runs that single prompt to completion
-  via :meth:`Agent.handle_prompt`, prints the result, and exits cleanly. No
-  TUI is launched.
+The harness runs interactively by default: ``blarg`` sets up config/discovery,
+asks the Manager to launch the main agent (which starts the run folder), and
+runs the agent loop + TUI concurrently.
 """
 
 import getopt
@@ -76,12 +75,13 @@ def parse_args(argv):
     return {"message": message, "help": help_requested}
 
 
-def build_agent():
-    """Load config, discover skills/agents, and build the main Agent.
+def setup():
+    """Load config, discover skills, and discover agents (startup pipeline).
 
-    This is the shared "startup pipeline" used by both the interactive and
-    non-interactive code paths (formerly the inline phases 1, 3, 4, 5 and 6 of
-    ``main``). It returns a fully configured :class:`~agent.core.Agent`.
+    This is the shared "startup pipeline" __main__ owns: it loads harness
+    configuration and discovers skills/agents (validating they're loadable).
+    It does NOT create a run folder or build an Agent — that is delegated to
+    :meth:`Manager.launch_agent`.
 
     Exits:
         Calls ``sys.exit(1)`` on a fatal configuration/startup error.
@@ -118,36 +118,15 @@ def build_agent():
     except Exception as exc:
         sys.stderr.write(f"\n[harness] WARNING: Agent discovery failed: {exc}\n")
 
-    # ------------------------------------------------------------------
-    # Phase 6: Create the main Agent by name.
-    # Agent.from_agent_name resolves "main" via the discovery path and handles
-    # all initialization internally:
-    #   - Loads the agent type (model, system_prompt, tools config)
-    #   - Discovers skills & agents to inject into the system prompt
-    #   - Resolves provider configuration
-    #   - Gets context_length from harness_core.model/provider config
-    # It raises FileNotFoundError if the named agent cannot be found.
-    # ------------------------------------------------------------------
-    try:
-        # Start a fresh run folder so this app launch (and every subagent it
-        # spawns) is organised under a single date-time directory in .sessions/.
-        from harness_core.session.session_utils import create_run_folder
-        create_run_folder()
-
-        agent = Agent.from_agent_name("main", tool_schemas=AGENT_TOOLS)
-        agent._id = "Agent.main"
-    except Exception as exc:
-        logging.exception(exc)
-        sys.stderr.write(f"\n[harness] FATAL: Failed to create main agent: {exc}\n")
-        sys.exit(1)
-
-    return agent
 
 async def blarg(argv=None):
-    agent = build_agent()
+    # __main__ owns the config/agent/skill discovery startup pipeline.
+    setup()
 
     from harness_core.runtime.manager import Manager
-    manager = Manager(agent)
+    manager = Manager()
+    # Manager.launch_agent starts the run folder and builds the main Agent.
+    manager.launch_agent("main", tool_schemas=AGENT_TOOLS)
     await manager.run()
 
 def main(argv=None):
