@@ -11,6 +11,7 @@ from rich.console import Group
 
 from harness_core.event_types import TaskListPayload
 from harness_core.terminal_io.widgets import (
+    SelectableStatic,
     StatusSpinner,
     TaskListSidebar,
     TOOL_SEPARATOR,
@@ -101,7 +102,7 @@ class HarnessTUI:
         def _do() -> None:
             # ``call_from_thread`` already runs this on the app thread; mounting
             # synchronously here is correct and avoids races on the tool stack.
-            output.mount(Static(renderable))
+            output.mount(SelectableStatic(renderable))
             output.scroll_end(animate=False)
             with self._lock:
                 self._write_count += 1
@@ -121,7 +122,12 @@ class HarnessTUI:
             return
         app_thread = getattr(app, "_thread_id", None)
         if app_thread is not None and app_thread == threading.current_thread().ident:
-            fn()
+            # Same thread as the app's loop: run directly, but inside the app
+            # context so Textual's active_app ContextVar is set (required for
+            # widget mount/compose — otherwise Collapsible/Markdown compose
+            # raises NoActiveAppError).
+            with app._context():
+                fn()
         else:
             app.call_from_thread(fn)
 
@@ -144,7 +150,7 @@ class HarnessTUI:
         # The title bar is
         # itself a (CollapsibleTitle) Static, so the inner content Static gets
         # a stable id to disambiguate it later in complete_tool_panel().
-        inner = Static(call_renderable, id="tool-content")
+        inner = SelectableStatic(call_renderable, id="tool-content")
         collapsible = Collapsible(
             inner,
             title=title,
@@ -186,7 +192,7 @@ class HarnessTUI:
             # No matching call on the stack (e.g. a stray result) — render
             # it as a standalone panel so it is not lost.
             def _do_standalone() -> None:
-                output.mount(Static(result_renderable))
+                output.mount(SelectableStatic(result_renderable))
                 output.scroll_end(animate=False)
 
             self.run_on_app_thread(_do_standalone)
