@@ -92,6 +92,8 @@ class Manager:
             # FIRST — create and set up event loop on this new thread
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+            # Store the worker loop so shutdown cleanup can signal it to stop.
+            self._listener_loop = loop
             try:
                 # THEN — run listener (which calls create_task using that loop)
                 self._listener.run()
@@ -125,14 +127,36 @@ class Manager:
             
             if hasattr(self, '_listener_thread') and self._listener_thread.is_alive():
                 try:
-                    import asyncio as _asyncio
-                    loop = _asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    for task in list(_asyncio.all_tasks(loop)):
-                        if not task.done():
-                            task.cancel()
-                    loop.run_until_complete(loop.shutdown_asyncgens())
-                    loop.close()
+                    # Stop the worker thread's own loop (it owns the listener
+                    # task and any async generators). We stored a reference to it
+                    # when the thread was started (_listener_loop).
+                    wl = getattr(self, '_listener_loop', None)
+                    if wl is not None and not wl.is_closed():
+                        try:
+                            wl.call_soon_threadsafe(wl.stop)
+                        except Exception:
+                            pass
+                        self._listener_thread.join(timeout=2.0)
+                        # shutdown_asyncgens() is a coroutine in modern Python
+                        # (3.14). Await it on the (now idle) worker loop. If the
+                        # loop can't run it (already stopped/closed), close the
+                        # coroutine explicitly so it is never left un-awaited.
+                        try:
+                            coro = wl.shutdown_asyncgens()
+                            wl.run_until_complete(coro)
+                        except Exception:
+                            # If run_until_complete failed, the coroutine must be
+                            # explicitly closed to avoid the "never awaited"
+                            # RuntimeWarning.
+                            try:
+                                coro.close()
+                            except Exception:
+                                pass
+                        finally:
+                            try:
+                                wl.close()
+                            except Exception:
+                                pass
                 except Exception:
                     logger.debug("Error stopping listener thread", exc_info=True)
 
