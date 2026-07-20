@@ -289,7 +289,7 @@ class InteractiveLoopMixin:
                     self._publish_response(kind, content, ollama_response, turn_start)
                 elif kind == TOOL_CALL:
                     _, func_name, args_str, response_data = output
-                    self._publish_tool_call(func_name, args_str, response_data)
+                    self._publish_tool_call(func_name, args_str, response_data, turn_start)
                 elif kind == TOOL_RESULT:
                     _, func_name, result, response_data = output
                     self._handle_and_publish_tool_result(func_name, result, response_data)
@@ -304,30 +304,31 @@ class InteractiveLoopMixin:
 
     # -- Per-kind output dispatch --------------------------------------
 
-    def _publish_response(self, kind, content, ollama_response, turn_start) -> None:  # noqa: D401
+    def _publish_response(self, kind, content, response_data, turn_start) -> None:  # noqa: D401
         """Publish ``agent.turn.response`` and ``agent.turn.stats`` for a RESPONSE."""
         elapsed = _time.time() - turn_start
         reasoning = (
-            (ollama_response or {}).get("reasoning")
-            if isinstance(ollama_response, dict) else None
+            (response_data or {}).get("reasoning")
+            if isinstance(response_data, dict) else None
         )
         self.publish(
             "agent.turn.response",
             AgentResponsePayload(
                 content=content or "",
-                response=ollama_response,
+                response=response_data,
                 context_length=self.context_length,
                 reasoning=reasoning,
             ),
         )
         self.publish(
             "agent.turn.stats",
-            TurnStatsPayload(response=ollama_response, context_length=self.context_length, elapsed_seconds=elapsed),
+            TurnStatsPayload(response=response_data, context_length=self.context_length, elapsed_seconds=elapsed),
         )
 
-    def _publish_tool_call(self, func_name: str, args_str: str, response_data) -> None:  # noqa: D401
+    def _publish_tool_call(self, func_name: str, args_str: str, response_data, turn_start) -> None:  # noqa: D401
         """Publish ``agent.tool.call`` for a TOOL_CALL output."""
         args_dict = json.loads(args_str)
+        elapsed = _time.time() - turn_start
         summary = self._summarize(func_name, args_dict)
         pre_content = (response_data or {}).get("pre_tool_content", "") or ""
         reasoning = (response_data or {}).get("reasoning", "") or ""
@@ -340,6 +341,10 @@ class InteractiveLoopMixin:
                 pre_content=pre_content or "",
                 reasoning=reasoning,
             ),
+        )
+        self.publish(
+            "agent.turn.stats",
+            TurnStatsPayload(response=response_data, context_length=self.context_length, elapsed_seconds=0.0),
         )
 
     def _handle_and_publish_tool_result(self, func_name: str, result, response_data) -> None:  # noqa: D401
