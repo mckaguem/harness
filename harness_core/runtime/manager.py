@@ -114,6 +114,17 @@ class Manager:
             self._listener.subscribe([PROCESS_CONTROL_QUIT, PROCESS_CONTROL_QUIT_CONFIRM])
 
             # TODO(headless): skip start_tui() when running headless
+
+            # Subscribe the TUI listener to the event bus BEFORE the agent starts
+            # emitting, so the initial "agent.status.ready" event is not missed.
+            # The EventBus does not replay missed messages, so if the TUI
+            # subscribed later (e.g. in on_mount) the startup banner + model name
+            # would be dropped. The TUI controller buffers widget writes until the
+            # app is actually running, so handlers firing before run_async starts
+            # simply buffer and flush on bind() — no "App is not running" crash.
+            from harness_core.terminal_io.event_listener import subscribe_event_listener
+            self._tui_event_listener = subscribe_event_listener(self._agent._id, event_bus)
+
             self._tui_task = asyncio.create_task(self._launch_tui())
             self._agent_task = asyncio.create_task(self._agent.run_loop())
 

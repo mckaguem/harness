@@ -49,6 +49,9 @@ class HarnessTUI:
         self._bound = False
         # Renderables queued before bind() attached the output pane.
         self._write_buffer: list = []
+        # Persisted model name so it survives before the app is mounted
+        # (the agent.status.ready handler can fire before on_mount completes).
+        self._model_name: str | None = None
 
     # ── lifecycle ───────────────────────────────────────────────────────
 
@@ -244,12 +247,26 @@ class HarnessTUI:
             return
         self._app.update_sidebar_tasks_from_payload(payload)
 
+    def set_model_name(self, model_name: str | None) -> None:
+        """Persist the agent's model name (survives before the app is mounted)."""
+        self._model_name = model_name
+
+    def get_model_name(self) -> str | None:
+        """Return the persisted model name, or ``None`` if not yet known."""
+        return self._model_name
+
     def update_sidebar_model_name(self, text: str | None) -> None:
         """Push the model name to the right sidebar widget (thread-safe).
 
-        Delegates to the running :class:`TextualHarnessApp`, which marshals the
-        update onto the app thread.
+        Persists the value on the controller so it survives the race where the
+        agent.status.ready handler fires before on_mount binds the app (when
+        ``self._app`` is still ``None``). If the app is already bound, the
+        update is also delegated to :class:`TextualHarnessApp`, which updates and
+        re-renders the sidebar widget.
         """
+        # Persist before the guard: the app may not be bound yet, but the model
+        # name must not be lost. on_mount seeds the sidebar from here.
+        self.set_model_name(text)
         if self._app is None:
             return
         self._app.update_sidebar_model_name(text)

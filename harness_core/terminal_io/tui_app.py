@@ -205,15 +205,19 @@ class TextualHarnessApp(App):
     def update_sidebar_model_name(self, model_name: str | None) -> None:
         """Push the most recent model name to the right sidebar (thread-safe).
 
-        Marshals a single call onto the app thread that sets the stored model
-        text and re-renders the sidebar above the task list.
+        Persists the value on the controller so it survives the race where the
+        agent.status.ready handler fires before on_mount completes; on_mount
+        reads it back when it first paints the sidebar. When the app is already
+        running, the widget is updated and re-rendered immediately.
         """
+        from .harness_tui import get_tui as _get_tui
+        _get_tui().set_model_name(model_name)
         if not self.is_running:
             return
-
         try:
             sidebar = self.query_one("#task-sidebar", TaskListSidebar)
             sidebar.set_model_name(model_name)
+            sidebar.refresh_tasks()
         except Exception:
             return
 
@@ -230,7 +234,11 @@ class TextualHarnessApp(App):
         # Wire up the right-hand task-list sidebar.
         sidebar = self.query_one("#task-sidebar", TaskListSidebar)
 
-        # Initial paint + heartbeat so the sidebar is always correct.
+        # Seed the model name if the ready event already arrived (race-safe),
+        # then paint the sidebar so it is always correct.
+        model_name = controller.get_model_name()
+        if model_name:
+            sidebar.set_model_name(model_name)
         sidebar.refresh_tasks()
 
         # Cache the output pane reference for error display.
@@ -244,15 +252,6 @@ class TextualHarnessApp(App):
             self.query_one("#input", TextArea).focus()
         except Exception:
             pass
-
-        # Start the TUI's event-bus listener ONCE, on the app thread while the
-        # app is running, so events mutate widgets only from the live app loop.
-        # (Moved out of __main__ to avoid a "App is not running" race where the
-        # listener fired before the Textual loop initialized.)
-        if self._agent_id is not None:
-            from .event_listener import subscribe_event_listener
-            from harness_core.eventbus import event_bus
-            self._event_listener = subscribe_event_listener(self._agent_id, event_bus)
 
     async def on_ShowQuitDialog(self, event) -> None:
         """Handle a quit-request dialog push.
