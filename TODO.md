@@ -1,22 +1,56 @@
 # Harness.py things to work on
 
-## Broken things
+## Misc
+- scripts for making docker image and running in a directory
+- On start, ask to copy sample config to ~/.harness_py if not found (and if not in project directory)
+- Git worktrees?
 
-- Scoll bar dragging
-- Can't select text to copy
-- Quit doesn't fully quit
-- Collapsables don't open/close until move mouse off it
+## Project:
+- Coding standards
+- Update AGENTS.md with pointer to coding standards
 
-## Testing
+## Skills:
+- Modify prompts to tell agents to invoke skills when they will be useful
+- Auto inject 
+- clean up the code so much!
+    - Skill class
 
+## Better error handling / reporting:
+- Find all except blocks that silently catch error and continue.  Log them.
+- Change logging level with command line switch.  Default to error.
+- Review logging levels for all current logging statements
+- Uniform standard for formatting logging statements.  Document in coding standards.
 
-## Session Saving
+## TUI:
+- copy/paste in places other than text input
+- Refactor with custom widget classes for stuff.
+- Collapsable thinking
+- Put TUI on a separate thread for responsiveness (still blocks sometimes on agent turn)
+- turn time under agent response
+- Streaming responses (including thinking)
+- for long things in message window, have a separate panel with scrollbar (eg. file_read, thinking)
+- collapsed subagent session visible?
 
-- [DONE] Group session files per app run into date-time folders under `.sessions/` (created at startup and on `/new` and `/load`), so the main agent and all subagents it spawns share one folder.
-- [DONE] Fix subagent session filenames to include the agent type name (e.g. `..._analyst.yaml`) instead of always `..._main.yaml`.
+## Agents
+- Injected prompts: keep them in the last message only, scrub them from the session so past status doesn't take up context and get confusing.
+- Inject goal every N tool calls
+- Non-interactive mode
+
+## Sessions
+- move .sessions/ into .harness_py
 - Idea: Add a `/sessions` command or list view to browse run folders.
 - Idea: Auto-prune old run folders beyond N days / keep only the last M runs.
-- Move .sessions/ folder to ./.harness_py/sessions
+
+## Tools
+- Something about discovering tools in standard locations (.harness_py/tools) and adding them.  Refactor existing tools to work similarly (maybe?).
+
+## Infrastructure
+- Subagents running in parallel, async
+- fallback providers, deal with errors
+- Use Manager class to launch subagents.
+
+## Testing
+- Testing at module boundaries
 
 ## Context efficiency
 
@@ -28,44 +62,3 @@
     - Context usage stats seem to be using old numbers, not updated
 
 - Relevance realisation system
-
-## Commands
-
-- /goal: what is it and implement
-
-## Skills
-
-- clean up the code so much!
-    - Skill class
-
-## Tools
-
-- Some way of preventing the main agent from getting the submit_result tool
-
-## Subagents
-
-- collapsed subagent session visible?
-
-## Infra
-
-- Async everything and multiple agents running concurrently
-
-## UI
-
-- code review and refactor
-- sidebar on right
-    - format usage stats better
-- modle name in sidebar
-- 
-- turn time under agent response
-- Streaming responses (including thinking)
-- Collapsable thinking
-- for long things in message window, have a separate panel with scrollbar (eg. file_read, thinking)
-
-## Misc
-
-- On start, ask to copy sample config to ~/.harness_py if not found (and if not in project directory)
-
-
-## Refactor
-
