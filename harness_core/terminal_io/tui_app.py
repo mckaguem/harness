@@ -37,7 +37,7 @@ class QuitConfirmDialog(ModalScreen[bool]):
         width: 50;
         height: 9;
         
-        > Vertical {
+        Vertical {
             width: 100%;
             height: 100%;
             align: center middle;

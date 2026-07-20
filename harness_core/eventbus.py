@@ -154,8 +154,21 @@ class EventBus:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            # No event loop running on this thread (e.g. sync test context).
-            loop = None
+            # No *running* loop on this thread yet (e.g. a listener registered
+            # on a freshly created loop before ``run_forever`` is called, which
+            # is exactly how Manager wires up the shutdown listener on a worker
+            # thread). Fall back to the loop set on this thread so cross-thread
+            # delivery still takes the thread-safe ``call_soon_threadsafe`` path
+            # instead of a ``None`` loop. A ``None`` loop would force
+            # ``put_nowait`` from the publishing thread, and
+            # ``asyncio.Queue.put_nowait`` internally calls the bound loop's
+            # non-thread-safe ``call_soon`` — a race that can silently drop the
+            # wakeup (e.g. when the TUI publishes ``PROCESS_CONTROL_QUIT_CONFIRM``
+            # from the main thread).
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = None
         mailbox: asyncio.Queue[Any] = asyncio.Queue()
 
         self._mailboxes[agent_id] = (mailbox, loop)
@@ -358,7 +371,12 @@ class EventListener:
         
         # 2. Keep a local strong reference to the listener task
         #    to prevent garbage collection while we're running.
-        self._listener_task = asyncio.create_task(self._mailbox_listener())
+        # Use the thread's event loop explicitly rather than the bare
+        # asyncio.create_task(), which requires a *running* loop.
+        # get_event_loop() returns the running loop if one is active,
+        # otherwise the loop set via set_event_loop() on this thread.
+        loop = asyncio.get_event_loop()
+        self._listener_task = loop.create_task(self._mailbox_listener())
         # Verify the listener task started successfully
         if self._listener_task.done():
             # Get any exception that occurred during startup

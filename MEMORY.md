@@ -22,3 +22,9 @@ The TUI's `HarnessTUI` controller methods (`write`, `begin_tool_panel`, `complet
 - Ensure `subscribe_event_listener` is called AFTER the app is actually running, OR
 - The controller should marshal via `app.call_from_thread` only when on a different thread, and when on the same thread just call directly (already done via `_thread_id` check) — but if called before `run_async`, `is_running` is False and Textual rejects `call_from_thread`.
 - Consider starting the TUI listener INSIDE `on_mount` (app thread, app running) rather than in `__main__`, but that reintroduces App owning the listener. Alternative: start listener lazily on first event, or guard `write`/`begin_tool_panel` to buffer until running.
+
+# Goal (active)
+- Modify __main__.py and Manager class: Manager creates the agent via a generic launch helper; __main__ calls it with "main" + AGENT_TOOLS; Manager runs it. Manager's TUI start moved to a separate function (headless option reserved for future, not implemented). __main__ owns config loading, agent/skill discovery.
+
+# Goal (resolved)
+- COMPLETED: Refactored __main__.py + Manager. Manager now owns agent creation via `launch_agent()` (generic helper: starts run folder + Agent.from_agent_name). Manager.__init__(agent=None). TUI start isolated in `_launch_tui()` with TODO(headless) marker (headless NOT implemented). __main__.py owns config/skill/agent discovery in `setup()`; `blarg()` calls Manager().launch_agent("main", AGENT_TOOLS) then run(). Committed as c5d4e00. (Prior commit 74bd838 = grep .gitignore + dispatcher truncation + log path.)
