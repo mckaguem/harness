@@ -1,15 +1,17 @@
 """Reusable Textual widgets for the harness TUI."""
 from __future__ import annotations
 
+from textual.widget import Widget
+from textual.widgets import Button, Static
+from textual.events import Click
 from rich.text import Text
 from rich.markdown import Markdown
 from rich.console import Group
 from rich.rule import Rule
-from textual.widgets import Static
+from textual.app import ComposeResult
 
 from harness_core.event_types import TaskListPayload
 from harness_core.terminal_io.task_display import render_task_list_markdown_from_payload
-from .display import print_system
 
 # Inline separator rendered between a tool call and its result inside a
 # Collapsible widget.  Defined locally (rather than imported from display.py)
@@ -110,3 +112,63 @@ class TaskListSidebar(Static):
             self.tasklist = render_task_list_markdown_from_payload(payload)
 
         self.refresh_tasks()
+
+class MessageCard(Widget):
+    """A reusable card for conversation messages.
+
+    Features:
+      - Title
+      - Variant-based styling
+      - Copy button
+      - Arbitrary body widget
+    """
+
+    DEFAULT_CSS = """
+    MessageCard {
+        border: solid $surface;
+        margin: 0 0 0 0;
+        padding: 0 0;
+        height: auto;
+    }
+
+    MessageCard {
+    transition: background 150ms;
+    }
+
+    MessageCard > Static {
+       background: transparent;
+    }
+
+    MessageCard:hover {
+        border: white;
+    }
+    """
+
+    def __init__(
+        self,
+        *,
+        title: str,
+        body: Widget,
+        copy_text: str | None = "Something default",
+    ) -> None:
+        super().__init__()
+
+        self.title = title
+        self.body = body
+        self.copy_text = copy_text
+
+    def compose(self) -> ComposeResult:
+        yield self.body
+
+    async def on_click(self, event: Click) -> None:
+        await self.copy()
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "copy":
+            await self.copy()
+
+    async def copy(self) -> None:
+        if self.copy_text is None:
+            return
+
+        self.app.copy_to_clipboard(self.copy_text)

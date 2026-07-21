@@ -4,16 +4,16 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING
 
-from rich.panel import Panel
 from textual.containers import VerticalScroll
 from textual.widgets import Collapsible, Static, TextArea
 from rich.console import Group
+# `Panel` is used in complete_tool_panel to rebuild the merged call+result panel.
+from rich.panel import Panel
 
 from harness_core.event_types import TaskListPayload
 from harness_core.terminal_io.widgets import (
-    SelectableStatic,
+    MessageCard,
     StatusSpinner,
-    TaskListSidebar,
     TOOL_SEPARATOR,
 )
 
@@ -85,11 +85,6 @@ class HarnessTUI:
     def write(self, renderable) -> None:
         """Render ``renderable`` into the output pane (thread-safe).
 
-        The output pane is a Textual :class:`~textual.containers.VerticalScroll`
-        of :class:`~textual.widgets.Static` wrappers (one per renderable).  This
-        lets tool calls become :class:`~textual.widgets.Collapsible` widgets
-        whose result can be appended *inside* them later, which a flat output
-        log cannot do.
         """
         if self._app is None or self._output is None:
             # Buffer until bind() attaches the output pane.
@@ -100,9 +95,13 @@ class HarnessTUI:
         output = self._output
 
         def _do() -> None:
-            # ``call_from_thread`` already runs this on the app thread; mounting
-            # synchronously here is correct and avoids races on the tool stack.
-            output.mount(SelectableStatic(renderable))
+            
+            panel = MessageCard(
+                title="a message",
+                body=Static(renderable),
+                copy_text="some text",
+            )
+            output.mount(panel)
             output.scroll_end(animate=False)
             with self._lock:
                 self._write_count += 1
@@ -117,8 +116,8 @@ class HarnessTUI:
         buffered and replayed by :meth:`bind` once the output pane exists.
         """
         app = self._app
-        if app is None or not getattr(app, "is_running", False):
-            # App loop not live yet — buffer; bind()/flush will replay.
+        if app is None:
+            # No app bound yet — buffer; bind()/flush will replay.
             return
         app_thread = getattr(app, "_thread_id", None)
         if app_thread is not None and app_thread == threading.current_thread().ident:
@@ -150,7 +149,7 @@ class HarnessTUI:
         # The title bar is
         # itself a (CollapsibleTitle) Static, so the inner content Static gets
         # a stable id to disambiguate it later in complete_tool_panel().
-        inner = SelectableStatic(call_renderable, id="tool-content")
+        inner = Static(call_renderable, id="tool-content")
         collapsible = Collapsible(
             inner,
             title=title,
@@ -190,9 +189,15 @@ class HarnessTUI:
 
         if collapsible is None or collapsible_inner is None or call_panel is None:
             # No matching call on the stack (e.g. a stray result) — render
-            # it as a standalone panel so it is not lost.
+            # it as a themed standalone panel so it's copyable like other messages.
             def _do_standalone() -> None:
-                output.mount(SelectableStatic(result_renderable))
+                panel = MessageCard(
+                    title='Tool',
+                    body=Static(result_renderable),
+                    copy_text='some text',
+                    variant='assistant'
+                )
+                output.mount(panel)
                 output.scroll_end(animate=False)
 
             self.run_on_app_thread(_do_standalone)
