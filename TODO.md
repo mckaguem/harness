@@ -22,9 +22,7 @@
 - Uniform standard for formatting logging statements.  Document in coding standards.
 
 ## TUI:
-- copy/paste in places other than text input
-- Refactor with custom widget classes for stuff.
-- Collapsable thinking
+- Refactor messages calls, and update all the messages with MessageCard
 - Put TUI on a separate thread for responsiveness (still blocks sometimes on agent turn)
 - turn time under agent response
 - Streaming responses (including thinking)

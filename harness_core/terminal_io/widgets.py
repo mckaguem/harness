@@ -9,6 +9,7 @@ from rich.markdown import Markdown
 from rich.console import Group
 from rich.rule import Rule
 from textual.app import ComposeResult
+from rich.console import RenderableType
 
 from harness_core.event_types import TaskListPayload
 from harness_core.terminal_io.task_display import render_task_list_markdown_from_payload
@@ -148,16 +149,21 @@ class MessageCard(Widget):
         self,
         *,
         title: str,
-        body: Widget,
+        body: Widget | RenderableType,
         copy_text: str | None = "Something default",
     ) -> None:
         super().__init__()
 
         self.title = title
-        self.body = body
+        if isinstance(body, Widget):
+            self.body = body
+        else:
+            self.body = Static(body)
+
         self.copy_text = copy_text
 
     def compose(self) -> ComposeResult:
+
         yield self.body
 
     async def on_click(self, event: Click) -> None:
@@ -172,3 +178,4 @@ class MessageCard(Widget):
             return
 
         self.app.copy_to_clipboard(self.copy_text)
+        self.app.notify("Copied to clipboard")

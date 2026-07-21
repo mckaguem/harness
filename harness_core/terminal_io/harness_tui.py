@@ -98,7 +98,7 @@ class HarnessTUI:
             
             panel = MessageCard(
                 title="a message",
-                body=Static(renderable),
+                body=renderable,
                 copy_text="some text",
             )
             output.mount(panel)

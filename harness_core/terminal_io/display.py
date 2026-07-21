@@ -7,6 +7,8 @@ and controller methods like ``begin_tool_panel`` / ``complete_tool_panel``.
 
 from __future__ import annotations
 
+from textual.containers import VerticalGroup
+from textual.widgets import Static, Collapsible
 from rich.console import RenderableType
 from rich.panel import Panel
 from rich.markdown import Markdown
@@ -309,20 +311,20 @@ def display_agent_response(content: str | None, response: dict | None = None, co
         response = {}
     # Guard against None content – treat as empty string.
     safe_content = content if content is not None else ""
-    # Surface reasoning above a separator, then the actual response text.
-    display_text = _combine_reasoning(reasoning, safe_content)
-    if not display_text:
-        # Neither reasoning nor response content was produced – show a
-        # placeholder instead of an empty panel so the turn is not silent.
-        display_text = "(no response content)"
-    markdown_obj = Markdown(display_text)
-    _tui_write(Panel(markdown_obj, title="🤖 Agent Response", border_style="green"))
-
     speed_info = format_speed(response if response is not None else {}, context_length)
+    
+    stack = []
+    if reasoning:
+        _tui_write(Collapsible(Static(Markdown(reasoning)), title='Thinking'))
+    
+    stack.append(Static(Markdown(safe_content)))
+    
     if speed_info:
-        _tui_write(speed_info)                       # under the agent response
+        stack.append( Static(speed_info))
         _tui.get_tui().update_sidebar_usage(speed_info)
-
+    
+    _tui_write(VerticalGroup(*stack))
+    
 
 def display_turn_stats(response: dict | None = None, context_length: int = 0,
                        elapsed_seconds: float | None = None) -> None:
