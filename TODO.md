@@ -15,12 +15,6 @@
 - clean up the code so much!
     - Skill class
 
-## Better error handling / reporting:
-- Find all except blocks that silently catch error and continue.  Log them.
-- Change logging level with command line switch.  Default to error.
-- Review logging levels for all current logging statements
-- Uniform standard for formatting logging statements.  Document in coding standards.
-
 ## TUI:
 - CTRL-Z to undo crashes
 - Refactor messages calls, and update all the messages with MessageCard

@@ -5,16 +5,13 @@ import threading
 from typing import TYPE_CHECKING
 
 from textual.containers import VerticalScroll
-from textual.widgets import Collapsible, Static, TextArea
-from rich.console import Group
-# `Panel` is used in complete_tool_panel to rebuild the merged call+result panel.
-from rich.panel import Panel
+from textual.widgets import Static, TextArea
+from rich.text import Text
 
 from harness_core.event_types import TaskListPayload
 from harness_core.terminal_io.widgets import (
     MessageCard,
     StatusSpinner,
-    TOOL_SEPARATOR,
 )
 
 
@@ -40,10 +37,6 @@ class HarnessTUI:
         self._spinner: StatusSpinner | None = None
         self._write_count = 0
         self._lock = threading.Lock()
-        # Stack of ``(Collapsible, inner Static)`` pairs for in-flight tool
-        # calls, each awaiting its matching result.  Pushed in begin_tool_panel(),
-        # popped in complete_tool_panel().  Guarded by ``_lock``.
-        self._tool_stack: list = []
         # True once bind() has been called in on_mount.  We treat the TUI as
         # active as soon as it is bound (even before ``app.is_running`` flips)
         # so the very first loop output routes into the output pane.
@@ -154,103 +147,23 @@ class HarnessTUI:
         else:
             app.call_from_thread(fn)
 
-    def begin_tool_panel(self, title: str, call_renderable) -> None:
-        """Create a collapsed-by-default ``Collapsible`` for a tool call.
 
-        Called from :func:`terminal_io.display.display_tool_call`. The
-        collapsible's title is the panel title (``"Tool: <name>"``), and its
-        initial child is the tool-call renderable.  The widget is pushed onto
-        ``_tool_stack`` so the matching :meth:`complete_tool_panel` (which is
-        always emitted immediately after in the agent loop) can append the
-        result into this same collapsible.
+
+    def scroll_output_to_bottom(self) -> None:
+        """Scroll the output pane to the bottom (thread-safe).
+
+        Used after ``ToolCallMessage.update_tool_result()`` populates
+        the result area so the user sees it immediately.
         """
         if self._app is None or self._output is None:
             return
-        app = self._app
         output = self._output
-        # `collapsed=True` so the call (and later the result) are invisible by
-        # default; the user can click the title to see it.
-        # The title bar is
-        # itself a (CollapsibleTitle) Static, so the inner content Static gets
-        # a stable id to disambiguate it later in complete_tool_panel().
-        inner = Static(call_renderable, id="tool-content")
-        collapsible = Collapsible(
-            inner,
-            title=title,
-            collapsed=True,
-        )
-        with self._lock:
-            # Stash the original call Panel so complete_tool_panel can rebuild
-            # it with the inline result (call + separator + result) and swap it
-            # into the same Collapsible without re-mounting the whole widget.
-            self._tool_stack.append((collapsible, inner, call_renderable))
 
         def _do() -> None:
-            output.mount(collapsible)
             output.scroll_end(animate=False)
 
         self.run_on_app_thread(_do)
 
-    def complete_tool_panel(self, result_renderable) -> None:
-        """Append a tool result into the most recent tool-call collapsible.
-
-        Called from :func:`terminal_io.display.display_tool_result`.  Pops the
-        most recent collapsible off ``_tool_stack`` and mounts the result
-        renderable inside it, after a ``Rule`` separator, so the result is
-        inline (not a separate panel).  Matches the stack-pop in
-        ``begin_tool_panel`` because the agent loop always emits a TOOL_RESULT
-        immediately after its TOOL_CALL.
-        """
-        if self._app is None or self._output is None:
-            return
-        app = self._app
-        output = self._output
-        with self._lock:
-            entry = self._tool_stack.pop() if self._tool_stack else None
-        collapsible = entry[0] if entry else None
-        collapsible_inner = entry[1] if entry else None
-        call_panel = entry[2] if entry else None
-
-        if collapsible is None or collapsible_inner is None or call_panel is None:
-            # No matching call on the stack (e.g. a stray result) — render
-            # it as a themed standalone panel so it's copyable like other messages.
-            def _do_standalone() -> None:
-                panel = MessageCard(
-                    title='Tool',
-                    body=Static(result_renderable),
-                    copy_text='some text',
-                )
-                output.mount(panel)
-                output.scroll_end(animate=False)
-
-            self.run_on_app_thread(_do_standalone)
-            return
-        # Rebuild the single call Panel to include the separator + result
-        # inline, then swap it into the Collapsible via its inner content
-        # Static (NOT the title bar — the title is also a Static, so we
-        # target it by id).  Net effect: one Panel showing call + separator
-        # + result, all nested inside the Collapsible.  The result must be
-        # unwrapped (result.renderable) so we do not nest a second border
-        # inside the call Panel.
-        result_inner = (
-            result_renderable.renderable
-            if isinstance(result_renderable, Panel)
-            else result_renderable
-        )
-        merged = Panel(
-            Group(call_panel.renderable, TOOL_SEPARATOR, result_inner),
-            title=call_panel.title,
-            border_style=call_panel.border_style,
-        )
-
-        def _do_update() -> None:
-            collapsible_inner.update(merged)
-            output.scroll_end(animate=False)
-
-        self.run_on_app_thread(_do_update)
-
-
-    def write_count(self) -> int:
         """Number of times :meth:`write` committed to the output pane.
 
         Useful for tests that want to assert a render happened without poking
@@ -342,7 +255,6 @@ class HarnessTUI:
         self._output = None
         self._spinner = None
         self._bound = False
-        self._tool_stack = []
 
 
 # Module-level controller singleton.

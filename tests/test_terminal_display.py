@@ -103,6 +103,8 @@ class TestDisplayToolCall:
 
     @patch("harness_core.terminal_io.display._tui.get_tui")
     def test_basic_json_args(self, mock_get_tui):
+        from harness_core.terminal_io.message_widgets import ToolCallMessage
+
         mock_tui = MagicMock()
         mock_get_tui.return_value = mock_tui
 
@@ -110,11 +112,17 @@ class TestDisplayToolCall:
 
         display_tool_call("echo", args_str)
 
-        # Should call controller.write exactly once (via begin_tool_panel)
-        mock_tui.begin_tool_panel.assert_called_once()
+        # Now uses write_message (direct mount) instead of begin_tool_panel.
+        wm_calls = [c for c in mock_tui.write_message.call_args_list]
+        assert len(wm_calls) >= 1, f"expected at least 1 write_message call, got {len(wm_calls)}"
+        last_arg = wm_calls[-1].args[0]
+        assert isinstance(last_arg, ToolCallMessage), f"got {type(last_arg).__name__}"
+        assert "Tool: echo" in last_arg.title
 
     @patch("harness_core.terminal_io.display._tui.get_tui")
     def test_args_with_list_values(self, mock_get_tui):
+        from harness_core.terminal_io.message_widgets import ToolCallMessage
+
         mock_tui = MagicMock()
         mock_get_tui.return_value = mock_tui
 
@@ -122,20 +130,30 @@ class TestDisplayToolCall:
 
         display_tool_call("run_multi", args_str)
 
-        mock_tui.begin_tool_panel.assert_called_once()
+        wm_calls = [c for c in mock_tui.write_message.call_args_list]
+        assert len(wm_calls) >= 1, f"expected at least 1 write_message call, got {len(wm_calls)}"
+        last_arg = wm_calls[-1].args[0]
+        assert isinstance(last_arg, ToolCallMessage), f"got {type(last_arg).__name__}"
 
     @patch("harness_core.terminal_io.display._tui.get_tui")
     def test_non_json_args_fallback(self, mock_get_tui):
+        from harness_core.terminal_io.message_widgets import ToolCallMessage
+
         mock_tui = MagicMock()
         mock_get_tui.return_value = mock_tui
 
         # Invalid JSON should fall through to raw string rendering.
         display_tool_call("raw_cmd", "not json at all")
 
-        mock_tui.begin_tool_panel.assert_called_once()
+        wm_calls = [c for c in mock_tui.write_message.call_args_list]
+        assert len(wm_calls) >= 1, f"expected at least 1 write_message call, got {len(wm_calls)}"
+        last_arg = wm_calls[-1].args[0]
+        assert isinstance(last_arg, ToolCallMessage), f"got {type(last_arg).__name__}"
 
     @patch("harness_core.terminal_io.display._tui.get_tui")
     def test_title_includes_function_name(self, mock_get_tui):
+        from harness_core.terminal_io.message_widgets import ToolCallMessage
+
         mock_tui = MagicMock()
         mock_get_tui.return_value = mock_tui
 
@@ -143,20 +161,24 @@ class TestDisplayToolCall:
 
         display_tool_call("my_tool_func", args_str)
 
-        # The Panel object should have a title containing the function name.
-        call_args = mock_tui.begin_tool_panel.call_args
-        panel = call_args[0][1]
-        assert "Tool: my_tool_func" in str(panel.title)
+        wm_calls = [c for c in mock_tui.write_message.call_args_list]
+        last_arg = wm_calls[-1].args[0]
+        assert isinstance(last_arg, ToolCallMessage), f"got {type(last_arg).__name__}"
+        assert "Tool: my_tool_func" in str(last_arg.title)
 
     @patch("harness_core.terminal_io.display._tui.get_tui")
     def test_empty_string_args(self, mock_get_tui):
+        from harness_core.terminal_io.message_widgets import ToolCallMessage
+
         mock_tui = MagicMock()
         mock_get_tui.return_value = mock_tui
 
         display_tool_call("empty_tool", "")
 
-        # Should still produce a panel.
-        mock_tui.begin_tool_panel.assert_called_once()
+        wm_calls = [c for c in mock_tui.write_message.call_args_list]
+        assert len(wm_calls) >= 1, f"expected at least 1 write_message call, got {len(wm_calls)}"
+        last_arg = wm_calls[-1].args[0]
+        assert isinstance(last_arg, ToolCallMessage), f"got {type(last_arg).__name__}"
 
 
 # ── display_message_panel() ────────────────────────────────────────────
@@ -338,66 +360,73 @@ class TestDisplayAgentResponseReasoning:
 
 
 class TestDisplayToolCallReasoning:
-    """Pre-tool-call text + reasoning rendered in an 'Agent' panel above call."""
+    """Pre-tool-call text + reasoning rendered as ReasoningMessage + AgentResponseMessage widgets."""
 
     @patch("harness_core.terminal_io.display._tui.get_tui")
     def test_reasoning_and_precontent_agent_panel(self, mock_get_tui):
         from harness_core.terminal_io.display import display_tool_call
+        from harness_core.terminal_io.message_widgets import ReasoningMessage, AgentResponseMessage, ToolCallMessage
 
         mock_tui = MagicMock()
         mock_get_tui.return_value = mock_tui
 
         display_tool_call("run_x", '{"a": 1}', pre_content="About to run.", reasoning="Tool thinking.")
 
-        # The pre-content/reasoning panel is rendered first, titled "Agent".
-        from rich.panel import Panel
-        agent_panels = [
-            c.args[0] for c in mock_tui.write.call_args_list
-            if isinstance(c.args[0], Panel) and c.args[0].title == "Agent"
-        ]
-        assert agent_panels, "expected an 'Agent' panel"
-        md = agent_panels[0].renderable
-        # Markdown markup should contain reasoning separator and pre_content.
-        markup = md.markup
-        assert "Tool thinking." in markup
-        assert "About to run." in markup
-        assert "\n---\n" in markup
+        # Now: 3 write_message calls — ReasoningMessage, AgentResponseMessage, ToolCallMessage.
+        wm_calls = [c for c in mock_tui.write_message.call_args_list]
+        assert len(wm_calls) >= 3, f"expected at least 3 write_message calls (reasoning + agent response + tool call), got {len(wm_calls)}"
+        # First call: ReasoningMessage with reasoning text.
+        first_arg = wm_calls[0].args[0]
+        assert isinstance(first_arg, ReasoningMessage), f"got {type(first_arg).__name__}"
+        assert "Tool thinking." in first_arg.message
+        # Second call: AgentResponseMessage with pre_content.
+        second_arg = wm_calls[1].args[0]
+        assert isinstance(second_arg, AgentResponseMessage), f"got {type(second_arg).__name__}"
+        assert "About to run." in second_arg.message
+        # Third call (or later): ToolCallMessage for the actual tool detail.
+        last_arg = wm_calls[-1].args[0]
+        assert isinstance(last_arg, ToolCallMessage), f"got {type(last_arg).__name__}"
+        assert "Tool: run_x" in last_arg.title
 
     @patch("harness_core.terminal_io.display._tui.get_tui")
     def test_precontent_only_no_reasoning(self, mock_get_tui):
         from harness_core.terminal_io.display import display_tool_call
+        from harness_core.terminal_io.message_widgets import AgentResponseMessage, ToolCallMessage
 
         mock_tui = MagicMock()
         mock_get_tui.return_value = mock_tui
 
         display_tool_call("run_y", '{}', pre_content="Doing it.")
 
-        from rich.panel import Panel
-        agent_panels = [
-            c.args[0] for c in mock_tui.write.call_args_list
-            if isinstance(c.args[0], Panel) and c.args[0].title == "Agent"
-        ]
-        assert agent_panels, "expected an 'Agent' panel"
-        md = agent_panels[0].renderable
-        assert md.markup == "Doing it."
+        wm_calls = [c for c in mock_tui.write_message.call_args_list]
+        assert len(wm_calls) >= 2, f"expected at least 2 write_message calls (agent response + tool call), got {len(wm_calls)}"
+        # First: AgentResponseMessage with pre_content.
+        first_arg = wm_calls[0].args[0]
+        assert isinstance(first_arg, AgentResponseMessage), f"got {type(first_arg).__name__}"
+        assert "Doing it." in first_arg.message
+        # Last: ToolCallMessage for the actual tool detail.
+        last_arg = wm_calls[-1].args[0]
+        assert isinstance(last_arg, ToolCallMessage), f"got {type(last_arg).__name__}"
 
     @patch("harness_core.terminal_io.display._tui.get_tui")
     def test_reasoning_only_no_precontent(self, mock_get_tui):
         from harness_core.terminal_io.display import display_tool_call
+        from harness_core.terminal_io.message_widgets import ReasoningMessage, ToolCallMessage
 
         mock_tui = MagicMock()
         mock_get_tui.return_value = mock_tui
 
         display_tool_call("run_z", '{}', reasoning="Thinking...")
 
-        from rich.panel import Panel
-        agent_panels = [
-            c.args[0] for c in mock_tui.write.call_args_list
-            if isinstance(c.args[0], Panel) and c.args[0].title == "Agent"
-        ]
-        assert agent_panels, "expected an 'Agent' panel"
-        md = agent_panels[0].renderable
-        assert md.markup == "Thinking..."
+        wm_calls = [c for c in mock_tui.write_message.call_args_list]
+        assert len(wm_calls) >= 2, f"expected at least 2 write_message calls (reasoning + tool call), got {len(wm_calls)}"
+        # First: ReasoningMessage with reasoning text.
+        first_arg = wm_calls[0].args[0]
+        assert isinstance(first_arg, ReasoningMessage), f"got {type(first_arg).__name__}"
+        assert "Thinking..." in first_arg.message
+        # Last: ToolCallMessage for the actual tool detail.
+        last_arg = wm_calls[-1].args[0]
+        assert isinstance(last_arg, ToolCallMessage), f"got {type(last_arg).__name__}"
 
 
 # ── display_tool_result() ──────────────────────────────────────────────
@@ -413,9 +442,12 @@ class TestDisplayToolResult:
         mock_tui = MagicMock()
         mock_get_tui.return_value = mock_tui
 
+        # Without a preceding display_tool_call, _LAST_TOOL_MSG is None, 
+        # so we fall through to the legacy fallback path (display_message_panel + _tui_write).
         display_tool_result("echo", result_title="Echo Result", result_display_text="output here")
 
-        mock_tui.complete_tool_panel.assert_called_once()
+        # Fallback: should write via _tui_write (which calls controller.write).
+        mock_tui.write.assert_called_once()
 
     @patch("harness_core.terminal_io.display._tui.get_tui")
     def test_result_with_tool_result_object(self, mock_get_tui):
@@ -428,31 +460,31 @@ class TestDisplayToolResult:
         tr = ToolResult(llm_text="result text", display_text="result text", theme="error", type_tag="json", title="Custom Title")
         display_tool_result("some_tool", tr)
 
-        mock_tui.complete_tool_panel.assert_called_once()
+        # Fallback: should write via _tui_write (which calls controller.write).
+        mock_tui.write.assert_called_once()
 
 
 # ── display_error() ─────────────────────────────────────────────────────
 
 
 class TestDisplayError:
-    """Error panel rendering."""
+    """Error panel rendering via ErrorMessage widget."""
 
     @patch("harness_core.terminal_io.display._tui.get_tui")
     def test_error_panel_has_red_border(self, mock_get_tui):
         from harness_core.terminal_io.display import display_error
-        from rich.text import Text
+        from harness_core.terminal_io.message_widgets import ErrorMessage
 
         mock_tui = MagicMock()
         mock_get_tui.return_value = mock_tui
 
         display_error("Something broke")
 
-        call_args = mock_tui.write.call_args[0][0]
-        assert isinstance(call_args, Text)
-        # The markup string gets converted to Text with bold red span for "Error:"
-        assert "Error: Something broke" in call_args.plain
-        # Check that there's a bold red span covering "Error:"
-        assert any(s.style == "bold red" for s in call_args.spans)
+        # Now uses write_message (direct mount) instead of write (which wraps in MessageCard).
+        assert mock_tui.write_message.called, "display_error should call write_message"
+        wm_arg = mock_tui.write_message.call_args[0][0]
+        assert isinstance(wm_arg, ErrorMessage), f"got {type(wm_arg).__name__}"
+        assert "Something broke" in wm_arg.message
 
 
 # ── display_user_message() ─────────────────────────────────────────────

@@ -1,8 +1,12 @@
 """High-level display helpers using Rich for rendering.
 
-These helpers build Rich renderables (``Panel`` / ``Markdown`` / ``Syntax``)
-and route them to the Textual TUI output pane via :func:`terminal_io.tui.get_tui().write`
-and controller methods like ``begin_tool_panel`` / ``complete_tool_panel``.
+These helpers build Rich renderables (``Panel`` / ``Markdown`` / ``Syntax``) 
+for legacy fallback paths, but the primary flow now defers to specialized 
+widget classes in :mod:`message_widgets` — ``ToolCallMessage`` owns both its 
+tool-call args and result display, so ``display.py`` is purely wiring: create 
+the widget and call ``controller.write_message(widget)``. A small list of
+recently-displayed ToolCallMessages is kept so a matching tool result can be
+appended inline via :func:`display_tool_result`.
 """
 
 from __future__ import annotations
@@ -17,16 +21,14 @@ import json
 
 from .speed import format_speed
 from . import tui as _tui
-from .message_widgets import ReasoningMessage, AgentResponseMessage, UserMessage
+from .message_widgets import ReasoningMessage, AgentResponseMessage, UserMessage, ToolCallMessage, ErrorMessage
 
-# Module-level handle to the most recent tool-call panel so the corresponding
-# tool result can be appended to that same panel when a textual TUI is active.
-# This is the single source of truth for "where does the next result go".
-_LAST_TOOL_PANEL: "dict | None" = None
+# Queue of recently displayed ToolCallMessage widgets awaiting a result.
+_pending_tool_msgs: list[ToolCallMessage] = []
 
 
 def _tui_write(renderable) -> None:
-    """Route a renderable to the active TUI output pane."""
+    """Route a Rich renderable to the active TUI output pane."""
     controller = _tui.get_tui()
     if isinstance(renderable, str):
         renderable = Text.from_markup(renderable)
@@ -45,24 +47,30 @@ def display_tool_call(
     pre_content: str = "",
     reasoning: str | None = None,
 ) -> None:
-    """Print a tool-call panel showing the function name and its arguments.
+    """Display a tool call as a ToolCallMessage widget.
 
-    Renders the call using ``display_message_panel`` with theme="info" and
-    result_type="markdown".  Arguments are displayed as key/value parameters
-    (the function name itself appears only in the title).
+    Reasoning is emitted as a separate ReasoningMessage widget (if any).
+    Pre-content is emitted as an AgentResponseMessage widget (if any).
+    The tool-call detail itself is a single ToolCallMessage widget that 
+    owns both its args display and the future result area — complete_tool_panel 
+    in harness_tui.py no longer stitches together a merged Panel.
+
+    Args:
+        func_name: Name of the tool being invoked.
+        args_str: JSON string of arguments (parsed for nicer display).
+        summary: Optional override title. Falls back to ``"Tool: <name>"``.
+        pre_content: Text to emit as an AgentResponseMessage BEFORE the call.
+        reasoning: Chain-of-thought text emitted as a ReasoningMessage widget.
     """
-    # First pass: attempt raw JSON parse (do NOT pre-decode newlines, or we'll corrupt the string).
-    parsed = None  # default in case parsing fails below.
-
+    # Parse args for nicer display (unchanged logic).
+    parsed = None
     try:
         parsed = json.loads(args_str)
         if isinstance(parsed, dict):
             lines: list[str] = []
             for key, value in parsed.items():
                 if isinstance(value, list):
-                    # Label on its own line
                     lines.append(f"**{key}**:")
-                    # Each item as a bullet on separate line
                     for v in value:
                         lines.append(f"- {v}")
                 else:
@@ -71,7 +79,6 @@ def display_tool_call(
                     lines.append(f"**{key}**: {val_str}")
             display_content = "\n\n".join(lines)
         else:
-            # List or scalar: render as normal JSON, then decode escaped newlines.
             display_content = json.dumps(parsed, indent=2)
             display_content = display_content.replace("\\n", "\n").replace("\\r", "\r")
     except (json.JSONDecodeError, TypeError, ValueError):
@@ -80,42 +87,24 @@ def display_tool_call(
 
     title = summary if summary else f"Tool: {func_name}"
 
-    renderable = display_message_panel(
-        text=display_content,
-        theme="info",
-        title=title,
-        result_type="markdown",
-        return_renderable=True,
-    )
+    # Emit reasoning as ReasoningMessage widget (matching display_agent_response pattern).
+    if reasoning:
+        _tui.get_tui().write_message(ReasoningMessage(reasoning))
 
-    # If the LLM accompanied this tool call with a text message (pre_tool_content)
-    # and/or reasoning, render it as a separate panel ABOVE the tool-call panel so
-    # users can see what the agent was thinking/saying before invoking tools.
-    # Reasoning (chain-of-thought) is prepended above a "---" separator, then the
-    # pre-tool-call text. Rendered as a full Markdown panel (no 5-line truncation)
-    # so longer reasoning stays visible.
-    if pre_content or reasoning:
-        pre_body = _combine_reasoning(reasoning, pre_content)
-        pre_renderable = Panel(
-            Markdown(pre_body),
-            title="Agent",
-            border_style=_theme_border("info"),
-        )
-        _tui_write(pre_renderable)
+    agent_body = pre_content or ""
+    if agent_body:
+        _tui.get_tui().write_message(AgentResponseMessage(agent_body))
 
-    # Remember this panel so a later display_tool_result() can append the
-    # result inside the same collapsible.
-    global _LAST_TOOL_PANEL
-    _LAST_TOOL_PANEL = {
-        "renderable": renderable,
-        "title": title,
-        "result": None,
-    }
+    # Build and mount the ToolCallMessage widget — it owns its own rendering.
+    tool_call_msg = ToolCallMessage(title=title, tool_call_text=display_content)
+
+    _pending_tool_msgs.append(tool_call_msg)
+    # Keep only the last N pending calls to bound memory.
+    if len(_pending_tool_msgs) > 32:
+        _pending_tool_msgs = _pending_tool_msgs[-16:]
 
     controller = _tui.get_tui()
-    # In the textual TUI the call is mounted inside a Collapsible whose
-    # title matches this panel; the result is appended inline later via
-    controller.begin_tool_panel(title, renderable)
+    controller.write_message(tool_call_msg)
 
 
 def _theme_border(theme: str) -> str:
@@ -192,15 +181,14 @@ def display_tool_result(
     result_theme: str | None = None,
     result_type_tag: str | None = None,
 ) -> None:
-    """Print a truncated tool-result panel with syntax highlighting.
+    """Append a tool result into the most recent ToolCallMessage widget.
 
-    The result is appended inside the most recent tool-call panel
-    (via the TUI's complete_tool_panel method) rather than rendered as
-    a fresh standalone panel — a horizontal rule separator is drawn
-    between the call and the result.
+    The result is populated inline on the existing ToolCallMessage's 
+    placeholder area via ``update_tool_result()`` rather than being stitched 
+    together with a merged Panel by complete_tool_panel in harness_tui.py.
 
     Args:
-        func_name: Name of the tool that produced the result.
+        func_name: Name of the tool that produced the result (fallback title).
         result: A ToolResult object, or None if using individual parameters.
         result_title: Title override from the ToolResult object, or None.
         result_display_text: The display text content of the ToolResult.
@@ -211,49 +199,48 @@ def display_tool_result(
     # 1. display_tool_result(func_name, tool_result_object)
     # 2. display_tool_result(func_name, result_title=..., result_display_text=..., ...)
     if result is not None and not isinstance(result, str) and hasattr(result, 'display_text'):
-        # Called with a ToolResult object
         from harness_core.tools.tool_result import ToolResult
 
         tool_result: ToolResult = result  # type: ignore[assignment]
-        title_override = tool_result.title or func_name
-        result_panel = display_message_panel(
-            text=tool_result.display_text or "",
-            theme=tool_result.theme or "info",
-            title=title_override,
-            result_type=tool_result.type_tag or "text",
-            return_renderable=True,
-        )
+        display_text = tool_result.display_text or ""
+        type_tag = tool_result.type_tag or "text"
     else:
-        # Called with individual parameters
-        title_override = result_title or func_name
-        result_panel = display_message_panel(
-            text=result_display_text or "",
+        display_text = result_display_text or ""
+        type_tag = result_type_tag or "text"
+
+    if _pending_tool_msgs:
+        # Pop the most recent pending call; if it already has content, keep looking.
+        widget = _pending_tool_msgs.pop()
+        # Update result even on an existing placeholder — the widget owns rendering now.
+        widget.update_tool_result(display_text, type_tag)
+
+        controller = _tui.get_tui()
+        if controller._app is not None:
+            controller.scroll_output_to_bottom()
+    else:
+        # No matching call — fall back to standalone display_message_panel
+        # (legacy path for stray results with no preceding call).
+        panel = display_message_panel(
+            text=display_text or "",
             theme=result_theme or "info",
-            title=title_override,
-            result_type=result_type_tag or "text",
+            title=result_title or func_name,
+            result_type=type_tag,
             return_renderable=True,
         )
-
-    controller = _tui.get_tui()
-    # The result is appended inline into the most recent tool-call
-    # Collapsible (popped off the controller's stack), after a separator.
-    controller.complete_tool_panel(result_panel)
+        _tui_write(panel)
 
 
 def reset_pending_tool_panel() -> None:
-    """Forget the most recently displayed tool-call panel.
-
-    Called when an unpaired event occurs (e.g. an ``ERROR``) so a later tool
-    result does not incorrectly fold into a call that has no corresponding
-    result.
-    """
-    global _LAST_TOOL_PANEL
-    _LAST_TOOL_PANEL = None
+    """Drop the most recent pending ToolCallMessage so no future result will
+    attach to it."""
+    global _pending_tool_msgs
+    if _pending_tool_msgs:
+        _pending_tool_msgs.pop()
 
 
 def display_error(message: str) -> None:
-    """Print an error message in red."""
-    _tui_write(f"[red bold]Error:[/red bold] {message}")
+    """Display an error message using ErrorMessage widget."""
+    _tui.get_tui().write_message(ErrorMessage(message))
 
 
 def display_user_message(message: str) -> None:
