@@ -1,6 +1,8 @@
 from textual.widgets import Collapsible, Static
 from textual.widget import Widget
 from textual.app import ComposeResult
+from textual.containers import Vertical
+from textual.widgets import Collapsible
 from rich.markdown import Markdown
 from rich.syntax import Syntax
 from rich.rule import Rule
@@ -132,10 +134,11 @@ class ToolCallMessage(Widget):
     }
     """
 
-    def __init__(self, title: str, tool_call_text: str):
+    def __init__(self, title: str, tool_call_text: str, *, summary: str = ""):
         super().__init__()
         self._title = title
         self._tool_call_text = tool_call_text
+        self._summary = summary or ""
         # Placeholder for result — populated later via update_tool_result().
         self._result_static: Widget | None = None
 
@@ -144,12 +147,15 @@ class ToolCallMessage(Widget):
         return self._title
 
     def compose(self) -> ComposeResult:
-        """Yield the three-part layout: args / separator / result placeholder."""
+        """Yield the three-part layout wrapped in a Collapsible."""
         # Create the result placeholder BEFORE yielding, so we hold a reference.
         self._result_static = Static("")  # empty until update_tool_result() is called
-        yield Static(Markdown(self._tool_call_text))
-        yield Rule(style="dim")
-        yield self._result_static
+        content_layout = Vertical(
+            Static(Markdown(self._tool_call_text)),
+            Static(Rule(style="dim")),
+            self._result_static,
+        )
+        yield Collapsible(content_layout, title=f"Tool: {self._summary}")
 
     def update_tool_result(self, text: str, type_tag: str = "text") -> None:
         """Populate the tool call's result area with given text.

@@ -96,12 +96,12 @@ def display_tool_call(
         _tui.get_tui().write_message(AgentResponseMessage(agent_body))
 
     # Build and mount the ToolCallMessage widget — it owns its own rendering.
-    tool_call_msg = ToolCallMessage(title=title, tool_call_text=display_content)
+    tool_call_msg = ToolCallMessage(title=title, tool_call_text=display_content, summary=summary or func_name)
 
     _pending_tool_msgs.append(tool_call_msg)
     # Keep only the last N pending calls to bound memory.
     if len(_pending_tool_msgs) > 32:
-        _pending_tool_msgs = _pending_tool_msgs[-16:]
+        del _pending_tool_msgs[:-16]
 
     controller = _tui.get_tui()
     controller.write_message(tool_call_msg)
