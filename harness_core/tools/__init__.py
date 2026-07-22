@@ -7,8 +7,11 @@ mapping tool names to their callables.
 """
 
 import importlib.util
+import logging
 from pathlib import Path
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 
 def _discover_skills():
@@ -31,7 +34,7 @@ def _discover_skills():
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)  # type: ignore[union-attr]
         except Exception as e:
-            print(f"[tools] warning: failed to load skill {path.name}: {e}")
+            logger.warning("Failed to load tool %s: %s", path.name, e)
             continue
 
         function_def = getattr(mod, "function_def", None)

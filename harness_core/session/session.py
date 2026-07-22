@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +14,9 @@ from .session_utils import (
 
 from harness_core.model.provider import Provider
 from harness_core.tools.utils import is_safe_path
+
+
+logger = logging.getLogger(__name__)
 
 
 class Session:
@@ -142,14 +146,7 @@ class Session:
             self.filepath = str(filepath)  # Set filepath after saving
 
         except (OSError, IOError) as exc:  # noqa: BLE001
-            # Surface the failure instead of swallowing it (AGENTS.md §4: never
-            # silently swallow). Go to stderr so it doesn't pollute the
-            # LLM-facing output or break the conversation flow.
-            import sys
-            print(
-                "[session] Warning: failed to auto-save session",
-                file=sys.stderr,
-            )
+            logger.warning("Failed to auto-save session: %s", exc)
 
     def save(self) -> None:
         """Public method to trigger saving the session to disk."""

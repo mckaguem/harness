@@ -13,9 +13,9 @@ the ``tui.user_input`` topic, dispatched by :class:`EventListenerLoopMixin`.
 
 import asyncio
 import json
+import logging
 import time as _time
 import traceback
-import logging
 
 from harness_core.agent.constants import RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from harness_core.commands import COMMANDS
@@ -33,6 +33,8 @@ from harness_core.event_types import (
 from harness_core.eventbus import Event, EventListener, EventPublisher, filter_by_sender
 from harness_core.skills.interceptor import InterceptorKind, intercept_message
 from harness_core.session.context_compression import check_and_compress_if_needed
+
+logger = logging.getLogger(__name__)
 
 
 def _check_and_compress_if_needed(agent) -> None:
@@ -66,8 +68,8 @@ def _check_and_compress_if_needed(agent) -> None:
                 "agent.session.error",
                 SessionErrorPayload(message=f"Auto-compression failed: {result['error']}"),
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.exception("Auto-compression handler failed for agent %s", getattr(agent, '_id', 'unknown'))
 
 
 class InteractiveLoopMixin:
@@ -112,7 +114,7 @@ class InteractiveLoopMixin:
                 to ``/exit`` or ``/quit``. Receives ``(agent, messages)``.
         """
 
-        logging.debug('Starting agent.')
+        logger.debug("Starting agent.")
         self._on_exit_callback = on_exit
 
         # Run the event loop
@@ -397,7 +399,7 @@ class InteractiveLoopMixin:
             if hasattr(self, '_loop_exit_event') and self._loop_exit_event is not None:
                 self._loop_exit_event.set()
         except Exception:
-            pass
+            logger.exception("Failed to signal agent exit event")
 
 
 class EventListenerLoopMixin(EventListener):

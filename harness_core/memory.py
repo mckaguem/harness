@@ -10,9 +10,12 @@ file that outlives any single conversation and is orthogonal to (and complementa
 with) the session-compression pipeline.
 """
 
+import logging
 from pathlib import Path
 
 from harness_core.utils import project_root
+
+logger = logging.getLogger(__name__)
 
 MEMORY_FILENAME = "MEMORY.md"
 
@@ -39,7 +42,8 @@ def read_memory() -> str | None:
         return None
     try:
         text = path.read_text(encoding="utf-8")
-    except Exception:
+    except Exception as e:
+        logger.exception("Failed to load memory file at %s", path)
         return None
     return text.strip()
 

@@ -7,10 +7,13 @@ Supports two config paths (analogous to skills discovery):
 When an agent name exists in both paths, the project version wins.
 """
 
+import logging
 from pathlib import Path
 from typing import Tuple
 
 from harness_core.terminal_io import print_system
+
+logger = logging.getLogger(__name__)
 
 # Module-level cache so the (expensive) filesystem scan runs only once per
 # unique set of discovery directories.

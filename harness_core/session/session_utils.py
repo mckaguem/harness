@@ -1,8 +1,11 @@
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 # Import project_root from harness_core.utils
 from harness_core.utils import project_root

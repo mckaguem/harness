@@ -22,6 +22,8 @@ from harness_core.tools.tool_result import ToolResult
 from harness_core.agent.mixin import InteractiveLoopMixin, EventListenerLoopMixin
 from harness_core.terminal_io import display_error
 
+logger = logging.getLogger(__name__)
+
 
 class Agent(InteractiveLoopMixin, EventListenerLoopMixin, EventPublisher):
     """Owns the conversation state and handles a single user turn.
@@ -392,7 +394,7 @@ or update their status to 'failed' before stopping."""
         except Exception as exc:
             # Handle unexpected errors (e.g., wrong args to tool)
             description = f"Error calling {func_name}: {exc}"
-            logging.exception(exc)
+            logger.exception("Tool dispatch error for %s", func_name)
             yield (ERROR, description, None, None)
             return
 

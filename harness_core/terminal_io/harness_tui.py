@@ -219,7 +219,6 @@ class HarnessTUI:
                     title='Tool',
                     body=Static(result_renderable),
                     copy_text='some text',
-                    variant='assistant'
                 )
                 output.mount(panel)
                 output.scroll_end(animate=False)

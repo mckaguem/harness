@@ -53,3 +53,65 @@
 
 - **Fail closed on security / never leak paths.** Catch specific exceptions (FileNotFoundError, PermissionError, TimeoutExpired) and wrap with descriptive but non-path-disclosing context.
 - Treat `docs/original_source.py` as archive-only; it is the pre-refactor monolith and must not be edited.
+
+## Logging Standards
+
+The harness uses Python's stdlib `logging` module for all diagnostic output. Never use bare `print()` or `sys.stderr.write(...)` as a substitute for logging in production code paths (only interactive prompts and user-facing CLI help are exempt).
+
+### Unified Log Format
+
+All log handlers MUST use this format string:
+```
+%(asctime)s | %(name)-20s | %(levelname)-7s | %(message)s
+```
+- `%(asctime)s` — ISO-8601 timestamp (use `datefmt='%Y-%m-%dT%H:%M:%S'` to control formatting).
+- `%(name)-20s` — module-level logger name, left-aligned for easy column scanning.
+- `%(levelname)-7s` — DEBUG/INFO/WARNING/ERROR/CRITICAL padded to 7 chars.
+- `%(message)s` — the formatted message text.
+
+Example output line:
+```
+2025-01-15T14:32:01 | harness_core.eventbus    | INFO    | Starting EventListener for agent main
+```
+
+### Log-Level Standard (when to use each level)
+
+| Level   | When to log                                                                 |
+|---------|-----------------------------------------------------------------------------|
+| DEBUG   | Internal state changes, variable dumps, branch selection, handler lookup.  |
+| INFO    | Start/stop of subsystems, agent status transitions, user-facing milestones.|
+| WARNING | Recoverable problems: missing optional config, retrying a failed call, non-fatal validation failure. |
+| ERROR   | Failures that abort an operation but let the system keep running (tool dispatch error, failed network call). |
+| CRITICAL| System is unusable and must shut down immediately. Rare.                    |
+
+### Logger Pattern
+
+Every module MUST declare a named logger at module top level:
+```python
+import logging
+logger = logging.getLogger(__name__)
+```
+Never call `logging.debug(...)` / `logging.info(...)` etc. directly — always go through the module-level `logger`. Never import `logging` inside a function body; keep it at file scope.
+
+### Logging Exception Blocks
+
+Every `except:` block MUST log the exception with full traceback:
+```python
+except Exception as e:
+    logger.exception("Failed to do X for agent %s", agent_id)
+```
+Use `logger.exception(...)` (NOT `logging.exception(exc)` — that is a bug; see below). The call reads from `sys.exc_info()` automatically so no argument is passed. Include enough context in the message template so the log line is self-describing.
+
+**Anti-pattern to avoid:**
+```python
+logging.exception(exc)   # ❌ TypeError: exception() takes no arguments (1 given)
+                          #    Also, the TypeError gets swallowed by this try/except → silent failure.
+```
+
+### Configuration (set in `__main__.py`)
+
+`basicConfig` is called once at import time with two handlers: a file handler (`<CWD>/.sessions/harness.log`, append mode) and a StreamHandler on stderr for console output during development. Both share the unified format. The root logger level honors the `--log-level` CLI flag (default INFO); DEBUG-only messages go to the log file regardless.
+
+### What NOT to do
+- Do not use `warnings.warn()` as a logging substitute. Use `logger.warning(...)` instead.
+- Do not add new bare `print()` / `sys.stderr.write()` for diagnostics. Interactive prompts and help text are fine; anything else goes through `logging`.

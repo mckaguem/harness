@@ -1,9 +1,12 @@
 """Agent type definition — model, tools, and system prompt configuration."""
 
 from dataclasses import dataclass, field
+import logging
 import re
 from pathlib import Path
 from typing import Dict
+
+logger = logging.getLogger(__name__)
 
 
 from harness_core.model.types import ProviderConfig
@@ -282,12 +285,14 @@ class AgentType:
 
         try:
             discovered_skills = list(discovery.discover_skills())
-        except Exception:
+        except Exception as e:
+            logger.exception("Failed to discover skills for agent %s", name)
             discovered_skills = []
 
         try:
             discovered_agent_names = _discover_agents()
-        except Exception:
+        except Exception as e:
+            logger.exception("Failed to discover agents for agent %s", name)
             discovered_agent_names = []
 
         agent_descriptions: list[Dict] = []

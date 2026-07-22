@@ -2,13 +2,15 @@
 from __future__ import annotations
 import logging
 
+logger = logging.getLogger(__name__)
+
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Header, Static, TextArea
 
-from textual.events import Message
+from textual.message import Message
 
 from harness_core.event_types import TaskListPayload
 from harness_core.terminal_io.widgets import (
@@ -70,8 +72,6 @@ class QuitConfirmDialog(ModalScreen[bool]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses in the dialog."""
-        import logging
-        logger = logging.getLogger(__name__)
 
         if event.button.id == "quit-yes":
             # Publish quit confirm via app then close with True
@@ -338,6 +338,6 @@ async def launch(agent_id: str | None = None, on_exit=None) -> None:
             filter events for display in the sidebar. No Agent object is needed.
         on_exit: Optional callback invoked when the TUI exits.
     """
-    logging.debug('Starting TUI')
+    logger.debug("Starting TUI")
     app = TextualHarnessApp(agent_id=agent_id, on_exit=on_exit)
     await app.start()

@@ -16,10 +16,14 @@ Usage::
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Optional
 
 from harness_core.eventbus import EventPublisher, event_bus
+
+
+logger = logging.getLogger(__name__)
 
 
 class TuiEventPublisher(EventPublisher):
@@ -47,8 +51,7 @@ class TuiEventPublisher(EventPublisher):
             source: Identifier of where the input came from (defaults to "tui").
         """
         from harness_core.event_types import UserInputPayload
-        import logging
-        logging.debug(f"publish_user_input {message}")
+        logger.debug("Publishing user input: %s", message)
         self.publish(
             self.USER_INPUT_TOPIC,
             UserInputPayload(message=message, source=source),

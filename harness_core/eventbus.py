@@ -232,9 +232,7 @@ class EventBus:
             agent_id: The target agent's unique identifier (used to look up its
                 mailbox and loop from :attr:`_mailboxes`).
         """
-        import logging
-        
-        logging.debug(f'sender={event.sender}, recipient={agent_id}, message={event.payload}')
+        logger.debug("sender=%s, recipient=%s, message=%r", event.sender, agent_id, event.payload)
 
         entry = self._mailboxes.get(agent_id)
         if not entry:
