@@ -76,7 +76,7 @@ class HarnessTUI:
             buffered = self._write_buffer
             self._write_buffer = []
         for renderable in buffered:
-            self.write(renderable)
+            self.write_message(renderable)
 
     def is_active(self) -> bool:
         """Return ``True`` when the TUI app is bound and accepting I/O."""
@@ -86,6 +86,33 @@ class HarnessTUI:
         """Render ``renderable`` into the output pane (thread-safe).
 
         """
+        panel = MessageCard(
+                title="a message",
+                body=renderable,
+                copy_text="some text",
+        )
+        self.write_message(panel)
+        return 
+
+        if self._app is None or self._output is None:
+            # Buffer until bind() attaches the output pane.
+            with self._lock:
+                self._write_buffer.append(panel)
+            return
+        app = self._app
+        output = self._output
+
+        def _do() -> None:
+            
+
+            output.mount(panel)
+            output.scroll_end(animate=False)
+            with self._lock:
+                self._write_count += 1
+
+        self.run_on_app_thread(_do)
+
+    def write_message(self, renderable) -> None:
         if self._app is None or self._output is None:
             # Buffer until bind() attaches the output pane.
             with self._lock:
@@ -96,17 +123,14 @@ class HarnessTUI:
 
         def _do() -> None:
             
-            panel = MessageCard(
-                title="a message",
-                body=renderable,
-                copy_text="some text",
-            )
-            output.mount(panel)
+            output.mount(renderable)
             output.scroll_end(animate=False)
             with self._lock:
                 self._write_count += 1
 
         self.run_on_app_thread(_do)
+
+
 
     def run_on_app_thread(self, fn) -> None:
         """Run ``fn`` on the Textual app thread, buffering if the app isn't live.

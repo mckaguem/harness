@@ -7,8 +7,7 @@ and controller methods like ``begin_tool_panel`` / ``complete_tool_panel``.
 
 from __future__ import annotations
 
-from textual.containers import VerticalGroup
-from textual.widgets import Static, Collapsible
+from textual.widgets import Static
 from rich.console import RenderableType
 from rich.panel import Panel
 from rich.markdown import Markdown
@@ -16,9 +15,9 @@ from rich.syntax import Syntax
 from rich.text import Text
 import json
 
-from .speed import format_speed, format_tool_elapsed
+from .speed import format_speed
 from . import tui as _tui
-
+from .message_widgets import ReasoningMessage, AgentResponseMessage, UserMessage
 
 # Module-level handle to the most recent tool-call panel so the corresponding
 # tool result can be appended to that same panel when a textual TUI is active.
@@ -32,8 +31,7 @@ def _tui_write(renderable) -> None:
     if isinstance(renderable, str):
         renderable = Text.from_markup(renderable)
     controller.write(renderable)
-
-
+    
 def print_system(title: str, message: str) -> None:
     """Print a system-level notification panel."""
     _tui_write(Panel(message, title=title, border_style="magenta"))
@@ -259,18 +257,9 @@ def display_error(message: str) -> None:
 
 
 def display_user_message(message: str) -> None:
-    """Echo the user's own typed message into the output pane.
-
-    The message is wrapped in a :class:`~rich.text.Text` (not a markup string)
-    so any ``[tag]``-style characters the user types are rendered verbatim
-    rather than interpreted as Rich markup.
+    """Echo the user's own typed message.
     """
-    _tui_write(Panel(
-        Text(message),
-        title="🧑 You",
-        border_style="cyan",
-    ))
-
+    _tui.get_tui().write_message(UserMessage(message))
 
 def _combine_reasoning(reasoning: str | None, body: str) -> str:
     """Prepend reasoning/thinking above a horizontal separator, then the body.
@@ -310,22 +299,18 @@ def display_agent_response(content: str | None, response: dict | None = None, co
     if response is None:
         response = {}
     # Guard against None content – treat as empty string.
-    safe_content = content if content is not None else ""
+    safe_content = content if content is not None else "[Agent response was None]"
     speed_info = format_speed(response if response is not None else {}, context_length)
-    
-    stack = []
+
     if reasoning:
-        _tui_write(Collapsible(Static(Markdown(reasoning)), title='Thinking'))
+        _tui.get_tui().write_message(ReasoningMessage(reasoning))
     
-    stack.append(Static(Markdown(safe_content)))
-    
+    _tui.get_tui().write_message(AgentResponseMessage(safe_content))
+
     if speed_info:
-        stack.append( Static(speed_info))
+        _tui.get_tui().write_message(Static(speed_info))
         _tui.get_tui().update_sidebar_usage(speed_info)
     
-    _tui_write(VerticalGroup(*stack))
-    
-
 def display_turn_stats(response: dict | None = None, context_length: int = 0,
                        elapsed_seconds: float | None = None) -> None:
     """Push the most recent turn's usage + elapsed time into the right sidebar.
