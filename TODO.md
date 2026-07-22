@@ -22,6 +22,7 @@
 - Uniform standard for formatting logging statements.  Document in coding standards.
 
 ## TUI:
+- CTRL-Z to undo crashes
 - Refactor messages calls, and update all the messages with MessageCard
 - Put TUI on a separate thread for responsiveness (still blocks sometimes on agent turn)
 - turn time under agent response

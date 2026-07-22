@@ -392,7 +392,15 @@ class EventListener:
             while True:
                 # Yields control to the loop if the mailbox is empty.
                 # Once a message arrives, this wakes up.
-                message = await self.mailbox.get()
+                try:
+                    message = await self.mailbox.get()
+                except RuntimeError as e:
+                    # If the event loop is closing (Textual exit), treat as clean shutdown.
+                    # The task will be GC'd regardless; no further messages can arrive.
+                    if "Event loop is closed" in str(e):
+                        logger.info("Mailbox listener stopping - event loop is closed for agent %s", self._id)
+                        return
+                    raise
 
                 topic = message.topic or "direct"
                 logger.debug("Processing event for agent %s on topic '%s'", self._id, topic)

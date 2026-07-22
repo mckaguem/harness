@@ -135,6 +135,24 @@ class Manager:
                     self._listener.unsubscribe([PROCESS_CONTROL_QUIT, PROCESS_CONTROL_QUIT_CONFIRM])
                 except Exception:  # pragma: no cover - defensive
                     logger.debug("Error stopping shutdown listener", exc_info=True)
+
+            # Cancel + await the TUI event listener task (runs on main loop).
+            if hasattr(self, '_tui_event_listener') and self._tui_event_listener is not None:
+                tui_task = getattr(self._tui_event_listener, '_listener_task', None)
+                if tui_task is not None and not tui_task.done():
+                    tui_task.cancel()
+                    try:
+                        await tui_task
+                    except (asyncio.CancelledError, RuntimeError):
+                        pass
+                # Deregister from bus so no further delivery attempts on closing loop
+                event_bus.deregister_agent("tui")
+
+            # Deregister the shutdown listener itself (loop is already dead by now)
+            try:
+                event_bus.deregister_agent(self._listener._id)
+            except Exception:
+                pass
             
             if hasattr(self, '_listener_thread') and self._listener_thread.is_alive():
                 try:
