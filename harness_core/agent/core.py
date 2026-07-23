@@ -363,20 +363,7 @@ or update their status to 'failed' before stopping."""
 
             yield (TOOL_CALL, func_name, raw_args, response)
 
-            # Defer execution of multiple run_subagent calls to a single
-            # concurrent batch after this loop (keeps them in parallel).
-            if use_parallel and func_name == "run_subagent":
-                pending_parallel.append((tool_call, args))
-                continue
-
             async for sub_result in self._execute_single_tool(tool_call_id, func_name, args, raw_args, response):
-                yield sub_result
-
-
-        # Run any deferred run_subagent calls concurrently and feed each
-        # result back into the conversation for the next model round.
-        if pending_parallel:
-            async for sub_result in self._process_parallel_subagents(pending_parallel, response):
                 yield sub_result
 
     async def _execute_single_tool(self, tool_call_id: str, func_name: str, args: dict, raw_args: str, response: dict) -> AsyncGenerator[tuple[str, Any, Any, Optional[dict[str, Any]]], None, None]:
@@ -404,24 +391,6 @@ or update their status to 'failed' before stopping."""
         # Use session.add_tool_result instead of self.messages.append({"role":"tool",...})
         self._session.add_tool_result(func_name, return_result.llm_text, tool_call_id)
         yield (TOOL_RESULT, func_name, return_result, response)
-
-    async def _process_parallel_subagents(self, pending_parallel: list, response: dict) -> AsyncGenerator[tuple[str, Any, Any, Optional[dict[str, Any]]], None, None]:
-        """Execute deferred parallel ``run_subagent`` calls and yield their results.
-
-        Awaits all pending sub-agent tasks concurrently via :func:`asyncio.gather`
-        (each runs on its own thread via :func:`harness_core.tools.run_subagent.run_subagent`),
-        then feeds each result back into the conversation via TOOL_RESULT events.
-        """
-        from harness_core.tools.run_subagent import run_subagent
-
-        tasks = [run_subagent(args.get("sub_agent", ""), args.get("task", "")) for _tc, args in pending_parallel]
-        parallel_results: list[ToolResult] = await asyncio.gather(*tasks)
-        for (tool_call, _args), result in zip(pending_parallel, parallel_results):
-            self._session.add_tool_result(
-                "run_subagent", result.llm_text, tool_call["id"]
-            )
-            yield (TOOL_RESULT, "run_subagent", result, response)
-
 
     @classmethod
     def from_agent_name(cls, agent_name: str,
