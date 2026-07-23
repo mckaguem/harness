@@ -1,8 +1,9 @@
 """End-to-end non-interactive coverage tests for harness_core.
 
-This module exercises the harness's main functionalities by driving the agent in
-NON-INTERACTIVE mode (through ``run_non_interactive`` / ``Agent.handle_prompt``)
-with an in-memory fake provider so no network or live LLM is contacted.
+This module exercises the harness's main functionalities by driving the agent via
+``Agent.handle_prompt`` with an in-memory fake provider so no network or live LLM
+is contacted. The async generator is consumed directly to observe RESPONSE, TOOL_CALL,
+TOOL_RESULT and ERROR events.
 
 It covers:
   A) Every tool exposed by the harness (driven through the real dispatch path).
@@ -13,6 +14,7 @@ All providers are fakes; any network call (web_search / web_fetch / sub-agent
 provider resolution) is patched so the suite stays fully offline and fast.
 """
 
+import asyncio
 import json
 import os
 import sys
@@ -24,9 +26,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from harness_core.agent import Agent, AgentType
+from harness_core.agent.constants import ERROR, RESPONSE, TOOL_CALL, TOOL_RESULT
 from harness_core.model.provider import Provider
 from harness_core.model.types import ProviderConfig
-from harness_core.__main__ import run_non_interactive
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -42,6 +44,17 @@ class FakeProvider(Provider):
         self.base_url = "http://localhost.test"
 
     def chat_completion(self, messages, model, **kwargs):
+        if self._responses:
+            return self._responses.pop(0)
+        # Default: empty assistant text turn (no tool calls).
+        return {
+            "choices": [{"message": {"role": "assistant", "content": ""}}],
+            "model": model,
+            "usage": {},
+        }
+
+    async def chat_completion_async(self, messages, model, **kwargs):
+        """Async wrapper — consumes responses in order just like the sync version."""
         if self._responses:
             return self._responses.pop(0)
         # Default: empty assistant text turn (no tool calls).
@@ -143,28 +156,76 @@ def _fake_urlopen(req, timeout=30):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _extract_events(gen):
+    """Consume an ``agent.handle_prompt()`` async generator and yield parsed events."""
+    final_content = None
+    tool_calls = []
+    tool_results = []
+    errors = []
+
+    async def collect():
+        nonlocal final_content
+        async for event in gen:
+            kind, *args = event
+            if kind == RESPONSE:
+                content = args[0] if len(args) > 0 else ""
+                final_content = content
+            elif kind == TOOL_CALL:
+                func_name = args[0] if len(args) > 0 else None
+                tool_calls.append(func_name)
+            elif kind == TOOL_RESULT:
+                # (TOOL_RESULT, func_name, result_obj, response_data)
+                func_name = args[0] if len(args) > 0 else None
+                result_obj = args[1] if len(args) > 1 else None
+                tool_results.append((func_name, result_obj))
+            elif kind == ERROR:
+                description = args[0] if len(args) > 0 else ""
+                errors.append(description)
+
+        return {
+            "rc": 0,
+            "response": final_content,
+            "tool_calls": tool_calls,
+            "tool_results": tool_results,
+            "errors": errors,
+        }
+
+    try:
+        result = asyncio.run(collect())
+    except Exception as exc:
+        result = {
+            "rc": 1,
+            "response": None,
+            "tool_calls": tool_calls,
+            "tool_results": tool_results,
+            "errors": [str(exc)],
+        }
+
+    return result
+
+
 def run_captured(agent, message):
-    """Drive the agent non-interactively, capturing display events.
+    """Drive the agent non-interactively via ``handle_prompt``, capturing events.
 
     Returns a dict with:
-      * rc           — return code from run_non_interactive
-      * response     — final assistant text captured from display_agent_response
-      * tool_calls   — list of function names from display_tool_call
-      * tool_results — list of (func_name, ToolResult) from display_tool_result
-      * errors       — list of error strings from display_error
+      * rc           — 0 on success, 1 if handle_prompt raised
+      * response     — final assistant text (RESPONSE event content)
+      * tool_calls   — list of function names from TOOL_CALL events
+      * tool_results — list of (func_name, ToolResult) from TOOL_RESULT events
+      * errors       — list of error strings from ERROR events
     """
-    captured = {"response": None, "tool_calls": [], "tool_results": [], "errors": []}
-    with patch("harness_core.terminal_io.display_agent_response",
-               side_effect=lambda c, r, cl, **k: captured.__setitem__("response", c)), \
-         patch("harness_core.terminal_io.display_user_message"), \
-         patch("harness_core.terminal_io.display_tool_call",
-               side_effect=lambda fn, a, **k: captured["tool_calls"].append(fn)), \
-         patch("harness_core.terminal_io.display_tool_result",
-               side_effect=lambda fn, r: captured["tool_results"].append((fn, r))), \
-         patch("harness_core.terminal_io.display_error",
-               side_effect=lambda d: captured["errors"].append(d)):
-        rc = run_non_interactive(agent, message)
-    return {"rc": rc, **captured}
+    try:
+        gen = agent.handle_prompt(message)
+    except Exception as exc:
+        return {"rc": 1, "response": None, "tool_calls": [], "tool_results": [], "errors": [str(exc)]}
+
+    if not hasattr(gen, "__anext__"):
+        # ``handle_prompt`` returned synchronously with a value — wrap it.
+        async def _wrap():
+            yield gen
+        return _extract_events(_wrap())
+
+    return _extract_events(gen)
 
 
 def make_agent(responses, agent_tools=None):

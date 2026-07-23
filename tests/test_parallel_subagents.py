@@ -160,23 +160,79 @@ class TestHandlePromptParallel:
         ]
         agent = _make_agent_with_tool_calls(tool_calls)
 
-        with patch("harness_core.tools.run_subagent._run_one") as mock_run_one:
-            mock_run_one.side_effect = [
-                ToolResult(llm_text="FINDINGS_A", display_text=""),  # result for first sub-agent
-                ToolResult(llm_text="FINDINGS_B", display_text=""),  # result for second sub-agent
-            ]
+        # Create mock sub-agents that yield the expected results.
+        async def make_fake_handle_prompt(task):
+            """Async generator that yields a RESPONSE with the task."""
+            yield (RESPONSE, f"result-for:{task}")
+
+        analyst_sub = MagicMock()
+        analyst_sub.handle_prompt.side_effect = lambda t: make_fake_handle_prompt(t)
+
+        writer_sub = MagicMock()
+        writer_sub.handle_prompt.side_effect = lambda t: make_fake_handle_prompt(t)
+
+        with patch("harness_core.agent.Agent.from_agent_name") as mock_from_name:
+            # Return different mocks based on the agent name.
+            def side_effect(name, **kwargs):
+                if name == "analyst":
+                    return analyst_sub
+                elif name == "writer":
+                    return writer_sub
+                raise ValueError(f"Unknown sub-agent: {name}")
+
+            mock_from_name.side_effect = side_effect
+            
             events = _collect_events(agent, "do both")
 
         kinds = [e[0] for e in events]
+        
         # Two TOOL_CALL yields (both run_subagent), then two TOOL_RESULT yields.
-        assert kinds.count(TOOL_CALL) == 2
-        assert kinds.count(TOOL_RESULT) == 2
-        # Both results were dispatched to the worker.
-        dispatched = [c.args for c in mock_run_one.call_args_list]
-        assert dispatched == [("analyst", "A"), ("writer", "B")]
+        assert kinds.count(TOOL_CALL) == 2, f"Expected 2 TOOL_CALL events, got {kinds}"
+        assert kinds.count(TOOL_RESULT) == 2, f"Expected 2 TOOL_RESULT events, got {kinds}"
+        
+        # Both sub-agents were dispatched.
+        assert mock_from_name.call_count == 2
+        dispatched_names = [call.args[0] for call in mock_from_name.call_args_list]
+        assert "analyst" in dispatched_names
+        assert "writer" in dispatched_names
+        
         # The provider's second turn had the two tool results appended (so a
         # final RESPONSE was produced).
-        assert RESPONSE in kinds
+        assert RESPONSE in kinds, f"Expected RESPONSE event in {kinds}"
+
+    def test_parallel_subagent_dispatch_path(self):
+        """Verify run_subagent calls go through from_agent_name when parallel."""
+        tool_calls = [
+            {"name": "run_subagent", "arguments": '{"sub_agent": "analyst", "task": "A"}'},
+            {"name": "run_subagent", "arguments": '{"sub_agent": "writer", "task": "B"}'},
+        ]
+        agent = _make_agent_with_tool_calls(tool_calls)
+
+        async def make_fake_handle_prompt(task):
+            yield (RESPONSE, f"result-for:{task}")
+
+        analyst_sub = MagicMock()
+        analyst_sub.handle_prompt.side_effect = lambda t: make_fake_handle_prompt(t)
+
+        writer_sub = MagicMock()
+        writer_sub.handle_prompt.side_effect = lambda t: make_fake_handle_prompt(t)
+
+        with patch("harness_core.agent.Agent.from_agent_name") as mock_from_name:
+            def side_effect(name, **kwargs):
+                if name == "analyst":
+                    return analyst_sub
+                elif name == "writer":
+                    return writer_sub
+                raise ValueError(f"Unknown sub-agent: {name}")
+
+            mock_from_name.side_effect = side_effect
+            
+            events = _collect_events(agent, "do both")
+
+        # Verify the dispatch path was exercised correctly.
+        assert mock_from_name.call_count == 2
+        dispatched_names = [call.args[0] for call in mock_from_name.call_args_list]
+        assert dispatched_names == ["analyst", "writer"]
 
     def test_single_run_subagent_uses_sequential_path(self):
         """A single run_subagent call still yields TOOL_RESULT + final RESPONSE."""

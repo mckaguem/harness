@@ -13,7 +13,6 @@ from typing import Any, Dict, Mapping, Optional
 
 from harness_core.config import get_provider_config
 from harness_core.model.provider import Provider
-from harness_core.session.session import Session
 
 
 class Model:
@@ -108,7 +107,7 @@ class Model:
             reasoning_effort=reasoning_effort,
         )
 
-    async def chat_turn(self, session: Session) -> dict[str, Any]:
+    async def chat_turn(self, session: "Session") -> dict[str, Any]:
         """Run one LLM turn for *session* and return the normalized response.
 
         Delegates to the wrapped Provider's ``chat_completion_async``. The full
@@ -123,6 +122,9 @@ class Model:
             The provider-normalized response dict (``choices`` / ``usage`` / plus
             convenience keys).
         """
+        # Local import to avoid circular dependency with harness_core.session.session
+        from harness_core.session.session import Session  # noqa: F811
+
         kwargs: dict[str, Any] = {
             "model": self._provider_model_name,
             "tools": session.get_tools(),

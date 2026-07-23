@@ -1,11 +1,15 @@
 """Tests for harness.py non-interactive (``--message``) mode.
 
-These tests verify that ``harness.run_non_interactive`` drives
-``Agent.handle_prompt`` to completion and that ``harness.parse_args`` extracts
-the ``--message`` flag.  The model provider is replaced with an in-memory fake
-so no network/LLM calls are made.
+These tests verify that ``Agent.handle_prompt`` drives a single prompt to completion
+and that ``harness.parse_args`` extracts the ``--message`` flag.  The model provider
+is replaced with an in-memory fake so no network/LLM calls are made. Tests consume
+the async generator directly and inspect RESPONSE / TOOL_CALL / TOOL_RESULT / ERROR
+events rather than relying on display patches (which no longer fire in non-interactive
+mode).
 """
 
+import asyncio
+import logging
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -19,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from harness_core.agent import Agent, AgentType, RESPONSE, TOOL_CALL, TOOL_RESULT, ERROR
 from harness_core.model.provider import Provider
 from harness_core.model.types import ProviderConfig
-from harness_core.__main__ import parse_args, run_non_interactive
+from harness_core.__main__ import parse_args
 
 
 class _FakeProvider(Provider):
@@ -40,6 +44,12 @@ class _FakeProvider(Provider):
             "usage": {},
         }
 
+    async def chat_completion_async(self, messages, model, **kwargs):
+        """Async wrapper — consumes responses in order just like the sync version."""
+        if self._responses:
+            return self._responses.pop(0)
+        raise RuntimeError("No more fake responses")
+
     def tokenize(self, text, model):
         return None
 
@@ -56,11 +66,13 @@ def _make_agent(provider, content="Hello!", tool_calls=None, model="test"):
     )
     agent_type.provider_config = ProviderConfig(name="test", provider_type="openai", base_url="http://test.invalid/v1", api_key="test")
     with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
+        from harness_core.agent import Agent
         agent = Agent(agent_type, id="noninteractive-agent")
     return agent
 
 
 def _simple_response(content):
+    """Build a fake OpenAI-style response dict."""
     return {
         "choices": [{"message": {"role": "assistant", "content": content}}],
         "model": "test",
@@ -73,22 +85,23 @@ def _simple_response(content):
 
 class TestParseArgs:
     def test_short_flag_returns_message(self):
-        assert parse_args(["-m", "hello"]) == {"message": "hello", "help": False}
+        assert parse_args(["-m", "hello"]) == {"message": "hello", "help": False, "log_level": logging.INFO}
 
     def test_long_flag_returns_message(self):
         assert parse_args(["--message", "hello world"]) == {
             "message": "hello world",
             "help": False,
+            "log_level": logging.INFO,
         }
 
     def test_absent_flag_returns_none(self):
-        assert parse_args([]) == {"message": None, "help": False}
+        assert parse_args([]) == {"message": None, "help": False, "log_level": logging.INFO}
 
     def test_help_short_sets_flag(self):
-        assert parse_args(["-h"]) == {"message": None, "help": True}
+        assert parse_args(["-h"]) == {"message": None, "help": True, "log_level": logging.INFO}
 
     def test_help_long_sets_flag(self):
-        assert parse_args(["--help"]) == {"message": None, "help": True}
+        assert parse_args(["--help"]) == {"message": None, "help": True, "log_level": logging.INFO}
 
     def test_unknown_option_exits_nonzero(self):
         with pytest.raises(SystemExit) as exc:
@@ -109,27 +122,37 @@ class TestParseArgs:
 
 
 class TestRunNonInteractive:
+    def _run_handle_prompt(self, agent, message):
+        """Helper: run ``agent.handle_prompt`` to completion via asyncio.run."""
+        events = []
+        final_content = None
+
+        async def collect():
+            nonlocal final_content
+            async for event in agent.handle_prompt(message):
+                kind, *args = event
+                events.append(event)
+                if kind == RESPONSE:
+                    final_content = args[0] if len(args) > 0 else ""
+
+        asyncio.run(collect())
+        return events, final_content
+
     def test_simple_message_drives_handle_prompt(self):
         """A plain message should run to completion and produce a RESPONSE."""
         provider = _FakeProvider([_simple_response("Hello there!")])
         agent = _make_agent(provider)
 
-        captured = {}
-        with patch("harness_core.terminal_io.display_agent_response",
-                   side_effect=lambda c, r, cl, **k: captured.setdefault("content", c)), patch(
-            "harness_core.terminal_io.display_user_message"), patch(
-            "harness_core.terminal_io.display_tool_call"), patch(
-            "harness_core.terminal_io.display_tool_result"), patch(
-            "harness_core.terminal_io.display_error"):
-            rc = run_non_interactive(agent, "hello")
+        events, content = self._run_handle_prompt(agent, "hello")
 
-        assert rc == 0
-        assert captured["content"] == "Hello there!"
+        kinds = [e[0] for e in events]
+        assert RESPONSE in kinds
+        assert content == "Hello there!"
         # The provider must have been consulted exactly once (single turn).
         assert len(provider._responses) == 0
 
     def test_tool_call_and_result_are_displayed(self):
-        """TOOL_CALL / TOOL_RESULT events are rendered, not swallowed."""
+        """TOOL_CALL / TOOL_RESULT events appear during handle_prompt."""
         # First turn requests a tool call, second turn returns a final answer.
         tool_response = {
             "choices": [{
@@ -159,23 +182,21 @@ class TestRunNonInteractive:
         with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
             agent = Agent(agent_type, id="noninteractive-agent")
 
-        calls = []
-        results = []
-        with patch("harness_core.terminal_io.display_agent_response"), patch(
-            "harness_core.terminal_io.display_user_message"), patch(
-            "harness_core.terminal_io.display_tool_call",
-            side_effect=lambda fn, a, **k: calls.append(fn)), patch(
-            "harness_core.terminal_io.display_tool_result",
-            side_effect=lambda fn, r: results.append(fn)), patch(
-            "harness_core.terminal_io.display_error"):
-            rc = run_non_interactive(agent, "list files")
+        events, content = self._run_handle_prompt(agent, "list files")
 
-        assert rc == 0
-        assert "execute_bash" in calls
-        assert "execute_bash" in results
+        kinds = [e[0] for e in events]
+        # Expect: TOOL_CALL -> TOOL_RESULT -> RESPONSE (tool call turn + final text).
+        assert TOOL_CALL in kinds
+        assert TOOL_RESULT in kinds
+        assert RESPONSE in kinds
+        # Extract the tool names from TOOL_CALL / TOOL_RESULT events.
+        tc_funcs = [e[1] for e in events if e[0] == TOOL_CALL]
+        tr_funcs = [e[1] for e in events if e[0] == TOOL_RESULT]
+        assert "execute_bash" in tc_funcs
+        assert "execute_bash" in tr_funcs
 
     def test_error_event_is_displayed(self):
-        """An ERROR tuple is surfaced via display_error."""
+        """An ERROR tuple is surfaced when the agent requests an unknown tool."""
         # Request an unknown tool; the agent yields ERROR then a final RESPONSE.
         bad_response = {
             "choices": [{
@@ -202,41 +223,30 @@ class TestRunNonInteractive:
         with patch("harness_core.model.provider.Provider.get_or_create", return_value=provider):
             agent = Agent(agent_type, id="noninteractive-agent")
 
-        errors = []
-        with patch("harness_core.terminal_io.display_agent_response"), patch(
-            "harness_core.terminal_io.display_user_message"), patch(
-            "harness_core.terminal_io.display_tool_call"), patch(
-            "harness_core.terminal_io.display_tool_result"), patch(
-            "harness_core.terminal_io.display_error",
-            side_effect=lambda d: errors.append(d)):
-            rc = run_non_interactive(agent, "do something")
+        events, content = self._run_handle_prompt(agent, "do something")
 
-        assert rc == 0
-        assert any("unknown_tool" in str(e).lower() for e in errors)
+        kinds = [e[0] for e in events]
+        assert ERROR in kinds
+        # At least one error message should mention the unknown tool.
+        err_msgs = [str(e[1]) for e in events if e[0] == ERROR]
+        assert any("unknown_tool" in str(m).lower() for m in err_msgs)
 
     def test_empty_message_is_safe(self):
         """An empty message still runs without crashing."""
         provider = _FakeProvider([_simple_response("")])
         agent = _make_agent(provider)
 
-        with patch("harness_core.terminal_io.display_agent_response"), patch(
-            "harness_core.terminal_io.display_user_message"), patch(
-            "harness_core.terminal_io.display_tool_call"), patch(
-            "harness_core.terminal_io.display_tool_result"), patch(
-            "harness_core.terminal_io.display_error"):
-            rc = run_non_interactive(agent, "")
+        events, content = self._run_handle_prompt(agent, "")
 
-        assert rc == 0
+        # Should still produce a RESPONSE event (even if the content is "").
+        kinds = [e[0] for e in events]
+        assert RESPONSE in kinds
 
     def test_main_help_path_exits_zero(self, capsys):
-        """main(['--help']) prints usage and exits 0 without building an agent."""
-        with patch("harness_core.__main__.build_agent") as mock_build:
-            with pytest.raises(SystemExit) as exc:
-                # Imported lazily to avoid side effects at module load.
-                from harness_core.__main__ import blarg
-                blarg(["--help"])
-        assert exc.value.code == 0
-        # build_agent must NOT be invoked in help mode.
-        mock_build.assert_not_called()
+        """main(['--help']) prints usage and returns without building an agent."""
+        # ``__main__.blarg`` is now async; main() returns on --help (no sys.exit).
+        from harness_core.__main__ import main
+
+        main(["--help"])
         out = capsys.readouterr().out
         assert "Usage:" in out

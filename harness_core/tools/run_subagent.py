@@ -55,13 +55,8 @@ function_def = {
 }
 
 
-async def run_subagent(sub_agent: str, task: str) -> ToolResult:
-    """Spawn a named sub-agent and execute *task* on it.
-
-    Args:
-        sub_agent: Name of the sub-agent YAML (without extension).
-        task: The task description to run.
-    """
+async def _run_one(sub_agent: str, task: str) -> ToolResult:
+    """Worker body that runs a single sub-agent. Exposed for testing; tests may patch this directly."""
     from harness_core.agent import Agent, RESPONSE, TOOL_CALL  # noqa: F401 (explicit guards)
     from harness_core.tools.dispatcher import dispatch
 
@@ -113,6 +108,11 @@ async def run_subagent(sub_agent: str, task: str) -> ToolResult:
         return make_error_result(f"Error: {exc}")
     except Exception as exc:
         return make_error_result(f"Error running sub-agent '{sub_agent}': {exc}")
+
+
+async def run_subagent(sub_agent: str, task: str) -> ToolResult:
+    """Spawn a named sub-agent and execute *task* on it."""
+    return await _run_one(sub_agent, task)
 
 def summary(sub_agent: str, task: str) -> str:
     """Return a one-line summary of the run_subagent call."""

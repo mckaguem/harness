@@ -25,7 +25,7 @@ class TestAgentTools:
     """Ensure the tool definitions are well-formed JSON schemas."""
 
     def test_has_six_tools(self):
-        assert len(AGENT_TOOLS) == 17
+        assert len(AGENT_TOOLS) == 18
 
     def test_each_tool_is_a_function_type(self):
         for tool in AGENT_TOOLS:

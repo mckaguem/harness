@@ -164,11 +164,11 @@ class HarnessTUI:
 
         self.run_on_app_thread(_do)
 
-        """Number of times :meth:`write` committed to the output pane.
+    # -- counters / introspection ------------------------------------------
 
-        Useful for tests that want to assert a render happened without poking
-        at output-pane internals.
-        """
+    @property
+    def write_count(self) -> int:
+        """Number of times :meth:`write_message` committed to the output pane."""
         with self._lock:
             return self._write_count
 

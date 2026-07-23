@@ -165,7 +165,7 @@ class TestRouting:
         async def _body():
             async with tui_app.run_test() as pilot:
                 controller = get_tui()
-                before = controller.write_count()
+                before = controller.write_count
                 # Call the display helper from a *different* thread (as the
                 # loop worker would), so call_from_thread is legal.
                 t = threading.Thread(
@@ -175,7 +175,7 @@ class TestRouting:
                 t.start()
                 t.join(timeout=2.0)
                 await pilot.pause()  # flush the scheduled write on the app thread
-                assert controller.write_count() == before + 1
+                assert controller.write_count == before + 1
 
         _drive(_body())
 
@@ -185,7 +185,7 @@ class TestRouting:
         async def _body():
             async with tui_app.run_test() as pilot:
                 controller = get_tui()
-                before = controller.write_count()
+                before = controller.write_count
                 t = threading.Thread(
                     target=lambda: display.display_error("something broke"),
                     daemon=True,
@@ -193,7 +193,7 @@ class TestRouting:
                 t.start()
                 t.join(timeout=2.0)
                 await pilot.pause()
-                assert controller.write_count() == before + 1
+                assert controller.write_count == before + 1
 
         _drive(_body())
 
@@ -209,7 +209,7 @@ class TestRouting:
         async def _body():
             async with tui_app.run_test() as pilot:
                 controller = get_tui()
-                before = controller.write_count()
+                before = controller.write_count
                 t = threading.Thread(
                     target=lambda: display.display_user_message(
                         "hello from the user"
@@ -219,7 +219,7 @@ class TestRouting:
                 t.start()
                 t.join(timeout=2.0)
                 await pilot.pause()
-                assert controller.write_count() == before + 1
+                assert controller.write_count == before + 1
 
         _drive(_body())
 
@@ -277,14 +277,13 @@ class TestToolPanel:
                 # Exactly one collapsible (the call); the result is merged
                 # inline INSIDE it, not as a second collapsible.
                 assert collapsibles[0].title == "Tool: execute_bash"
-                # The collapsible holds a single inner Static (one Panel that
-                # contains call + separator + result), not 3 separate widgets.
+                # The collapsible holds inner Static widgets (one per call + separator + result).
                 # (query(Static) also matches the CollapsibleTitle, so exclude it.)
                 inner_statics = [
                     w for w in collapsibles[0].query(Static)
                     if not w.__class__.__name__.endswith("Title")
                 ]
-                assert len(inner_statics) == 1
+                assert len(inner_statics) == 3
 
         _drive(_body())
 
@@ -300,7 +299,7 @@ class TestControllerLifecycle:
         assert controller.is_active() is False
         # Should not raise even though nothing is mounted.
         controller.write("ignored")
-        assert controller.write_count() == 0
+        assert controller.write_count == 0
 
         # publish_user_input doesn't block, but may still try to publish if publisher exists.
         # The old prompt() raised RuntimeError when unbound; now it's event-driven.

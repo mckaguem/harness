@@ -104,6 +104,37 @@ def parse_args(argv):
     return {"message": message, "help": help_requested, "log_level": resolved_level}
 
 
+def run_non_interactive(agent: "Agent", message: str) -> int:
+    """Run a single prompt against *agent* synchronously and return an exit code.
+
+    Used by tests and CLI ``-m`` mode to execute one agent turn without the
+    full interactive loop. Returns 0 on success, non-zero on failure.
+    """
+    async def _run():
+        # _process_and_run_turn references self._on_exit_callback (set in
+        # Agent.run_loop()); ensure it exists for single-turn use.
+        if not hasattr(agent, '_on_exit_callback'):
+            agent._on_exit_callback = None  # type: ignore[attr-defined]
+
+        try:
+            await agent._process_and_run_turn(message)
+            return 0
+        except Exception as exc:
+            sys.stderr.write(f"[harness] run_non_interactive error: {exc}\n")
+            return 1
+
+    try:
+        return asyncio.run(_run())
+    except RuntimeError:
+        # If there's already a running loop, use create_task + wait.
+        import contextlib
+        with contextlib.suppress(RuntimeError):
+            pass
+        loop = asyncio.get_running_loop()
+        task = loop.create_task(_run())
+        return 1 if task.result() else 0
+
+
 def setup():
     """Load config, discover skills, and discover agents (startup pipeline).
 

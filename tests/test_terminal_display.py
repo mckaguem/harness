@@ -18,42 +18,46 @@ from harness_core.terminal_io.message_widgets import InfoMessage, ErrorMessage
 class TestPrintSystem:
     """Tests for print_system() using InfoMessage widget."""
 
-    def setUp(self):
-        self._mock_get_tui = patch("harness_core.terminal_io.display._tui.get_tui")
-        self.mock_tui = self._mock_get_tui.start()
-
-    def tearDown(self):
-        self._mock_get_tui.stop()
-
-    def test_calls_write_message_once(self):
+    @patch("harness_core.terminal_io.display._tui.get_tui")
+    def test_calls_write_message_once(self, mock_get_tui):
         """print_system calls write_message exactly once with an InfoMessage."""
         from harness_core.terminal_io.display import print_system
 
+        mock_tui = MagicMock()
+        mock_get_tui.return_value = mock_tui
+
         print_system("My Title", "Some message")
 
-        mock_tui = self.mock_tui.return_value
         mock_tui.write_message.assert_called_once()
         arg = mock_tui.write_message.call_args[0][0]
         assert isinstance(arg, InfoMessage)
 
-    def test_panel_has_correct_title_and_message(self):
+    @patch("harness_core.terminal_io.display._tui.get_tui")
+    def test_panel_has_correct_title_and_message(self, mock_get_tui):
         """print_system joins title and message with double newline in the InfoMessage."""
         from harness_core.terminal_io.display import print_system
 
+        mock_tui = MagicMock()
+        mock_get_tui.return_value = mock_tui
+
         print_system("My Title", "Some message")
 
-        arg = self.mock_tui.return_value.write_message.call_args[0][0]
+        arg = mock_tui.write_message.call_args[0][0]
         assert isinstance(arg, InfoMessage)
         expected = "My Title\n\nSome message"
         assert str(arg.message) == expected
 
-    def test_non_empty_message(self):
+    @patch("harness_core.terminal_io.display._tui.get_tui")
+    def test_non_empty_message(self, mock_get_tui):
         """print_system with non-empty message produces a non-empty InfoMessage."""
         from harness_core.terminal_io.display import print_system
 
+        mock_tui = MagicMock()
+        mock_get_tui.return_value = mock_tui
+
         print_system("Hello", "World")
 
-        arg = self.mock_tui.return_value.write_message.call_args[0][0]
+        arg = mock_tui.write_message.call_args[0][0]
         assert isinstance(arg, InfoMessage)
         assert len(str(arg.message)) > 0
 
@@ -329,37 +333,44 @@ class TestDisplayToolCallReasoning:
 class TestDisplayToolResult:
     """Tests for display_tool_result fallback when no pending tool call exists."""
 
-    def setUp(self):
-        self._mock_get_tui = patch("harness_core.terminal_io.display._tui.get_tui")
-        self.mock_tui = self._mock_get_tui.start()
-
-    def tearDown(self):
-        self._mock_get_tui.stop()
-
-    def test_basic_result(self):
+    @patch("harness_core.terminal_io.display._tui.get_tui")
+    def test_basic_result(self, mock_get_tui):
         """Without a preceding display_tool_call, display_tool_result shows an error."""
         from harness_core.terminal_io.display import display_tool_result
 
-        reset_pending_tool_panel()
+        mock_tui = MagicMock()
+        mock_get_tui.return_value = mock_tui
+
+        # Clear ALL prior pending tool messages so the call has no match to patch.
+        from harness_core.terminal_io.display import _pending_tool_msgs as pending_msgs
+        while pending_msgs:
+            pending_msgs.pop()
+
         display_tool_result("echo", result_display_text="output")
 
-        mock_tui = self.mock_tui.return_value
         mock_tui.write_message.assert_called_once()
         call_arg = mock_tui.write_message.call_args[0][0]
         assert isinstance(call_arg, ErrorMessage)
         assert "echo" in str(call_arg.message)
 
-    def test_result_with_tool_result_object(self):
+    @patch("harness_core.terminal_io.display._tui.get_tui")
+    def test_result_with_tool_result_object(self, mock_get_tui):
         """A ToolResult object with no preceding display_tool_call also shows an error."""
         from harness_core.terminal_io.display import display_tool_result
         from harness_core.tools.tool_result import ToolResult
 
-        reset_pending_tool_panel()
-        tool_result = ToolResult(display_text="output", type_tag="text")
+        mock_tui = MagicMock()
+        mock_get_tui.return_value = mock_tui
+
+        # Clear ALL prior pending tool messages so the call has no match to patch.
+        from harness_core.terminal_io.display import _pending_tool_msgs as pending_msgs
+        while pending_msgs:
+            pending_msgs.pop()
+
+        tool_result = ToolResult(llm_text="output", display_text="output", type_tag="text")
 
         display_tool_result("echo", result=tool_result)
 
-        mock_tui = self.mock_tui.return_value
         mock_tui.write_message.assert_called_once()
         call_arg = mock_tui.write_message.call_args[0][0]
         assert isinstance(call_arg, ErrorMessage)
