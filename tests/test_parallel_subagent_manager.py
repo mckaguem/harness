@@ -30,7 +30,7 @@ from harness_core.tools.tool_result import ToolResult
 def _fake_run_one_factory(sleep_for=0.0):
     """Return a fake ``_run_one`` that optionally sleeps then yields a result."""
 
-    def _fake_run_one(_agent, sub_agent, task):
+    def _fake_run_one(sub_agent, task):
         if sleep_for:
             time.sleep(sleep_for)
         return ToolResult(
@@ -41,7 +41,20 @@ def _fake_run_one_factory(sleep_for=0.0):
             theme="info",
         )
 
-    return _fake_run_one
+    def _fake_run_one_async(sub_agent, task):
+        async def _inner():
+            if sleep_for:
+                await asyncio.sleep(sleep_for)
+            return ToolResult(
+                llm_text=f"result-for:{sub_agent}:{task}",
+                display_text="",
+                type_tag="text",
+                title="info",
+                theme="info",
+            )
+        return _inner()
+
+    return _fake_run_one, _fake_run_one_async
 
 
 # ---------------------------------------------------------------------------
@@ -199,15 +212,10 @@ class TestRunSubagentTool:
 
 class TestAwaitSubagentTool:
     def test_await_subagent_tool_roundtrip(self):
-        from harness_core.tools.subagent_manager import manager
+        """``run_subagent(...)`` returns a ToolResult directly (synchronous path)."""
+        with patch("harness_core.tools.run_subagent._run_one", side_effect=_fake_run_one_factory()):
+            result = asyncio.run(run_subagent("analyst", "task A"))
 
-        with patch("harness_core.tools.subagent_manager._run_one", side_effect=_fake_run_one_factory()):
-            launch_result = run_subagent(None, "analyst", "task A", block=False)
-            ident = re.search(r"subagent-\d+", launch_result.llm_text).group()
-
-        from harness_core.tools import await_subagent as await_mod
-
-        result = await_mod.await_subagent(ident)
         assert isinstance(result, ToolResult)
         assert result.llm_text == "result-for:analyst:task A"
 

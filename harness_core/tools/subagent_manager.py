@@ -15,6 +15,7 @@ the existing behaviour (``block=True``) is untouched. A module-level singleton
 
 from __future__ import annotations
 
+import asyncio
 import itertools
 import threading
 import concurrent.futures
@@ -27,6 +28,11 @@ from harness_core.tools.tool_result import ToolResult
 # imports this module lazily (inside functions), so there is no circular import
 # at module load time.
 from harness_core.tools.run_subagent import _run_one
+
+
+def _run_one_sync(sub_agent: str, task: str) -> ToolResult:
+    """Sync dispatcher for ``_run_one`` (runs each sub-agent in its own event loop)."""
+    return asyncio.run(_run_one(sub_agent, task))
 
 
 # Default max number of concurrent background sub-agents. Overridable per
@@ -67,7 +73,7 @@ class SubagentManager:
                     f"subagent before launching more."
                 )
             identifier = f"subagent-{next(self._counter)}"
-            future = self._executor.submit(_run_one, None, sub_agent, task)
+            future = self._executor.submit(_run_one_sync, sub_agent, task)
             self._futures[identifier] = future
         return identifier
 

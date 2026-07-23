@@ -1,10 +1,9 @@
-"""Tests for parallel sub-agent execution and the additive async provider call.
+"""Tests for sub-agent execution and the additive async provider call.
 
 These tests are fully mocked — no real LLM or provider network calls. They verify:
 
-* ``run_subagents_parallel`` dispatches multiple ``(sub_agent, task)`` pairs
-  concurrently (wall-time < sequential sum) and returns results in order.
-* ``run_subagent`` remains a thin synchronous wrapper (backward compatible).
+* ``run_subagent`` dispatches a named sub-agent, drives it with ``handle_prompt``,
+  and returns structured findings via the dispatcher.
 * ``Agent.handle_prompt`` collects both ``run_subagent`` tool results back into
   the conversation in a single turn when the model emits >1 sub-agent call.
 * ``OpenAIProvider.chat_completion_async`` is a coroutine and keeps the
@@ -37,7 +36,6 @@ from harness_core.model.provider import OpenAIProvider, Provider
 from harness_core.model.types import ProviderConfig
 from harness_core.tools.run_subagent import (
     run_subagent,
-    run_subagents_parallel,
     _run_one,
 )
 from harness_core.tools.tool_result import ToolResult
@@ -101,12 +99,12 @@ async def _fake_subagent_yield(task, delay=0.0):
 
 
 # ---------------------------------------------------------------------------
-# run_subagent / run_subagents_parallel unit tests
+# run_subagent unit tests
 # ---------------------------------------------------------------------------
 
 class TestRunSubagentParallel:
     def test_run_subagent_single_still_works(self):
-        """The synchronous single-call path must keep working via _run_one."""
+        """The single-call path must keep working via _run_one."""
         with patch("harness_core.agent.Agent") as MockAgent:
             sub = MagicMock()
             sub._agent_type = MagicMock()
@@ -114,34 +112,34 @@ class TestRunSubagentParallel:
             sub.handle_prompt.return_value = _fake_subagent_yield("task A")
             MockAgent.from_agent_name.return_value = sub
 
-            result = run_subagent(MagicMock(), "analyst", "task A")
+            result = asyncio.run(run_subagent("analyst", "task A"))
 
         assert result.llm_text == "result-for:task A"
         MockAgent.from_agent_name.assert_called_once()
 
-    def test_run_subagents_parallel_empty_returns_empty(self):
-        assert run_subagents_parallel([]) == []
-
     def test_parallel_runs_concurrently_and_in_order(self):
         """Two sub-agent calls run concurrently, results returned in order."""
-        order = []
-        calls = []
+        import time as _time
 
-        def _fake_run_one(_agent, *args):
-            sub_agent = args[0] if args else None
+        order = []
+
+        async def _fake_run_one(sub_agent, task):
             order.append(("start", sub_agent))
-            time.sleep(0.15)  # simulate work
+            await asyncio.sleep(0.15)  # simulate work without blocking the loop
             order.append(("end", sub_agent))
             return ToolResult(llm_text=f"out:{sub_agent}", display_text="")
 
-        # Patch the internal worker so we control timing + observe concurrency.
-        with patch("harness_core.tools.run_subagent._run_one", side_effect=_fake_run_one):
-            start = time.time()
-            results = run_subagents_parallel([
-                ("analyst", "A"),
-                ("writer", "B"),
-            ])
-            elapsed = time.time() - start
+        async def _gather():
+            with patch("harness_core.tools.run_subagent._run_one", side_effect=_fake_run_one):
+                start = _time.time()
+                results = await asyncio.gather(
+                    run_subagent("analyst", "A"),
+                    run_subagent("writer", "B"),
+                )
+                elapsed = _time.time() - start
+            return list(results), elapsed
+
+        results, elapsed = asyncio.run(_gather())
 
         # Order is preserved.
         assert [r.llm_text for r in results] == ["out:analyst", "out:writer"]
@@ -173,9 +171,9 @@ class TestHandlePromptParallel:
         # Two TOOL_CALL yields (both run_subagent), then two TOOL_RESULT yields.
         assert kinds.count(TOOL_CALL) == 2
         assert kinds.count(TOOL_RESULT) == 2
-        # Both results were dispatched to the worker (None is passed as agent).
+        # Both results were dispatched to the worker.
         dispatched = [c.args for c in mock_run_one.call_args_list]
-        assert dispatched == [(None, "analyst", "A"), (None, "writer", "B")]
+        assert dispatched == [("analyst", "A"), ("writer", "B")]
         # The provider's second turn had the two tool results appended (so a
         # final RESPONSE was produced).
         assert RESPONSE in kinds
@@ -187,22 +185,8 @@ class TestHandlePromptParallel:
         ]
         agent = _make_agent_with_tool_calls(tool_calls)
 
-        # Patch dispatch directly to return a ToolResult for run_subagent calls.
-        with patch("harness_core.tools.dispatcher.dispatch") as mock_dispatch:
-            def fake_dispatch(func_name, args, agent):
-                if func_name == "run_subagent":
-                    return ToolResult(llm_text="FINDINGS_A", display_text="")
-                # For other tools, call the original dispatcher (which will raise KeyError for unknown)
-                import harness_core.tools as tools_module
-                mod = tools_module.DISPATCH_REGISTRY[func_name]
-                fn = getattr(mod, func_name)
-                result = fn(**args)
-                # If it's a coroutine (because run_subagent was asyncified), await it
-                if inspect.iscoroutine(result):
-                    import asyncio as _asyncio
-                    return _asyncio.run_coroutine_threadsafe(result, _asyncio.get_running_loop()).result()
-                return result
-            mock_dispatch.side_effect = fake_dispatch
+        with patch("harness_core.tools.run_subagent._run_one") as mock_run:
+            mock_run.return_value = ToolResult(llm_text="FINDINGS_A", display_text="")
             events = _collect_events(agent, "do one")
 
         kinds = [e[0] for e in events]
@@ -217,12 +201,10 @@ class TestHandlePromptParallel:
         ]
         agent = _make_agent_with_tool_calls(tool_calls)
 
-        with patch("harness_core.tools.run_subagent.run_subagents_parallel") as mock_parallel:
-            with patch("harness_core.tools.run_subagent.run_subagent", return_value=ToolResult(llm_text="FINDINGS_A", display_text="")):
-                with patch("harness_core.tools.dispatcher.dispatch", return_value=MagicMock(llm_text="ok", display_text="")):
-                    events = _collect_events(agent, "mix")
+        with patch("harness_core.tools.run_subagent._run_one") as mock_run:
+            mock_run.return_value = ToolResult(llm_text="FINDINGS_A", display_text="")
+            events = _collect_events(agent, "mix")
 
-        mock_parallel.assert_not_called()
         kinds = [e[0] for e in events]
         assert kinds.count(TOOL_RESULT) == 2
         assert RESPONSE in kinds

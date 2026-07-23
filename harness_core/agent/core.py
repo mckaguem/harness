@@ -1,5 +1,6 @@
 """Agent class — owns the conversation and processes one user prompt to completion."""
 
+import asyncio
 import json
 import os
 import logging
@@ -407,17 +408,14 @@ or update their status to 'failed' before stopping."""
     async def _process_parallel_subagents(self, pending_parallel: list, response: dict) -> AsyncGenerator[tuple[str, Any, Any, Optional[dict[str, Any]]], None, None]:
         """Execute deferred parallel ``run_subagent`` calls and yield their results.
 
-        Uses :func:`harness_core.tools.run_subagent.run_subagents_parallel` to run
-        all pending sub-agent tasks concurrently in a single batch, then feeds each
-        result back into the conversation via TOOL_RESULT events.
+        Awaits all pending sub-agent tasks concurrently via :func:`asyncio.gather`
+        (each runs on its own thread via :func:`harness_core.tools.run_subagent.run_subagent`),
+        then feeds each result back into the conversation via TOOL_RESULT events.
         """
-        from harness_core.tools.run_subagent import run_subagents_parallel
+        from harness_core.tools.run_subagent import run_subagent
 
-        parallel_calls = [
-            (args.get("sub_agent", ""), args.get("task", ""))
-            for _tc, args in pending_parallel
-        ]
-        parallel_results = run_subagents_parallel(parallel_calls)
+        tasks = [run_subagent(args.get("sub_agent", ""), args.get("task", "")) for _tc, args in pending_parallel]
+        parallel_results: list[ToolResult] = await asyncio.gather(*tasks)
         for (tool_call, _args), result in zip(pending_parallel, parallel_results):
             self._session.add_tool_result(
                 "run_subagent", result.llm_text, tool_call["id"]
