@@ -22,6 +22,17 @@
 - `docs/` — `original_source.py` (the archived monolith this was refactored from — do NOT modify), `skills_spec.md`, `speculative_features.md`.
 - `sample_config/`, `plan.md`, `PROGRESS.md`, `TODO.md`, `pyproject.toml`, `requirements.txt`, `uv.lock`.
 
+
+### Event System
+
+Harness uses an async mailbox-pattern EventBus (`harness_core/eventbus.py`). All event topics are documented in [`docs/events.md`](docs/events.md) — see that file for the full catalog (16 topics across `agent.session.*`, `agent.status.*`, `agent.tool.*`, `agent.turn.*`, `agent.tasklist.*`, `process_control.*`, and `tui.*` namespaces).
+
+Key facts:
+- **No centralized topic constants.** Topic strings are defined inline at each publish site. The only exceptions are `PROCESS_CONTROL_QUIT` / `PROCESS_CONTROL_QUIT_CONFIRM` in `event_types.py:321-322`.
+- **Three subscribers:** (1) TUI listener (`HarnessEventListener`, id `"tui"`) subscribes to 13 topics via `TUI_TOPICS` in `wiring.py`; (2) Agent's own `EventListenerLoopMixin` auto-discovers `tui.user.input`; (3) `Manager._ShutdownListener` explicitly listens on the two process_control topics.
+- **No tools or skills publish events.** Only `agent/mixin.py`, `agent/task_list.py`, `commands/exit_quit.py`, and `terminal_io/tui_app.py` are publish sites.
+- **Sender filtering** is applied at subscription time via `filter_by_sender()` decorator in `eventbus.py`.
+
 ## 3. Agent Persona & Operational Rules
 
 - **Role:** Autonomous, senior engineer in a terminal runtime with sandboxed shell/file access, bounded by path-safety guards.
