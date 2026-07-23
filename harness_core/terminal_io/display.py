@@ -12,31 +12,24 @@ appended inline via :func:`display_tool_result`.
 from __future__ import annotations
 
 from textual.widgets import Static
-from rich.console import RenderableType
-from rich.panel import Panel
-from rich.markdown import Markdown
-from rich.syntax import Syntax
-from rich.text import Text
 import json
 
 from .speed import format_speed
 from . import tui as _tui
-from .message_widgets import ReasoningMessage, AgentResponseMessage, UserMessage, ToolCallMessage, ErrorMessage
+from .message_widgets import ReasoningMessage, AgentResponseMessage, UserMessage, ToolCallMessage, ErrorMessage, InfoMessage
 
 # Queue of recently displayed ToolCallMessage widgets awaiting a result.
 _pending_tool_msgs: list[ToolCallMessage] = []
 
 
-def _tui_write(renderable) -> None:
-    """Route a Rich renderable to the active TUI output pane."""
-    controller = _tui.get_tui()
-    if isinstance(renderable, str):
-        renderable = Text.from_markup(renderable)
-    controller.write(renderable)
-    
 def print_system(title: str, message: str) -> None:
-    """Print a system-level notification panel."""
-    _tui_write(Panel(message, title=title, border_style="magenta"))
+    """Display an informational system-level notification."""
+    _tui.get_tui().write_message(InfoMessage(f"{title}\n\n{message}"))
+
+
+def display_info(text: str) -> None:
+    """Display a plain informational text string in the output pane."""
+    _tui.get_tui().write_message(InfoMessage(text))
 
 
 def display_tool_call(
@@ -107,72 +100,6 @@ def display_tool_call(
     controller.write_message(tool_call_msg)
 
 
-def _theme_border(theme: str) -> str:
-    """Return a Rich border style string for the given theme."""
-    return {
-        "error": "red",
-        "status": "purple",
-        "info": "green",
-        "read": "blue",
-        "write": "yellow",
-        "command": "cyan",
-    }.get(theme, "white")
-
-
-def display_message_panel(text: str, theme: str = "status", title: str = "",
-                          result_type: str = "text", return_renderable: bool = False) -> "RenderableType | None":
-    """Display a Rich panel with the given text, styled by theme.
-
-    Shared rendering logic for tool-result panels and ad-hoc command output.
-
-    Args:
-        text: The content to display inside the panel. Truncated after 5 lines
-              unless ``theme == "status"`` (e.g. task lists).
-        theme: One of ``"error"``, ``"status"``, ``"info"``, ``"read"``,
-                ``"write"``, ``"command"`` — selects the panel border color.
-        title: Custom panel title. Falls back to a default if empty.
-        result_type: The syntax-highlighting language tag (e.g. ``"markdown"``,
-                     ``"json"``, ``"text"``).
-        return_renderable: When True, return the built ``Panel`` instead of
-                writing it (used by :func:`display_tool_call` so the panel can
-                be reused/extended later).
-
-    Returns:
-        The built ``Panel`` when ``return_renderable`` is True, else ``None``.
-    """
-    # Truncate if longer than 5 lines (skip truncation for 'status' theme, e.g. task lists).
-    display_content = str(text)
-    lines = display_content.splitlines()
-    if len(lines) > 5 and theme != "status":
-        truncated_count = len(lines) - 5
-        display_content = '\n'.join(lines[:5]) + f'\n... [{truncated_count} line{"s" if truncated_count != 1 else ""} truncated]'
-
-    border_style = _theme_border(theme)
-    panel_title = title if title else "✅ Result"
-
-    # Choose between Markdown rendering and Syntax highlighting based on result_type.
-    if theme == "error":
-        # Render errors distinctly — red border, red text, no syntax highlight.
-        panel = Panel(
-            f"[red]{display_content}[/red]",
-            title=panel_title,
-            border_style=border_style
-        )
-    elif result_type == "markdown":
-        # Render as actual Markdown (supports bold, code blocks, etc.) for user-friendly display.
-        md_obj = Markdown(display_content)
-        panel = Panel(md_obj, title=panel_title, border_style=border_style)
-    else:
-        # Apply Rich Syntax highlighting for the appropriate format.
-        syntax = Syntax(display_content, result_type, theme="monokai")
-        panel = Panel(syntax, title=panel_title, border_style=border_style)
-
-    if return_renderable:
-        return panel
-    _tui_write(panel)
-    return None
-
-
 def display_tool_result(
     func_name: str,
     result: object | None = None,
@@ -218,16 +145,8 @@ def display_tool_result(
         if controller._app is not None:
             controller.scroll_output_to_bottom()
     else:
-        # No matching call — fall back to standalone display_message_panel
-        # (legacy path for stray results with no preceding call).
-        panel = display_message_panel(
-            text=display_text or "",
-            theme=result_theme or "info",
-            title=result_title or func_name,
-            result_type=type_tag,
-            return_renderable=True,
-        )
-        _tui_write(panel)
+        # No matching pending tool-call panel; show error.
+        _tui.get_tui().write_message(ErrorMessage(f"No pending tool call for '{func_name}'. Result was dropped."))
 
 
 def reset_pending_tool_panel() -> None:
@@ -247,24 +166,6 @@ def display_user_message(message: str) -> None:
     """Echo the user's own typed message.
     """
     _tui.get_tui().write_message(UserMessage(message))
-
-def _combine_reasoning(reasoning: str | None, body: str) -> str:
-    """Prepend reasoning/thinking above a horizontal separator, then the body.
-
-    Used by both the agent-response panel and the pre-tool-call "Agent" panel so
-    the user sees the model's thinking followed by a clear ``---`` separator and
-    then the actual response / pre-tool-call text.
-
-    The separator is only drawn when there is real body text to separate: if the
-    model returned reasoning but no separate answer content, the reasoning is
-    shown on its own (no dangling ``---`` with a blank panel beneath it).
-    """
-    if reasoning:
-        if body:
-            return f"{reasoning}\n\n---\n\n{body}"
-        return reasoning
-    return body
-
 
 def display_agent_response(content: str | None, response: dict | None = None, context_length: int = 0,
                            prompt_token_count: int | None = None, reasoning: str | None = None) -> None:

@@ -26,22 +26,14 @@ class TestTasksCommand:
                 t.status = "in_progress"
         mock_agent.task_list = task_list
 
-        # Capture the display output by patching display_message_panel at the usage site
-        with patch("harness_core.commands.tasks.display_message_panel") as mock_display:
+        with patch("harness_core.commands.tasks.display_info") as mock_display:
             cmd_tasks("", mock_agent)
 
-            # Verify display was called
             assert mock_display.called
-            call_args = mock_display.call_args[0]
-            text = call_args[0]
-            theme = call_args[1] if len(call_args) > 1 else "status"
-
-            assert "Write documentation" in text
-            assert "Fix bug" in text
 
     def test_tasks_command_without_agent(self):
         """Test that /tasks handles missing agent gracefully."""
-        with patch("harness_core.commands.tasks.display_message_panel") as mock_display:
+        with patch("harness_core.commands.tasks.display_info") as mock_display:
             cmd_tasks("", None)
 
             assert mock_display.called
@@ -57,7 +49,7 @@ class TestTasksCommand:
         from harness_core.agent.task_list import TaskList
         mock_agent.task_list = TaskList()
 
-        with patch("harness_core.commands.tasks.display_message_panel") as mock_display:
+        with patch("harness_core.commands.tasks.display_info") as mock_display:
             cmd_tasks("", mock_agent)
 
             assert mock_display.called

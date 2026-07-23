@@ -179,26 +179,6 @@ class TestRouting:
 
         _drive(_body())
 
-    def test_display_message_panel_routes_to_tui(self, tui_app):
-        import threading
-
-        async def _body():
-            async with tui_app.run_test() as pilot:
-                controller = get_tui()
-                before = controller.write_count()
-                t = threading.Thread(
-                    target=lambda: display.display_message_panel(
-                        "plain output", theme="info", result_type="text"
-                    ),
-                    daemon=True,
-                )
-                t.start()
-                t.join(timeout=2.0)
-                await pilot.pause()
-                assert controller.write_count() == before + 1
-
-        _drive(_body())
-
     def test_display_error_routes_to_tui(self, tui_app):
         import threading
 

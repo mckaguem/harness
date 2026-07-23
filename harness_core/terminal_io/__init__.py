@@ -7,6 +7,7 @@ from .speed import format_speed, format_tool_elapsed
 from .prompt import prompt_user
 from .display import (
     print_system,
+    display_info,
     display_tool_call,
     display_tool_result,
     display_error,
@@ -25,6 +26,7 @@ __all__ = [
     "format_speed",
     "format_tool_elapsed",
     "display_agent_response",
+    "display_info",
     "display_user_message",
     "display_turn_stats",
     "display_error",

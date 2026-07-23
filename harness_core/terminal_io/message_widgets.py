@@ -113,6 +113,30 @@ class ErrorMessage(Widget):
         )
 
 
+class InfoMessage(Widget):
+    """Displays an informational message in a MessageCard."""
+
+    DEFAULT_CSS = """
+    InfoMessage {
+        border: solid purple;
+        margin: 0 0 0 0;
+        padding: 0 0;
+        height: auto
+    }
+    """
+
+    def __init__(self, message: str):
+        super().__init__()
+        self.message: str = message
+
+    def compose(self) -> ComposeResult:
+        yield MessageCard(
+            title="Info",
+            body=Static(Markdown(self.message)),
+            copy_text=self.message
+        )
+
+
 class ToolCallMessage(Widget):
     """ToolCallMessage owns both its tool-call args display and its result area.
 
